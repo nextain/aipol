@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/schemas/policy-news/kb-compile-response-v1.json",
+  "title": "AIPOL accepted naia-kb-compiler response",
+  "type": "object",
+  "required": ["compiler_version", "kb", "report", "safety"],
+  "properties": {
+    "compiler_version": {"type": "string", "minLength": 1},
+    "kb": {
+      "type": "object",
+      "required": ["cards", "entities", "relations"],
+      "properties": {
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {"status": {"enum": ["draft", "accepted", "gap"]}}
+          }
+        },
+        "entities": {"type": "array", "items": {"type": "object"}},
+        "relations": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "report": {
+      "type": "object",
+      "required": ["sourceCount", "cardCount", "entityCount", "relationCount", "acceptedCount", "gapCount", "draftCount"],
+      "properties": {
+        "sourceCount": {"type": "integer", "minimum": 0},
+        "cardCount": {"type": "integer", "minimum": 0},
+        "entityCount": {"type": "integer", "minimum": 0},
+        "relationCount": {"type": "integer", "minimum": 0},
+        "acceptedCount": {"type": "integer", "minimum": 0},
+        "gapCount": {"type": "integer", "minimum": 0},
+        "draftCount": {"type": "integer", "minimum": 0}
+      }
+    },
+    "safety": {
+      "type": "object",
+      "required": ["mode", "findings", "piiCount", "confidentialCount", "redactedCount"],
+      "properties": {
+        "mode": {"const": "block"},
+        "findings": {"type": "array", "maxItems": 0},
+        "piiCount": {"const": 0},
+        "confidentialCount": {"const": 0},
+        "redactedCount": {"const": 0}
+      }
+    }
+  }
+}

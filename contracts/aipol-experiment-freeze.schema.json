@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/contracts/aipol-experiment-freeze.schema.json",
+  "title": "AIPOL experiment collection freeze manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_id",
+    "experiment_version",
+    "option_set_version",
+    "measurement_spec_hash",
+    "status",
+    "collection_enabled",
+    "approvals"
+  ],
+  "properties": {
+    "manifest_id": { "type": "string", "minLength": 1 },
+    "experiment_version": { "type": "string", "minLength": 1 },
+    "option_set_version": { "type": "string", "minLength": 1 },
+    "measurement_spec_hash": { "$ref": "#/$defs/sha256" },
+    "status": { "enum": ["draft", "frozen"] },
+    "collection_enabled": { "type": "boolean", "default": false },
+    "approvals": {
+      "type": "array",
+      "maxItems": 7,
+      "items": { "$ref": "#/$defs/approval" },
+      "uniqueItems": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "collection_enabled": { "const": true } },
+        "required": ["collection_enabled"]
+      },
+      "then": {
+        "properties": {
+          "status": { "const": "frozen" },
+          "approvals": { "minItems": 7, "maxItems": 7 }
+        },
+        "allOf": [
+          { "$ref": "#/$defs/requires_policy_options" },
+          { "$ref": "#/$defs/requires_calculation" },
+          { "$ref": "#/$defs/requires_measurement" },
+          { "$ref": "#/$defs/requires_privacy" },
+          { "$ref": "#/$defs/requires_research_ethics" },
+          { "$ref": "#/$defs/requires_source_license" },
+          { "$ref": "#/$defs/requires_procedure" }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "approval_id", "approved_by", "approved_at", "content_hash"],
+      "properties": {
+        "category": {
+          "enum": [
+            "policy_options",
+            "calculation",
+            "measurement",
+            "privacy",
+            "research_ethics",
+            "source_license",
+            "procedure"
+          ]
+        },
+        "approval_id": { "type": "string", "minLength": 1 },
+        "approved_by": { "type": "string", "minLength": 1 },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "content_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "requires_policy_options": { "properties": { "approvals": { "contains": { "properties": { "category": { "const": "policy_options" } }, "required": ["category"] } } } },
+    "requires_calculation": { "properties": { "approvals": { "contains": { "properties": { "category": { "const": "calculation" } }, "required": ["category"] } } } },
+    "requires_measurement": { "properties": { "approvals": { "contains": { "properties": { "category": { "const": "measurement" } }, "required": ["category"] } } } },
+    "requires_privacy": { "properties": { "approvals": { "contains": { "properties": { "category": { "const": "privacy" } }, "required": ["category"] } } } },
+    "requires_research_ethics": { "properties": { "approvals": { "contains": { "properties": { "category": { "const": "research_ethics" } }, "required": ["category"] } } } },
+    "requires_source_license": { "properties": { "approvals": { "contains": { "properties": { "category": { "const": "source_license" } }, "required": ["category"] } } } },
+    "requires_procedure": { "properties": { "approvals": { "contains": { "properties": { "category": { "const": "procedure" } }, "required": ["category"] } } } }
+  }
+}

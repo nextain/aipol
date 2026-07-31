@@ -1,0 +1,11 @@
+{
+  "platform": "AIPOL",
+  "project": "연금개혁-AI 숙의민주주의 정책실험",
+  "source_repository": "https://github.com/armybonita/2026-Flagship-Session-KAPS-Human-AI-Collaborative-Policy-Lab-/",
+  "source_pull_request": 1,
+  "source_commit": "fcbae3c0dab18476e2274f9e4ff91dadeb2db944",
+  "source_scope": "top-level scenario app; personal-pension-simulator subproject excluded",
+  "integration_route": "/cases/pension/experiment/",
+  "measurement_flow": "first vote -> AI diagnosis and small-group discussion -> second final vote",
+  "review_audience": "pension team"
+}

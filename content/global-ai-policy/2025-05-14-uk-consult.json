@@ -1,0 +1,14 @@
+{
+  "id": "2025-05-14-uk-consult",
+  "published": "2025-05-14",
+  "source_name": "UK Department for Science, Innovation and Technology",
+  "source_url": "https://www.gov.uk/algorithmic-transparency-records/dsit-consult",
+  "country": "영국",
+  "title_ko": "Consult: 공공 의견수렴 응답을 분석하는 정부 AI 도구",
+  "summary_ko": "영국 정부의 Consult는 정책 상담에 제출된 대규모 자유서술 응답에서 주제와 패턴을 찾아 정책분석가가 검토할 수 있는 화면으로 제공합니다. 정부가 직접 개발한 내부 도구이며 공개 전 시험·평가 단계부터 알고리즘 투명성 기록을 함께 게시했습니다.",
+  "policy_use": "공공 의견수렴 응답의 초기 주제 분석과 탐색",
+  "human_review": "정책 담당자가 AI가 찾은 주제와 응답 분류를 확인하고 수정",
+  "relevance": "많은 의견을 빠르게 읽되 정책적 의미의 판단은 담당자에게 남기는 구조를 참고할 수 있습니다.",
+  "caveat": "AI가 응답의 대표성이나 정책 방향을 결정하지 않으며, 도구는 당시 사전 배포 단계였습니다.",
+  "review_status": "Codex AI 조사·편집 요약"
+}

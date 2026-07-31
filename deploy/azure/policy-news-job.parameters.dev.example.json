@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "deployInfrastructure": {"value": false},
+    "deployJob": {"value": false},
+    "enableSchedule": {"value": false},
+    "policyNewsEnabled": {"value": false},
+    "policyNewsDryRun": {"value": true},
+    "location": {"value": "koreacentral"},
+    "jobIdentityName": {"value": "uami-aipol-policy-news-dev"},
+    "foundryAccountName": {"value": "aipol-ai-mxajhqb4i5p4o"},
+    "foundryEndpoint": {"value": "https://aipol-ai-mxajhqb4i5p4o.services.ai.azure.com"},
+    "foundryRegion": {"value": "eastus2"},
+    "foundryDeployment": {"value": "aipol-policy-news-draft-v2"},
+    "kbCompilerMode": {"value": "disabled"},
+    "kbCompilerEndpoint": {"value": ""},
+    "kbCompilerAllowedOrigin": {"value": ""},
+    "kbCompilerScope": {"value": ""},
+    "kbCompilerAppClientId": {"value": ""},
+    "kbCompilerRequiredAppRole": {"value": ""},
+    "kbCompilerReceiverVersion": {"value": ""},
+    "kbCompilerReceiverDeploymentId": {"value": ""},
+    "kbCompilerValidationMode": {"value": "entra-jwt-v2-strict"},
+    "kbCompilerCommand": {"value": ""},
+    "kbCompilerTimeoutSeconds": {"value": 120},
+    "containerImage": {"value": "REPLACE_WITH_ACR_LOGIN_SERVER/aipol/policy-news:REPLACE_WITH_IMMUTABLE_TAG"},
+    "openRouterSecretUri": {"value": ""},
+    "openRouterSecretName": {"value": ""},
+    "keyVaultName": {"value": ""}
+  }
+}

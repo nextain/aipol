@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Agent/browser-test scratch output (never tracked)
+.agents/work/
+tmp/
+
+# 세션 산출물 / 시크릿 (T3 — 절대 추적 금지)
+data-private/
+private/
+instances/
+*.local
+.env
+
+# hook 자동생성 인덱스
+.agents/context/.ctx-index.json
+.ctx-index.json
+webtool/infra/.env
+gha-creds-*.json

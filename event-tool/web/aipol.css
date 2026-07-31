@@ -1,0 +1,20 @@
+.portal-nav { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.portal-nav a { color: var(--brand-dark); font-size: .88rem; font-weight: 700; text-underline-offset: 3px; }
+.service-footer { display: flex; justify-content: space-between; gap: 12px; max-width: 660px; margin: -112px auto 0; padding: 24px 22px 32px; color: var(--muted); font-size: .82rem; }
+.step-line { margin: 18px 16px 0; padding: 11px 14px; border-radius: 12px; background: var(--brand-tint); color: var(--brand-dark); font-weight: 800; }
+.step-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px 18px; margin: 14px 16px; box-shadow: 0 2px 10px rgba(24,34,51,.05); }
+.step-card h2 { margin-top: 0; font-size: 1.35rem; }
+.stage-note { padding: 12px 14px; border-left: 4px solid var(--brand); background: #f7f9fd; color: #3a4557; }
+.artifact-meta { font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
+.option-list { display: grid; gap: 10px; margin: 16px 0; }
+.option-choice { display: flex; align-items: flex-start; gap: 12px; min-height: 58px; padding: 13px; border: 2px solid var(--line-strong); border-radius: 13px; cursor: pointer; }
+.option-choice:has(input:checked) { border-color: var(--brand); background: var(--brand-tint); }
+.option-choice input { width: 24px; height: 24px; margin-top: 2px; flex: 0 0 auto; }
+.option-choice strong { display: block; }
+.field-label { display: block; margin: 14px 0 5px; font-weight: 800; }
+.field-input { width: 100%; min-height: 54px; border: 2px solid var(--line-strong); border-radius: 12px; padding: 10px 12px; font: inherit; background: #fff; }
+.action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.action-row .btn-primary { flex: 1; }
+.external-link { display: inline-flex; min-height: 54px; align-items: center; padding: 12px 16px; border: 2px solid var(--brand); border-radius: 12px; color: var(--brand-dark); font-weight: 800; text-decoration: none; }
+.error-inline { color: var(--reject); font-weight: 800; min-height: 1.5em; }
+@media (max-width: 420px) { .step-card { margin-left: 10px; margin-right: 10px; } .action-row { display: block; } .action-row > * { width: 100%; margin-top: 8px; } .service-footer { display: grid; } }

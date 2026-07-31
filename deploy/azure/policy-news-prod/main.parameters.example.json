@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "containerImage": { "value": "acraipolprod01.azurecr.io/aipol/policy-news@sha256:REPLACE_WITH_64_HEX_DIGEST" },
+    "enableSchedule": { "value": false },
+    "policyNewsEnabled": { "value": false },
+    "providerQualityStatus": { "value": "pending" },
+    "providerQualityEvidenceSha256": { "value": "" },
+    "upstageSecretUri": { "value": "https://kv-aipol-prod-01.vault.azure.net/secrets/policy-news-upstage-key/REPLACE_VERSION" },
+    "anyllmEndpoint": { "value": "https://api.nextain.io/v1" },
+    "anyllmReviewModel": { "value": "xai:grok-4.3" },
+    "maxEstimatedCostUsd": { "value": "2.00" },
+    "anyllmSecretUri": { "value": "https://kv-aipol-prod-01.vault.azure.net/secrets/policy-news-anyllm-key/REPLACE_VERSION" },
+    "manualRunVerified": { "value": false },
+    "manualRunImageDigest": { "value": "" },
+    "manualRunExecutionName": { "value": "" },
+    "manualRunConfigurationFingerprint": { "value": "" },
+    "manualRunEvidenceSha256": { "value": "" }
+  }
+}

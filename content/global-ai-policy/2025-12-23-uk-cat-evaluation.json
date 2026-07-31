@@ -1,0 +1,14 @@
+{
+  "id": "2025-12-23-uk-cat-evaluation",
+  "published": "2025-12-23",
+  "source_name": "UK Department for Transport",
+  "source_url": "https://www.gov.uk/government/publications/ai-consultation-analysis-tool-evaluation",
+  "country": "영국",
+  "title_ko": "교통부, AI 의견수렴 분석 도구의 기술 평가 공개",
+  "summary_ko": "영국 교통부와 앨런 튜링 연구소는 정책 상담 응답을 주제별로 분석하는 CAT의 성능을 사람 기준과 비교한 평가를 공개했습니다. 시민 의견을 정확하고 책임 있게 다루기 위해 사용자 연구, 기술 성능과 사람의 감독을 함께 평가했다는 점이 핵심입니다.",
+  "policy_use": "정책 상담 자유서술 응답의 주제 분석",
+  "human_review": "사람 기준과 비교 평가하고 정책분석가의 감독을 유지",
+  "relevance": "정책개발 AI는 결과뿐 아니라 사람 기준선, 오류 유형과 운영 절차까지 평가해야 한다는 사례입니다.",
+  "caveat": "특정 도구의 평가 결과를 다른 언어·정책 분야에 그대로 일반화할 수 없습니다.",
+  "review_status": "Codex AI 조사·편집 요약"
+}

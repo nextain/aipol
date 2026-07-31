@@ -1,0 +1,89 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss version="2.0">
+  <channel>
+    <title>AIPOL 해외 AI 정책개발 동향</title>
+    <link>https://aipol.kaps.or.kr/global/</link>
+    <description>KAPS Human + AI Collaboration Policy Lab(AIPOL)의 정부·국제기구 AI 기반 정책개발 공식 자료 한국어 요약</description>
+    <language>ko</language>
+    <item>
+      <title>일본 정부 AI ‘겐나이’, 농정 설문 8천 건의 정책가설 검증 지원</title>
+      <link>https://www.digital.go.jp/policies/genai</link>
+      <guid isPermaLink="false">2026-07-17-japan-government-ai-gennai</guid>
+      <description>일본 농림수산성이 쌀 생산 의향 설문을 바탕으로 20개 이상의 정책가설을 세우고, 디지털청이 AI로 약 8천 건의 응답에서 가설의 타당성을 검토했다. 공식 설명은 한 사람이 약 두 달 걸리던 분석을 약 3일로 줄였다고 밝힌다.
+
+AIPOL 시사점: AIPOL의 ‘정책가설 → 대규모 응답 검증 → 사람 판단’ 흐름을 실제 행정 데이터에 적용한 직접적인 참고 사례다.
+한계: 공식 페이지에는 개별 모델, 정확도, 편향 점검, 표본 대표성과 오류 수정 절차의 세부 정보가 충분히 공개되지 않았다.</description>
+      <pubDate>Fri, 17 Jul 2026 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>OECD: 정부 AI 확산 속 정책개발 활용은 아직 제한적</title>
+      <link>https://www.oecd.org/en/publications/2026/06/digital-government-outlook_4585678e/full-report/adopting-and-governing-ai-in-government_7ef312a9.html</link>
+      <guid isPermaLink="false">2026-06-oecd-digital-government-outlook</guid>
+      <description>OECD 디지털정부 전망은 대부분의 조사 대상 국가가 정부 업무 어딘가에서 AI를 사용하지만, 정책개발과 감독처럼 위험이 큰 영역의 활용은 상대적으로 제한적이라고 정리합니다. 데이터 품질, 투명성, 보증, 조직 역량과 지속적인 이해관계자 참여가 확대의 핵심 조건으로 제시됩니다.
+
+AIPOL 시사점: AIPOL의 사례를 기술 시연이 아니라 검증·책임·참여 구조와 함께 설계해야 하는 근거가 됩니다.
+한계: 국가별 제도와 조사 범위가 다르므로 국가 간 수치를 단순 순위로 해석해서는 안 됩니다.</description>
+      <pubDate>Mon, 01 Jun 2026 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>폴란드, 규제영향평가 작성을 돕는 정부용 AI 비서 파일럿 공개</title>
+      <link>https://interoperable-europe.ec.europa.eu/collection/digital-ready-policymaking/event/machine-learning-regulatory-process-practical-look-virtual-assistant-supporting-impact-assessment</link>
+      <guid isPermaLink="false">2026-03-24-poland-ria-assistant</guid>
+      <description>폴란드 총리실 규제영향평가 부서는 폴란드어 모델 PLLuM과 검색증강생성(RAG)을 이용한 정부 간 가상비서 파일럿을 공개했다. 정책 담당자가 규제정보와 지침을 찾고 영향평가 문서를 준비하는 과정을 지원한다.
+
+AIPOL 시사점: 규제영향평가 지식기반을 RAG 기반 정책개발 작업공간으로 전환하는 재사용 가능한 구조를 보여준다.
+한계: 현재 파일럿이며 공식 행사 페이지에는 성능지표, 오류율, 실제 규제결정에 미친 영향이 공개되지 않았다.</description>
+      <pubDate>Tue, 24 Mar 2026 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>교통부, AI 의견수렴 분석 도구의 기술 평가 공개</title>
+      <link>https://www.gov.uk/government/publications/ai-consultation-analysis-tool-evaluation</link>
+      <guid isPermaLink="false">2025-12-23-uk-cat-evaluation</guid>
+      <description>영국 교통부와 앨런 튜링 연구소는 정책 상담 응답을 주제별로 분석하는 CAT의 성능을 사람 기준과 비교한 평가를 공개했습니다. 시민 의견을 정확하고 책임 있게 다루기 위해 사용자 연구, 기술 성능과 사람의 감독을 함께 평가했다는 점이 핵심입니다.
+
+AIPOL 시사점: 정책개발 AI는 결과뿐 아니라 사람 기준선, 오류 유형과 운영 절차까지 평가해야 한다는 사례입니다.
+한계: 특정 도구의 평가 결과를 다른 언어·정책 분야에 그대로 일반화할 수 없습니다.</description>
+      <pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>싱가포르 도시계획, AI 이미지로 시민의 공간 아이디어를 시각화</title>
+      <link>https://www.ura.gov.sg/news/media/pr25-64/</link>
+      <guid isPermaLink="false">2025-12-01-singapore-master-plan-dream-lab</guid>
+      <description>싱가포르 URA는 2025 마스터플랜 공론 과정에서 AI 기반 Dream Lab을 운영했다. 전시 방문자는 16개 미래 개발부지에 대한 아이디어를 생성 이미지로 시각화했고, 설문·워크숍·대화 등 다른 참여 방식과 함께 장기 토지이용계획 검토에 활용됐다.
+
+AIPOL 시사점: 정책 시나리오를 이미지 프로토타입으로 바꾸어 시민이 구체적으로 비교하고 토론하게 하는 참여형 설계 사례다.
+한계: 개별 AI 이미지가 최종 계획에 미친 영향, 사용 모델과 안전장치, 참가자의 대표성은 공식 발표만으로 확인하기 어렵다.</description>
+      <pubDate>Mon, 01 Dec 2025 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>세계은행 ImpactAI, 인과연구를 정책대안 비교 자료로 연결</title>
+      <link>https://www.worldbank.org/en/about/unit/unit-dec/impactevaluation/ai/impact-ai</link>
+      <guid isPermaLink="false">2025-10-17-world-bank-impact-ai</guid>
+      <description>세계은행 DIME AI의 ImpactAI는 무작위대조시험 중심의 공개 인과연구 데이터베이스를 생성형 AI로 질의하고 종합하는 정책 근거 도구다. 개입별 결과를 비교·시각화하고 사용자가 원문 근거로 이동할 수 있게 한다.
+
+AIPOL 시사점: 출처 추적이 가능한 근거 데이터베이스를 정책 선택지 개발과 연결하는 evidence-to-options 설계의 강한 참고 사례다.
+한계: 현재 공개 설명은 개발경제와 영어권 무작위대조시험을 중심으로 하며 질적 맥락, 제도 차이와 작동 메커니즘을 모두 포괄하지 않는다.</description>
+      <pubDate>Fri, 17 Oct 2025 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Consult: 공공 의견수렴 응답을 분석하는 정부 AI 도구</title>
+      <link>https://www.gov.uk/algorithmic-transparency-records/dsit-consult</link>
+      <guid isPermaLink="false">2025-05-14-uk-consult</guid>
+      <description>영국 정부의 Consult는 정책 상담에 제출된 대규모 자유서술 응답에서 주제와 패턴을 찾아 정책분석가가 검토할 수 있는 화면으로 제공합니다. 정부가 직접 개발한 내부 도구이며 공개 전 시험·평가 단계부터 알고리즘 투명성 기록을 함께 게시했습니다.
+
+AIPOL 시사점: 많은 의견을 빠르게 읽되 정책적 의미의 판단은 담당자에게 남기는 구조를 참고할 수 있습니다.
+한계: AI가 응답의 대표성이나 정책 방향을 결정하지 않으며, 도구는 당시 사전 배포 단계였습니다.</description>
+      <pubDate>Wed, 14 May 2025 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>영국 정부, AI 지원 근거검토와 사람 단독 검토를 같은 과제로 비교</title>
+      <link>https://www.gov.uk/government/publications/ai-assisted-vs-human-only-evidence-review</link>
+      <guid isPermaLink="false">2025-04-23-uk-ai-evidence-review</guid>
+      <description>영국 DSIT와 DCMS는 동일한 정책 질문을 AI 지원 방식과 사람 단독 방식으로 각각 검토했다. AI 지원 검토는 전체 시간을 23% 줄였고 최종 품질은 유사했지만, 초기 문안은 덜 유창하고 더 많은 수정이 필요했다.
+
+AIPOL 시사점: AI 정책연구 도구를 속도만이 아니라 품질, 수정비용과 오류까지 대조실험으로 평가한 방법론적 참고 사례다.
+한계: 환각과 링크 오류가 있었고 한 가지 주제에 대한 비교연구이므로 다른 정책영역이나 도구로 일반화할 수 없다.</description>
+      <pubDate>Wed, 23 Apr 2025 00:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

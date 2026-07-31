@@ -1,0 +1,14 @@
+{
+  "id": "2025-04-23-uk-ai-evidence-review",
+  "published": "2025-04-23",
+  "source_name": "영국 과학혁신기술부(DSIT)",
+  "source_url": "https://www.gov.uk/government/publications/ai-assisted-vs-human-only-evidence-review",
+  "country": "영국",
+  "title_ko": "영국 정부, AI 지원 근거검토와 사람 단독 검토를 같은 과제로 비교",
+  "summary_ko": "영국 DSIT와 DCMS는 동일한 정책 질문을 AI 지원 방식과 사람 단독 방식으로 각각 검토했다. AI 지원 검토는 전체 시간을 23% 줄였고 최종 품질은 유사했지만, 초기 문안은 덜 유창하고 더 많은 수정이 필요했다.",
+  "policy_use": "문헌 탐색·선별·분석·종합과 정책 시사점 도출에 AI 도구를 사용하고 시간과 품질을 비교했다.",
+  "human_review": "연구자가 AI 결과를 수동 확인·편집하고 선임자가 품질을 검토했다. 자동 생성물을 그대로 정책 근거로 사용하지 않았다.",
+  "relevance": "AI 정책연구 도구를 속도만이 아니라 품질, 수정비용과 오류까지 대조실험으로 평가한 방법론적 참고 사례다.",
+  "caveat": "환각과 링크 오류가 있었고 한 가지 주제에 대한 비교연구이므로 다른 정책영역이나 도구로 일반화할 수 없다.",
+  "review_status": "Codex AI 조사·편집 요약"
+}

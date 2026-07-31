@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/contracts/aipol-registration.schema.json",
+  "title": "AIPOL participant admission request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["admission_code", "registration_nonce", "idempotency_key"],
+  "properties": {
+    "admission_code": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128,
+      "pattern": "^\\S+$",
+      "anyOf": [
+        {"pattern": "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).*$"},
+        {"pattern": "^(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9]).*$"},
+        {"pattern": "^(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).*$"},
+        {"pattern": "^(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).*$"}
+      ]
+    },
+    "registration_nonce": {"type": "string", "minLength": 16, "maxLength": 128},
+    "idempotency_key": {"type": "string", "minLength": 8, "maxLength": 128}
+  }
+}

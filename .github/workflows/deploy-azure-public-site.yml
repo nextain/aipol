@@ -1,0 +1,111 @@
+name: Deploy AIPOL public site to Azure
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: AIPOL Azure Static Web Apps target
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - prod
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aipol-public-site-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  verify-public-site:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install public-site test dependencies
+        run: |
+          python -m pip install -e ".[test]"
+          python -m playwright install --with-deps chromium
+
+      - name: Verify static pages, metadata, browser behavior, RSS, and live-smoke contracts
+        run: >-
+          python -m pytest -q
+          tests/test_public_site.py
+          tests/test_aipol_metadata.py
+          tests/test_public_site_browser.py
+          tests/test_policy_news_site_build.py
+          tests/test_live_aipol_smoke.py
+
+  deploy-dev:
+    needs: verify-public-site
+    runs-on: ubuntu-latest
+    environment: aipol-dev
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python for live verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Deploy reviewed static site to development
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AIPOL_DEV }}
+          action: upload
+          app_location: site
+          api_location: ''
+          output_location: ''
+          skip_app_build: true
+
+      - name: Verify the same SHA on development
+        env:
+          LIVE_ORIGIN: ${{ vars.AIPOL_DEV_URL }}
+        run: |
+          test -n "$LIVE_ORIGIN" || { echo "AIPOL_DEV_URL environment variable is required"; exit 1; }
+          python scripts/verify_live_aipol.py --origin "$LIVE_ORIGIN"
+
+  deploy-prod:
+    if: ${{ inputs.target == 'prod' }}
+    needs:
+      - verify-public-site
+      - deploy-dev
+    runs-on: ubuntu-latest
+    environment: aipol-prod
+    steps:
+      - name: Check out the same reviewed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python for live verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Deploy the development-verified SHA to production
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AIPOL_PROD }}
+          action: upload
+          app_location: site
+          api_location: ''
+          output_location: ''
+          skip_app_build: true
+
+      - name: Verify production title, canonical, OG, RSS, and bounded public copy
+        run: python scripts/verify_live_aipol.py --origin https://aipol.kaps.or.kr

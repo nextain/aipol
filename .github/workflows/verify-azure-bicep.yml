@@ -1,0 +1,52 @@
+name: Verify AIPOL Azure Bicep
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/azure/**'
+      - 'scripts/verify_azure_bicep.py'
+      - '.github/workflows/verify-azure-bicep.yml'
+  push:
+    paths:
+      - 'deploy/azure/**'
+      - 'scripts/verify_azure_bicep.py'
+      - '.github/workflows/verify-azure-bicep.yml'
+  workflow_dispatch:
+    inputs:
+      run_group_validate:
+        description: Validate all templates against the protected development resource group
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Compile all four Bicep units
+        run: python scripts/verify_azure_bicep.py
+
+  group-validate:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_group_validate }}
+    needs: compile
+    runs-on: ubuntu-latest
+    environment: aipol-dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Validate without changing Azure state
+        run: python scripts/verify_azure_bicep.py --validate-resource-group "${{ vars.AIPOL_VALIDATION_RESOURCE_GROUP }}"

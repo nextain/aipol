@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content="한국정책학회 AIPOL 연금개혁-AI 숙의민주주의 정책실험 참가자 화면" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
+  <title>AIPOL 연금개혁 정책실험 참여</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/aipol.css" />
+</head>
+<body>
+  <main id="app" aria-live="polite">
+    <header class="survey-head">
+      <nav class="portal-nav" aria-label="서비스 전환"><a href="/">일반 행사 참여</a></nav>
+      <p class="eyebrow">한국정책학회 · AIPOL</p>
+      <h1>연금개혁-AI 숙의민주주의 정책실험</h1>
+      <p class="muted">개인 비교 후 1차, 전문가 설명 후 2차, AI 자료 후 3차 선택을 각각 남깁니다.</p>
+    </header>
+    <section id="state-loading" class="state"><div class="spinner" aria-hidden="true"></div><p>현재 단계를 확인하는 중…</p></section>
+    <section id="state-error" class="state hidden"><p class="big">진행할 수 없습니다.</p><p id="error-message" class="muted"></p><button id="retry" class="btn-primary">다시 확인</button><button id="reset-error" class="external-link hidden" type="button">다른 참가자로 시작</button></section>
+    <section id="state-start" class="state hidden"><p class="big">참여 준비</p><p class="muted">이름·연락처는 수집하지 않으며 일회용 등록 nonce로 중복 참여를 막습니다.</p><label class="field-label" for="admission-code">진행자가 안내한 참여코드</label><input id="admission-code" class="field-input" autocomplete="one-time-code" maxlength="128"><p id="register-error" class="error-inline" role="alert" aria-live="polite"></p><button id="register" class="btn-primary btn-lg">참여 시작</button><hr><h2>다른 PC에서 이어하기</h2><p class="muted">이전에 저장한 일회용 복구 코드를 입력하세요. 사용 즉시 기존 PC의 참가 토큰은 폐기됩니다.</p><label class="field-label" for="recovery-code">일회용 복구 코드</label><input id="recovery-code" class="field-input" autocomplete="off" maxlength="128"><p id="recovery-error" class="error-inline" role="alert" aria-live="polite"></p><button id="recover" class="external-link" type="button">이 PC로 참가 이전</button></section>
+    <section id="state-recovery" class="state hidden"><p class="big">복구 키트를 안전하게 보관하세요</p><p class="muted">이 코드는 다른 PC로 참가를 한 번 이전할 때만 사용할 수 있습니다. 서버에는 원문이 저장되지 않아 다시 표시할 수 없습니다.</p><label class="field-label" for="recovery-kit-code">일회용 복구 코드</label><textarea id="recovery-kit-code" readonly rows="3"></textarea><div class="action-row"><button id="download-recovery-kit" class="external-link" type="button">복구 키트 다운로드</button><button id="continue-after-recovery" class="btn-primary" type="button">저장했고 계속하기</button></div></section>
+    <section id="state-step" class="hidden">
+      <div class="step-line" id="step-line"></div>
+      <div id="step-content"></div>
+    </section>
+    <section id="state-done" class="state hidden"><div class="check" aria-hidden="true">✓</div><p class="big">세 번의 선택이 모두 기록됐습니다.</p><p class="muted">중간 결과 없이 최종 해석 단계에서 함께 확인합니다.</p><button id="reset-done" class="external-link" type="button">다른 참가자로 시작</button></section>
+    <section id="state-withdrawn" class="state hidden"><p class="big">참여 철회가 기록됐습니다.</p><p class="muted">이 토큰으로 추가 응답을 제출할 수 없습니다.</p><button id="reset-withdrawn" class="external-link" type="button">다른 참가자로 시작</button></section>
+  </main>
+  <footer class="service-footer">
+    <span>주관: 한국정책학회(KAPS)</span>
+    <span>기술 협력: Nextain</span>
+  </footer>
+  <script src="/aipol-receipt.js"></script>
+  <script src="/aipol.js"></script>
+</body>
+</html>

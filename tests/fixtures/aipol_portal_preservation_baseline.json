@@ -1,0 +1,52 @@
+{
+  "baseline_commit": "f9db57c7ac828581e9167a95507ea0bd812a1758",
+  "integration_base_commit": "90376ff973afbf3d759f6e8cc854605b8a043662",
+  "branding_revision": "2026-07-30 logo-led visual system, public metadata, legal notices, portal integration, and production administrator MFA",
+  "core_sha256": {
+    "event-tool/web/index.html": "6a2eee17f13e8ffc341c8204c0cf8010378bdea65ec5f579c3094465be2b1770",
+    "event-tool/web/app.js": "204754f79a2a6eb65ba446665fa53cee9a3f858a29a04496b41b95c2b48ae930",
+    "event-tool/web/style.css": "3bf6cf2360306ac88fe5b69ae2f8bdbb22b576c463db3d1c2b0c52191d4ad0c1",
+    "event-tool/web/admin.js": "a9599f48d739f70f294152cb0f3a82f51b6555d155088c36fdf4a0148d1c540c"
+  },
+  "public_portal_normalized_sha256": {
+    "site/index.html": "24a315dc2c61b4bdec31fe3a927afa4ae29d77e5dd04058d9888864585ba0ea9",
+    "site/project/index.html": "45cdb695cf32bed65faee199143cb5e995fe38b1ced09bb0c9e84cb4d9c93e0a",
+    "site/global/index.html": "f5d896e3bfa5bf47eefb23b5beb82f61c42c56f5fd06d8822f1455d5129557a6",
+    "site/en/index.html": "fc20c439cba57b8fdaae96cfc2259407ba25f3190dd874005e8f0aec46a212a9",
+    "site/en/project/index.html": "8951aef22387aa69d30f1d56a8c12674e1e2f81cba982460c74df1689a148888"
+  },
+  "professor_source_sha256": {
+    "integrations/kaps-pension-experiment/vendor/src/App.tsx": "357b6b3bd438103a17259d9f9813a8fe683bb63cc971496db587afd3884299c6",
+    "integrations/kaps-pension-experiment/vendor/src/components/ResultDashboard.tsx": "cd3260275fb0ba45d9256be556b16c04b11ff59886652c8dba52b805dba564dd",
+    "integrations/kaps-pension-experiment/vendor/src/components/VoteStage.tsx": "29e3e44e10a7f106bf18cb4c49b67bc6f73bf609540aeb924dab350459fd541b",
+    "integrations/kaps-pension-experiment/vendor/package.json": "1ca9245d1c50e0091ba23a4d65cc6d9d95e17bdf0f22dbf9c1c1399d9fa3c5ff"
+  },
+  "event_tool_surfaces": ["/", "/admin.html", "/api/citizen/current", "/api/citizen/submit", "/api/admin/events"],
+  "public_site_routes": [
+    "/",
+    "/project/",
+    "/method/",
+    "/platform/",
+    "/cases/",
+    "/cases/pension/",
+    "/cases/pension/experiment/",
+    "/events/",
+    "/participate/",
+    "/global/",
+    "/trust/",
+    "/open-source/",
+    "/status/",
+    "/en/",
+    "/en/project/",
+    "/en/method/",
+    "/en/platform/",
+    "/en/cases/",
+    "/en/cases/pension/",
+    "/en/events/",
+    "/en/participate/",
+    "/en/global/",
+    "/en/trust/",
+    "/en/open-source/",
+    "/en/status/"
+  ]
+}

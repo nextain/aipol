@@ -1,0 +1,15 @@
+# AIPOL context and data boundary
+
+Unless a file says otherwise, the source code and public documentation in this
+repository are licensed under the Apache License 2.0 in `LICENSE`.
+
+This license does not grant rights to third-party trademarks, organization
+logos, personal information, research participant data, unpublished meeting
+materials, or other materials that are not included in this repository.
+
+Examples, fixtures, and synthetic participant records are provided only for
+development and controlled research validation. They must not be interpreted
+as real participant responses or official policy positions.
+
+Operational credentials, private research records, internal discussions, and
+production data are intentionally kept outside this public repository.

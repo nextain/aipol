@@ -1,0 +1,9 @@
+{
+  "manifest_id": "aipol-pension-2026-draft-001",
+  "experiment_version": "2026-08-12.1",
+  "option_set_version": "pending-expert-approval",
+  "measurement_spec_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "status": "draft",
+  "collection_enabled": false,
+  "approvals": []
+}

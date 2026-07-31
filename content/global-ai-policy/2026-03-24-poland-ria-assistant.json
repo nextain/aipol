@@ -1,0 +1,14 @@
+{
+  "id": "2026-03-24-poland-ria-assistant",
+  "published": "2026-03-24",
+  "source_name": "European Commission Interoperable Europe · 폴란드 총리실",
+  "source_url": "https://interoperable-europe.ec.europa.eu/collection/digital-ready-policymaking/event/machine-learning-regulatory-process-practical-look-virtual-assistant-supporting-impact-assessment",
+  "country": "폴란드·EU",
+  "title_ko": "폴란드, 규제영향평가 작성을 돕는 정부용 AI 비서 파일럿 공개",
+  "summary_ko": "폴란드 총리실 규제영향평가 부서는 폴란드어 모델 PLLuM과 검색증강생성(RAG)을 이용한 정부 간 가상비서 파일럿을 공개했다. 정책 담당자가 규제정보와 지침을 찾고 영향평가 문서를 준비하는 과정을 지원한다.",
+  "policy_use": "규제 근거 탐색, 지침 확인, 영향평가 준비와 문서작성 단계에 대화형 보조 도구로 적용됐다.",
+  "human_review": "규제 담당자가 사용하는 지원 도구로 소개됐으며 영향평가나 정책 결정을 대신하지 않는다.",
+  "relevance": "규제영향평가 지식기반을 RAG 기반 정책개발 작업공간으로 전환하는 재사용 가능한 구조를 보여준다.",
+  "caveat": "현재 파일럿이며 공식 행사 페이지에는 성능지표, 오류율, 실제 규제결정에 미친 영향이 공개되지 않았다.",
+  "review_status": "Codex AI 조사·편집 요약"
+}

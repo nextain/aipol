@@ -1,0 +1,7 @@
+{
+  "personas": [
+    {"id": "example-01", "segment": "young", "profile": "대중교통을 주로 이용하는 합성 인물"},
+    {"id": "example-02", "segment": "middle", "profile": "도보 이동과 안전을 중시하는 합성 인물"},
+    {"id": "example-03", "segment": "senior", "profile": "환승 안내의 명확성을 중시하는 합성 인물"}
+  ]
+}

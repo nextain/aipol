@@ -1,0 +1,25 @@
+name: Preview global AI policy discovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build a review-only discovery queue
+        run: python bots/policy_news/bot.py --write-queue --max-items 3
+      - name: Upload the private review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: policy-news-review-queue
+          path: content/global-ai-policy/_inbox
+          if-no-files-found: ignore
+          retention-days: 7

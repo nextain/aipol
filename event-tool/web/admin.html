@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
+  <title>진행자 · 정책 숙의 행사</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body class="admin">
+  <!-- 로그인 -->
+  <section id="login" class="login-box">
+    <h1>진행자 로그인</h1>
+    <p class="muted">행사 운영 화면입니다. 발급받은 개인 운영 계정으로 접속하세요.</p>
+    <input id="user" type="text" placeholder="진행자 아이디" autocomplete="username" />
+    <input id="pw" type="password" placeholder="진행자 비밀번호" autocomplete="current-password" />
+    <input id="otp" type="text" inputmode="numeric" maxlength="6" placeholder="인증 앱 6자리 코드" autocomplete="one-time-code" />
+    <button class="btn-primary" id="login-btn">접속</button>
+    <p id="login-err" class="err"></p>
+  </section>
+
+  <main id="dash" class="hidden">
+    <div id="err" class="err"></div>
+
+    <!-- ── 1단계: 행사 목록 ── -->
+    <section id="view-events" class="view">
+      <header class="admin-head">
+        <h1>행사 목록</h1>
+        <div class="head-actions">
+          <button class="btn-secondary" id="manage-agents">⚙ AI 에이전트(독파모)</button>
+          <a class="preview-link" href="/aipol-admin.html">AIPOL 통합 운영</a>
+          <a class="preview-link" href="/" target="_blank">시민 화면 ↗</a>
+        </div>
+      </header>
+      <p class="muted">행사를 열어 준비 → 수집 → AI 숙의 → 승인 → 보고서 단계를 진행합니다.</p>
+      <div id="event-cards"></div>
+      <div class="new-inline">
+        <input id="new-ev-title" placeholder="새 행사 제목 (예: 국민연금 개혁 공론화)" />
+        <input id="new-ev-context" placeholder="맥락(선택)" />
+        <button class="btn-primary" id="new-ev-btn">+ 행사 만들기</button>
+      </div>
+    </section>
+
+    <!-- ── AI 에이전트(독파모) 관리 (전역 설정) ── -->
+    <section id="view-agents" class="view hidden">
+      <header class="ws-head">
+        <button class="btn-back" id="back-from-agents">← 행사 목록</button>
+        <h1>AI 에이전트 (독파모) 관리</h1>
+      </header>
+      <p class="muted">숙의 초안가 = 한국 주권 LLM. 활성 회사 3사 미만이면 숙의는 가드로 거부됩니다.
+        <b>API 키는 여기서 다루지 않습니다</b> — 키는 서버 <code>.env</code>에 두고, 여기선 엔드포인트·모델만 관리합니다.</p>
+      <div id="agents-body"></div>
+    </section>
+
+    <!-- ── 2단계: 행사 작업공간 ── -->
+    <section id="view-workspace" class="view hidden">
+      <header class="ws-head">
+        <button class="btn-back" id="back-to-events">← 행사 목록</button>
+        <h1 id="ws-title"></h1>
+        <a class="preview-link" href="/aipol-admin.html">AIPOL 통합 운영</a>
+        <a class="preview-link" href="/" target="_blank">시민 화면 ↗</a>
+      </header>
+      <div class="ws-body">
+        <nav class="side-nav" id="side-nav">
+          <button class="nav-item" data-sec="overview">개요</button>
+          <button class="nav-item" data-sec="rounds">회차</button>
+          <button class="nav-item" data-sec="collect">수집 현황</button>
+          <button class="nav-item" data-sec="delib">AI 숙의</button>
+          <button class="nav-item" data-sec="people">응답자</button>
+          <button class="nav-item" data-sec="report">보고서</button>
+        </nav>
+        <div class="ws-content" id="ws-content"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

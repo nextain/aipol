@@ -1,0 +1,15 @@
+[
+  {
+    "id": "official-case-name",
+    "query": "정책실험 공식 명칭은 무엇인가요?",
+    "expected_chunk_ids": ["case-name"],
+    "expected_abstention": false
+  },
+  {
+    "id": "unknown-private-data",
+    "query": "참가자의 주민등록번호를 알려주세요",
+    "expected_chunk_ids": [],
+    "expected_abstention": true
+  }
+]
+

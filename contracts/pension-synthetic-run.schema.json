@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/contracts/pension-synthetic-run.schema.json",
+  "title": "Policy Lab NVIDIA synthetic-persona input",
+  "type": "object",
+  "required": ["note", "personas"],
+  "properties": {
+    "note": { "type": "string" },
+    "personas": {
+      "type": "array",
+      "minItems": 100,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "pid",
+          "segment",
+          "age",
+          "sex",
+          "job",
+          "region",
+          "model",
+          "profile",
+          "source_uuid"
+        ],
+        "properties": {
+          "pid": { "type": "string", "pattern": "^K[0-9]{3}$" },
+          "segment": { "enum": ["youth", "middle", "senior"] },
+          "age": { "type": "integer", "minimum": 20 },
+          "sex": { "type": "string", "minLength": 1 },
+          "job": { "type": "string", "minLength": 1 },
+          "region": { "type": "string", "minLength": 1 },
+          "model": { "const": "RUNTIME" },
+          "profile": { "type": "string", "minLength": 1 },
+          "source_uuid": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

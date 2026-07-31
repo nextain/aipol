@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/schemas/policy-news/source-packet-v1.json",
+  "title": "AIPOL official-source packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source_name", "source_url", "published", "country", "title", "source_text", "fetched_at"],
+  "properties": {
+    "source_name": {"type": "string", "minLength": 1, "maxLength": 200},
+    "source_url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
+    "published": {"type": "string", "format": "date"},
+    "country": {"type": "string", "minLength": 1, "maxLength": 100},
+    "title": {"type": "string", "minLength": 1, "maxLength": 500},
+    "source_text": {"type": "string", "minLength": 1, "maxLength": 24000},
+    "fetched_at": {"type": "string", "format": "date-time"},
+    "license_note": {"type": "string", "minLength": 1, "maxLength": 500},
+    "source_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

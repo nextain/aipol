@@ -1,0 +1,14 @@
+{
+  "id": "2026-06-oecd-digital-government-outlook",
+  "published": "2026-06-01",
+  "source_name": "OECD",
+  "source_url": "https://www.oecd.org/en/publications/2026/06/digital-government-outlook_4585678e/full-report/adopting-and-governing-ai-in-government_7ef312a9.html",
+  "country": "국제",
+  "title_ko": "OECD: 정부 AI 확산 속 정책개발 활용은 아직 제한적",
+  "summary_ko": "OECD 디지털정부 전망은 대부분의 조사 대상 국가가 정부 업무 어딘가에서 AI를 사용하지만, 정책개발과 감독처럼 위험이 큰 영역의 활용은 상대적으로 제한적이라고 정리합니다. 데이터 품질, 투명성, 보증, 조직 역량과 지속적인 이해관계자 참여가 확대의 핵심 조건으로 제시됩니다.",
+  "policy_use": "정부의 정책 설계·의사결정·서비스 전반에 대한 AI 도입 현황 비교",
+  "human_review": "기관 거버넌스와 내·외부 이해관계자 참여를 AI 도입 전 과정에 결합",
+  "relevance": "AIPOL의 사례를 기술 시연이 아니라 검증·책임·참여 구조와 함께 설계해야 하는 근거가 됩니다.",
+  "caveat": "국가별 제도와 조사 범위가 다르므로 국가 간 수치를 단순 순위로 해석해서는 안 됩니다.",
+  "review_status": "Codex AI 조사·편집 요약"
+}

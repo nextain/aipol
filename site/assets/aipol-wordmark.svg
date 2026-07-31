@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 120" role="img" aria-labelledby="title desc">
+  <title id="title">AIPOL</title>
+  <desc id="desc">AIPOL</desc>
+  <g fill="none" stroke="#17406c" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M28 36h44v34H48L28 88z"/>
+    <path d="M48 70v18"/>
+    <path d="M58 25h44v34H78L58 76z" fill="#eaf3fb"/>
+  </g>
+  <circle cx="93" cy="42" r="5" fill="#b51a86"/>
+  <text x="126" y="75" fill="#142d4c" font-family="Arial, Helvetica, sans-serif" font-size="64" font-weight="800" letter-spacing="2">AIPOL</text>
+  <rect x="126" y="88" width="328" height="4" rx="2" fill="#b51a86"/>
+</svg>

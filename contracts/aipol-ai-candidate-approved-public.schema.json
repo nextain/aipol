@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/contracts/aipol-ai-candidate-approved-public.schema.json",
+  "title": "AIPOL approved E2 AI candidate public response",
+  "$comment": "Exact response from the AI-candidate approval endpoint and ai_candidate_public(..., include_content=true).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "experiment_id", "candidate_role", "artifact_id", "artifact_version",
+    "content", "content_hash", "model", "deployment", "prompt_version",
+    "generated_at", "evidence_refs", "m2_aggregate_hash", "approval_id",
+    "approved_by", "approved_at", "registered_by", "created_at"
+  ],
+  "allOf": [
+    {
+      "if": {"properties": {"candidate_role": {"const": "primary"}}, "required": ["candidate_role"]},
+      "then": {"properties": {"m2_aggregate_hash": {"$ref": "#/$defs/sha256"}}},
+      "else": {"properties": {"m2_aggregate_hash": {"type": "null"}}}
+    }
+  ],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "candidate_role": {"enum": ["primary", "fallback"]},
+    "artifact_id": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "artifact_version": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "body"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+        "body": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"}
+      }
+    },
+    "content_hash": {"$ref": "#/$defs/sha256"},
+    "model": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "deployment": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "prompt_version": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "evidence_refs": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"}
+    },
+    "m2_aggregate_hash": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "approval_id": {"type": "string", "minLength": 1},
+    "approved_by": {"type": "string", "minLength": 1},
+    "approved_at": {"type": "string", "format": "date-time"},
+    "registered_by": {"type": "string", "minLength": 1},
+    "created_at": {"type": "number"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

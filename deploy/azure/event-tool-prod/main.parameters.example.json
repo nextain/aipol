@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "deployFoundation": { "value": false },
+    "configureRuntimeAccess": { "value": false },
+    "deployApp": { "value": false },
+    "manageAuditPolicy": { "value": false },
+    "expectedResourceGroupName": { "value": "rg_aipol" },
+    "containerImage": {
+      "value": "acraipolprod01.azurecr.io/policy-lab-event@sha256:REPLACE_WITH_64_LOWERCASE_HEX"
+    },
+    "revisionSuffix": { "value": "replace-release-id" },
+    "auditImmutabilityPolicyLocked": { "value": false },
+    "auditImmutabilityLockEvidenceId": { "value": "" },
+    "eventSessionSecretVersion": { "value": "" },
+    "eventAdminUsersSecretVersion": { "value": "" },
+    "eventAdminRolesSecretVersion": { "value": "" },
+    "eventAdminTotpSecretVersion": { "value": "" },
+    "eventCredentialKeysetVersion": { "value": "" },
+    "eventAuditCheckpointKeysetVersion": { "value": "" },
+    "eventCredentialActiveKeyId": { "value": "" },
+    "eventAuditCheckpointActiveKeyId": { "value": "" }
+  }
+}

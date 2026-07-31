@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>정책 숙의 참여</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main id="app" aria-live="polite">
+    <!-- 로딩 상태 -->
+    <section id="state-loading" class="state">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>설문을 불러오는 중…</p>
+    </section>
+
+    <!-- 에러 상태 -->
+    <section id="state-error" class="state hidden">
+      <p class="big">설문을 불러오지 못했습니다.</p>
+      <p class="muted">인터넷 연결을 확인해 주세요.</p>
+      <button class="btn-primary" id="retry">다시 시도</button>
+    </section>
+
+    <!-- 빈 상태(진행 중 설문 없음) -->
+    <section id="state-empty" class="state hidden">
+      <p class="big">지금은 진행 중인 설문이 없습니다.</p>
+      <p class="muted">진행자의 안내를 기다려 주세요.</p>
+    </section>
+
+    <!-- 설문 -->
+    <section id="state-survey" class="hidden">
+      <header class="survey-head">
+        <p class="eyebrow"><span id="event-title"></span></p>
+        <h1 id="survey-title"></h1>
+        <div id="survey-intro" class="intro"></div>
+        <div id="attachments" class="attachments"></div>
+      </header>
+
+      <p class="section-hint">개혁안 <span id="prop-total"></span>개 — 각 안에 입장과 의견을 남겨주세요</p>
+      <div id="proposals"></div>
+
+      <section class="profile card">
+        <h2>참여자 정보 <span class="optional">(선택 — 안 적으셔도 됩니다)</span></h2>
+        <p class="muted">이름·연락처·소속 등 개인을 알아볼 수 있는 정보나 민감정보는 입력하지 마세요.</p>
+        <div id="profile-fields"></div>
+      </section>
+
+      <div id="submit-error" class="submit-error hidden" role="alert"></div>
+
+      <!-- 하단 고정 진행/제출 바 -->
+      <div class="sticky-bar">
+        <div class="progress"><span id="progress-count">0</span> / <span id="progress-total">0</span> 안에 응답함</div>
+        <button class="btn-primary btn-lg" id="submit">제출하기</button>
+      </div>
+    </section>
+
+    <!-- 완료 -->
+    <section id="state-done" class="state hidden">
+      <div class="check" aria-hidden="true">✓</div>
+      <p class="big">참여해 주셔서 감사합니다.</p>
+      <p class="muted" id="done-note"></p>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

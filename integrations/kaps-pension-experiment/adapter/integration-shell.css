@@ -1,0 +1,245 @@
+:root {
+  --ipol-header-height: 86px;
+  font-size: 16px;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+}
+
+.ipol-project-header {
+  min-height: 86px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(280px, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 12px clamp(18px, 3vw, 42px);
+  background:
+    radial-gradient(circle at 8% 20%, rgba(142, 223, 69, 0.14), transparent 12rem),
+    rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--sans);
+}
+
+.ipol-project-brand img {
+  display: block;
+  width: 140px;
+  height: auto;
+}
+
+.ipol-project-title {
+  display: grid;
+  gap: 2px;
+  padding-left: 22px;
+  border-left: 1px solid var(--line);
+}
+
+.ipol-project-title span {
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+
+.ipol-project-title strong {
+  font-family: var(--serif);
+  font-size: clamp(17px, 2vw, 25px);
+  letter-spacing: -0.03em;
+}
+
+.ipol-project-header nav {
+  display: flex;
+  gap: 8px;
+}
+
+.ipol-project-header nav a {
+  min-height: 38px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.ipol-project-header + #root {
+  height: calc(100dvh - var(--ipol-header-height));
+  min-height: 560px;
+}
+
+.ipol-project-header + #root > .h-screen {
+  height: 100% !important;
+  background: transparent !important;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+}
+
+#main-header {
+  background: linear-gradient(90deg, #06345a, #075f82 58%, #0c6f75);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+#main-header h1,
+#main-header p {
+  color: inherit;
+}
+
+#root .text-\[9px\] { font-size: 11px !important; }
+#root .text-\[10px\],
+#root .text-\[11px\] { font-size: 12px !important; }
+
+#main-header button.rounded-full {
+  min-height: 40px;
+  padding: 7px 13px !important;
+  border-radius: 4px !important;
+}
+
+#main-header button.rounded-full:not(:disabled) {
+  background: var(--lime) !important;
+  color: var(--ink) !important;
+  box-shadow: none !important;
+}
+
+#main-header button.rounded-full:disabled {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.07) !important;
+  color: rgba(255, 255, 255, 0.72) !important;
+  font-style: normal !important;
+  opacity: 1;
+}
+
+#root main > div {
+  background: transparent !important;
+}
+
+.ipol-profile-edit {
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ipol-profile-edit:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+@media (max-width: 1020px) {
+  .ipol-project-header {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .ipol-project-header nav {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  :root {
+    --ipol-header-height: 106px;
+  }
+
+  .ipol-project-header {
+    min-height: 106px;
+    grid-template-columns: 1fr auto;
+    gap: 8px 16px;
+    padding: 10px 14px;
+  }
+
+  .ipol-project-brand img {
+    width: 102px;
+  }
+
+  .ipol-project-title {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding: 7px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .ipol-project-title strong {
+    font-size: 17px;
+  }
+
+  .ipol-project-header + #root {
+    height: calc(100dvh - var(--ipol-header-height));
+    min-height: 520px;
+  }
+
+  #main-header {
+    justify-content: flex-end;
+    padding-inline: 14px;
+  }
+
+  #main-header > div:first-child {
+    display: none;
+  }
+
+  #main-header > div:last-child {
+    gap: 8px;
+  }
+
+  #root main,
+  #root main > div,
+  #main-scroll-content,
+  #main-scroll-content > div {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  #main-scroll-content {
+    padding: 16px !important;
+  }
+
+  #presurvey-simple-view [id^="q-container-"] > div:last-child {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px !important;
+  }
+
+  #presurvey-simple-view [id^="q-container-"] > div:last-child > div {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: 100%;
+    display: grid !important;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px !important;
+  }
+
+  #presurvey-simple-view [id^="q-container-"] > div:last-child button {
+    width: 100% !important;
+  }
+
+  #presurvey-simple-view [id^="q-container-"] > div:last-child > span {
+    width: auto !important;
+  }
+
+  #presurvey-simple-view [id^="q-container-"] > div:last-child > span:last-child {
+    text-align: right;
+  }
+
+  .ipol-profile-edit {
+    padding-inline: 9px;
+    font-size: 11px;
+  }
+}

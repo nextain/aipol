@@ -1,0 +1,262 @@
+<!doctype html>
+
+<html lang="ko">
+  <head>
+    <meta
+      content="AIPOL의 현재 구현, 첫 실증 일정과 알려진 한계."
+      name="description"
+    />
+    <link href="https://aipol.kaps.or.kr/status/" rel="canonical" />
+    <link
+      href="https://aipol.kaps.or.kr/status/"
+      hreflang="ko"
+      rel="alternate"
+    />
+    <link
+      href="https://aipol.kaps.or.kr/en/status/"
+      hreflang="en"
+      rel="alternate"
+    />
+    <link
+      href="https://aipol.kaps.or.kr/status/"
+      hreflang="x-default"
+      rel="alternate"
+    />
+    <meta content="website" property="og:type" />
+    <meta content="AIPOL" property="og:site_name" />
+    <meta content="현재 상태 — AIPOL" property="og:title" />
+    <meta
+      content="AIPOL의 현재 구현, 첫 실증 일정과 알려진 한계."
+      property="og:description"
+    />
+    <meta content="https://aipol.kaps.or.kr/status/" property="og:url" />
+    <meta content="ko_KR" property="og:locale" />
+    <meta content="en_US" property="og:locale:alternate" />
+    <meta
+      content="https://aipol.kaps.or.kr/assets/og-aipol.png"
+      property="og:image"
+    />
+    <meta content="1200" property="og:image:width" />
+    <meta content="630" property="og:image:height" />
+    <meta content="summary_large_image" name="twitter:card" />
+    <meta content="현재 상태 — AIPOL" name="twitter:title" />
+    <meta
+      content="AIPOL의 현재 구현, 첫 실증 일정과 알려진 한계."
+      name="twitter:description"
+    />
+    <meta
+      content="https://aipol.kaps.or.kr/assets/og-aipol.png"
+      name="twitter:image"
+    />
+
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <meta content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" name="robots" />
+    <title>현재 상태 — AIPOL</title>
+    <link href="/assets/site.css" rel="stylesheet" />
+    <link href="/assets/favicon.svg" rel="icon" type="image/svg+xml" />
+    <script defer="" src="/assets/site.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">본문으로 건너뛰기</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/"><img alt="AIPOL" class="brand-logo" src="/assets/aipol-logo.png"></a
+        ><button
+          aria-controls="site-nav"
+          aria-expanded="false"
+          aria-label="메뉴 열기"
+          class="nav-toggle"
+          data-nav-toggle=""
+          type="button"
+        >
+          메뉴
+        </button>
+        <nav
+          aria-label="주요 메뉴"
+          class="site-nav"
+          data-nav=""
+          data-open="false"
+          id="site-nav"
+        >
+          <a href="/project/">소개</a><a href="/method/">활용 방법</a
+          ><a href="/cases/">사례</a><a href="/events/">이벤트</a
+          ><a href="/participate/">참여</a><a href="/global/">해외동향</a>
+
+          <a class="lang-switch" href="/en/status/" hreflang="en" lang="en"
+            >EN</a
+          >
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <header class="page-hero">
+        <div class="container">
+          <p class="eyebrow">Project status · 2026.07.21</p>
+          <h1>구현된 것, 예정된 것, 아직 없는 것.</h1>
+          <p class="page-lead">
+            프로젝트의 원칙과 구현 상태를 섞지 않고 현재 기준으로 공개합니다.
+          </p>
+        </div>
+      </header>
+      <section class="section">
+        <div class="container">
+          <div class="grid-3">
+            <article class="card">
+              <span class="status-badge status-live">구현됨</span>
+              <h3>오픈소스 기반</h3>
+              <ul>
+                <li>도메인 중립 코어와 연금 플러그인</li>
+                <li>사람 승인·정밀 숫자·목적·여론 단정 방어</li>
+                <li>경량 현장 행사 도구 MVP</li>
+                <li>가상 시민 사전 실행과 공개 보고서</li>
+              </ul>
+            </article>
+            <article class="card">
+              <span class="status-badge status-planned">2026.08.12 예정</span>
+              <h3>첫 실제 청중 현장 실증</h3>
+              <ul>
+                <li>한국정책학회 플래그십 세션</li>
+                <li>사전등록 청중 100명 예정</li>
+                <li>두 차례 현장 모바일 투표</li>
+                <li>행사 후 실행 조건·결과·한계 공개</li>
+              </ul>
+            </article>
+            <article class="card">
+              <span class="status-badge status-next">후속 과제</span>
+              <h3>온라인 운영과 확장</h3>
+              <ul>
+                <li>행사 도구와 코어 가드 통합</li>
+                <li>관리형 DB·역할 인증·영속 작업 큐</li>
+                <li>실제 참가자 개인정보 운영 체계</li>
+                <li>두 번째 정책 분야와 현장 실증</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section class="section surface">
+        <div class="container">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Known limits</p>
+              <h2>현재 알려진 제약</h2>
+            </div>
+            <p>이 목록은 실패가 아니라 다음 검토와 기여의 출발점입니다.</p>
+          </div>
+          <table class="status-table">
+            <thead>
+              <tr>
+                <th>영역</th>
+                <th>현재 상태</th>
+                <th>영향</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>코어·행사 도구</td>
+                <td>가드 개념을 각각 구현</td>
+                <td>두 층의 규칙 정합을 별도로 검증해야 함</td>
+              </tr>
+              <tr>
+                <td>AI 실행</td>
+                <td>외부 한국어 LLM API 의존</td>
+                <td>키·네트워크·공급자 장애에 영향받음</td>
+              </tr>
+              <tr>
+                <td>인터넷 운영</td>
+                <td>로컬 SQLite·단일 관리자 비밀번호</td>
+                <td>실제 개인정보를 받는 공개 운영에 부적합</td>
+              </tr>
+              <tr>
+                <td>실증</td>
+                <td>가상 시민 사전 검증 완료, 실제 현장 전</td>
+                <td>민주적 효과나 실제 청중 반응을 아직 말할 수 없음</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="section">
+        <div class="container">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Publishing checklist</p>
+              <h2>행사 전과 후를 수동 검수합니다.</h2>
+            </div>
+            <p>
+              날짜가 지났다고 사이트 문구를 자동으로 바꾸지 않습니다. 실제 실행
+              기록을 확인한 뒤 게시합니다.
+            </p>
+          </div>
+          <div class="grid-2">
+            <article class="card">
+              <h3>행사 전</h3>
+              <ul>
+                <li>모든 현장 문구가 미래 시제인지</li>
+                <li>가상 시민 보고서에 실제 여론 아님 고지가 있는지</li>
+                <li>팀·시간·장소가 최신 행사 안내와 일치하는지</li>
+                <li>실제 참가자 데이터가 정적 사이트에 없는지</li>
+              </ul>
+            </article>
+            <article class="card">
+              <h3>행사 후</h3>
+              <ul>
+                <li>실제 실행 단계와 변경 사항을 기록했는지</li>
+                <li>사전 가상 실험과 실제 데이터를 분리했는지</li>
+                <li>표본·프레이밍·실패·미반영 한계를 함께 공개했는지</li>
+                <li>팀 검토 뒤 최종 갱신일을 바꿨는지</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section class="section surface">
+        <div class="container">
+          <div class="declaration">
+            <div aria-hidden="true" class="declaration-mark">i</div>
+            <div>
+              <strong>현재 사이트는 검색엔진에 공개되어 있습니다.</strong>
+              <p>
+                공개 연구 자료와 프로젝트 페이지는 검색엔진이 색인할 수 있습니다.
+                검토 중인 실험 입력 화면은 계속 검색에서 제외하며, 민감한 자료는
+                공개 사이트에 포함하지 않습니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <div class="container">
+        <div class="footer-grid">
+          <div>
+            <p class="footer-title">Project status</p>
+            <p>
+              최종 갱신 2026-07-21. 실제 상태가 바뀌면 검수 후 업데이트합니다.
+            </p>
+          </div>
+          <div>
+            <h2>Explore</h2>
+            <ul>
+              <li><a href="/project/">프로젝트</a></li>
+              <li><a href="/cases/">실증 사례</a></li>
+              <li><a href="/trust/">신뢰 원칙</a></li>
+            </ul>
+          </div>
+          <div>
+            <h2>Source</h2>
+            <ul>
+              <li><a href="/participate/">참여 방식</a></li>
+              <li><a href="/open-source/">공개 준비</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>검색엔진 공개 · 실험 입력 화면 제외 · 개인정보 없음</span
+          ><span>Apache-2.0 · <span data-year="">2026</span></span>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

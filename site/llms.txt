@@ -1,0 +1,42 @@
+# AIPOL
+
+> 넥스테인과 한국정책학회가 함께 만든 AI 기반 정책개발 오픈소스 R&D 프로젝트입니다.
+> An open-source R&D project for AI-assisted policy development, created by NEXTAIN and the Korean Association for Policy Studies.
+
+## Core pages
+
+- [Project overview](https://aipol.kaps.or.kr/project/): 목적, 원칙, 히스토리
+- [How to use](https://aipol.kaps.or.kr/method/): 정책개발 활용 방법
+- [Cases](https://aipol.kaps.or.kr/cases/): 활용 사례
+- [Pension reform](https://aipol.kaps.or.kr/cases/pension/): 첫 실증 사례
+- [Events](https://aipol.kaps.or.kr/events/): 행사와 현장 실험
+- [Global watch](https://aipol.kaps.or.kr/global/): AI 기반 정책개발 해외동향
+- [Participation](https://aipol.kaps.or.kr/participate/): 오픈소스 참여 방법
+
+## English
+
+- [English home](https://aipol.kaps.or.kr/en/)
+- [English project overview](https://aipol.kaps.or.kr/en/project/)
+- [English cases](https://aipol.kaps.or.kr/en/cases/)
+- [English global watch](https://aipol.kaps.or.kr/en/global/)
+
+## Editorial and safety notes
+
+- AI는 정책결정을 대신하지 않습니다. AI does not make policy decisions.
+- 연금개혁은 첫 적용 사례입니다. Pension reform is the first application.
+- 연금 사례는 행정안전부 자료로 연령 구성을 정하고 NVIDIA Nemotron-Personas-Korea의 합성 페르소나 100명을 사용했습니다. 실제 사람이나 대표 표본이 아닙니다.
+- The pension case uses MOIS data for its age allocation and 100 synthetic personas from NVIDIA Nemotron-Personas-Korea. They are not real people or a representative sample.
+- 해외동향은 공식 원문을 기반으로 Solar Open2가 번역·요약하고 Nemotron 3 Ultra가 적대 검토합니다.
+- Global-watch drafts are translated and summarized with Solar Open2 and adversarially checked with Nemotron 3 Ultra against official sources.
+- 공개 연구·프로젝트·법적 안내 페이지는 검색엔진 색인을 허용합니다. 설문·실험 입력 화면과 관리자 화면은 제외합니다.
+- Public research, project, and legal-information pages may be indexed. Survey, experiment-input, and administration interfaces are excluded.
+
+## Organisations
+
+- [NEXTAIN](https://about.nextain.io)
+- [Naia](https://naia.nextain.io)
+- [한국정책학회 / Korean Association for Policy Studies](https://kaps.or.kr/)
+
+## License
+
+Apache-2.0

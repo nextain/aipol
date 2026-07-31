@@ -1,0 +1,6 @@
+{
+  "name": "공적연금개혁 AI 숙의실험 시뮬레이터",
+  "description": "국민연금과 기초연금 개혁안의 1·2차 투표와 AI 시나리오 분석, 숙의 질의응답을 지원하는 공적연금개혁 AI 숙의실험 플로우 시뮬레이터입니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

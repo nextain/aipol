@@ -1,0 +1,19 @@
+{
+  "redirects": [
+    {
+      "source": "/index.pdf",
+      "destination": "https://aipol.kaps.or.kr/cases/pension/",
+      "permanent": true
+    },
+    {
+      "source": "/",
+      "destination": "https://aipol.kaps.or.kr/cases/pension/",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "destination": "https://aipol.kaps.or.kr/cases/pension/",
+      "permanent": true
+    }
+  ]
+}

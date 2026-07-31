@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "deployInfrastructure": {
+      "value": false
+    },
+    "deployApp": {
+      "value": false
+    },
+    "enableExternalIngress": {
+      "value": false
+    },
+    "collectionEnabled": {
+      "value": false
+    },
+    "chatbotEnabled": {
+      "value": false
+    },
+    "batchEnabled": {
+      "value": false
+    },
+    "receiptVerifierEnabled": {
+      "value": false
+    },
+    "auditImmutabilityPolicyLocked": {
+      "value": false
+    }
+  }
+}

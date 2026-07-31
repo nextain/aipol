@@ -1,0 +1,15 @@
+**
+!event-tool/
+!event-tool/*.py
+!event-tool/requirements.txt
+!event-tool/web/
+!event-tool/web/**
+!event-tool/instances/
+!event-tool/instances/**
+!policy_lab/
+!policy_lab/**
+!deploy/
+!deploy/azure/
+!deploy/azure/event-tool-dev/
+!deploy/azure/event-tool-dev/serialized_app.py
+!deploy/azure/event-tool-dev/backup_sqlite.py

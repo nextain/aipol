@@ -1,0 +1,27 @@
+project: "AIPOL"
+updated: "2026-07-31"
+status: "public_artifacts_withdrawn"
+description: |
+  과거 합성 실행은 미공개 전문가안과 내부 운영 자료에서 파생된 입력을 포함해 공개 경계에서 철회했다.
+  공개 저장소의 instances/와 정적 보고서·다운로드를 제거했다.
+
+public_boundary:
+  allowed:
+    - "공개 라이선스와 출처가 확인된 합성 데이터 생성 코드"
+    - "개인을 식별하지 않는 데이터 계약과 방어장치"
+    - "공개가 확인된 정책 입력으로 새로 실행한 집계 결과"
+  prohibited:
+    - "수신 HWP/PDF/XLSX 원본과 그 전사·요약"
+    - "미공개 전문가안·재정 가정에서 파생된 입력과 결과"
+    - "회의·진행안·리허설 프롬프트·AI 검토 원문·운영자 계정 정보"
+    - "실제 참여자 원시 응답이나 재식별 가능한 소집단 자료"
+
+storage:
+  internal_repository: "nextain/policy-lab-private"
+  rule: "공개 승인 전 자료와 실행 증거는 비공개 저장소에서만 관리한다."
+
+republish_gate:
+  - "입력 자료의 공개 상태·저작권·개인정보를 확인한다."
+  - "공개 입력만으로 새 실행을 재현한다."
+  - "산출물과 Git 이력의 비공개 정보 패턴을 검사한다."
+  - "사람 검토와 Pull Request 승인을 거친다."

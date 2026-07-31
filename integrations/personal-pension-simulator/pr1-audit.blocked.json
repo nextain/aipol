@@ -1,0 +1,35 @@
+{
+  "status": "blocked",
+  "audited_at": "2026-07-28T23:55:00+09:00",
+  "source": {
+    "repository": "https://github.com/armybonita/2026-Flagship-Session-KAPS-Human-AI-Collaborative-Policy-Lab-",
+    "pull_request": 1,
+    "commit": "fcbae3c0dab18476e2274f9e4ff91dadeb2db944",
+    "subtree": "cc39021bc7d914320064856966734ef377c2a8c8",
+    "page_sha256": "95d9e5060980e11e52404d65e15e75b04f1324173506992c76080d4ab4c7fc51",
+    "lockfile_sha256": "10d4e8490513450953f9645d21ad06daed06575286a91f8a97745e22863319c2"
+  },
+  "local_verification": {
+    "node": "v24.18.0",
+    "npm": "11.16.0",
+    "direct_vinext_build": "pass",
+    "rendered_html_test": "pass",
+    "artifact_sha256": "758e27994eb55bd5eafda27b374180723edaea51fbce5048770e753938a44df7",
+    "declared_build_script_on_windows": "blocked_by_crlf_checkout"
+  },
+  "privacy_static_audit": {
+    "client_only_calculation": true,
+    "raw_input_transport_found": false,
+    "persistence_found": false,
+    "runtime_network_test_approved": false
+  },
+  "blocking_findings": [
+    "missing_license_and_notice",
+    "unapproved_placeholder_policy_values",
+    "missing_csp_and_security_headers",
+    "unapproved_external_origin",
+    "cross_platform_build_not_reproducible",
+    "rendered_output_may_expose_local_absolute_paths"
+  ],
+  "collection_enabled": false
+}

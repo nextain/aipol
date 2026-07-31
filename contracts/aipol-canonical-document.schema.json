@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/contracts/aipol-canonical-document.schema.json",
+  "title": "AIPOL approved canonical document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["category", "document_id", "document_version", "body", "bound_settings_hash", "evidence", "content_hash", "approval_id", "approved_by", "approved_at", "registered_by"],
+  "properties": {
+    "category": {"enum": ["policy_options", "calculation", "measurement", "privacy", "research_ethics", "source_license", "procedure"]},
+    "document_id": {"type": "string", "minLength": 1},
+    "document_version": {"type": "string", "minLength": 1},
+    "body": {"type": "string", "minLength": 1},
+    "bound_settings_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence": {"type": "object"},
+    "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "approval_id": {"type": "string", "minLength": 1},
+    "approved_by": {"type": "string", "minLength": 1},
+    "approved_at": {"type": "string", "format": "date-time"},
+    "registered_by": {"type": "string", "minLength": 1}
+  }
+}

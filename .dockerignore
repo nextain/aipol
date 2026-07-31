@@ -1,0 +1,19 @@
+.git
+.github
+.agents
+.users
+.pytest_cache
+__pycache__
+*.pyc
+
+# event-tool 이미지는 event-tool/, policy_lab/ 및 배포 보조 파일 하나만 복사합니다.
+# 공개 사이트, 연구 산출물, 로컬·비공개 자료는 빌드 컨텍스트에서 제외합니다.
+site
+docs
+tests
+instances
+content
+bots
+private
+data-private
+tmp

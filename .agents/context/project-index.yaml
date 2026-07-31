@@ -1,0 +1,81 @@
+project: "AIPOL"
+version: "0.3.1"
+updated: "2026-07-31"
+description: |
+  Human+AI 정책 설계·실험 프레임워크. 도메인 중립 숙의 프로토콜 + 방어장치 내장 엔진.
+  연금(domains/pension)이 첫 레퍼런스 구현. 한국정책학회 "연금개혁-AI 정책실험"(2026-08-12) 발.
+  프로젝트 전체 대외 사이트는 aipol.kaps.or.kr에서 한국어·영어로 공개 운영 중이다.
+
+# 세션 시작 시 반드시 읽는 파일 (순서 중요)
+mandatory_reads:
+  - file: .agents/context/agents-rules.json
+    purpose: "규칙 SoT — 방어장치 불변식 + 금지/필수."
+  - file: .agents/context/project-index.yaml
+    purpose: "이 인덱스."
+  - file: RFC-0001-framework.md
+    purpose: "도메인 중립 아키텍처 SoT."
+
+# 진입점
+entry_points:
+  - file: AGENTS.md
+    purpose: "harness 진입점 (canonical SoT). CLAUDE.md/GEMINI.md 동일 내용."
+  - file: README.md
+    purpose: "공개 진입점."
+  - file: policy_lab/core/__init__.py
+    purpose: "코어 public API."
+  - file: site/index.html
+    purpose: "한국어 대외 사이트 진입점. 영어는 site/en/index.html."
+  - file: bots/policy_news/README.md
+    purpose: "해외동향 수집·번역·적대검토·발행 파이프라인."
+
+# 핵심 설계 문서
+design_docs:
+  - file: RFC-0001-framework.md
+    purpose: "아키텍처·핵심개념·프로토콜(§5)·방어장치(§6)·검증전략·plugin 인터페이스."
+  - file: domains/pension/spec.md
+    purpose: "연금 레퍼런스 명세 — 레버·근거·현재 행사 흐름·미래 시나리오 비사용 결정."
+
+# 온디맨드 로딩 — 필요한 것만
+on_demand_loading:
+  private_materials:
+    - repository: nextain/policy-lab-private
+      local_path: private/
+      tracked: false
+      topics: [수신 원문, 내부 논의, 회의록, 미공개 초안, 공개 경계]
+      rule: "이 자료는 AIPOL 공개 저장소에 넣지 않고 비공개 저장소만 사용한다. 공개 전환 전 Git 전체 이력을 검사한다."
+  guards:
+    - file: policy_lab/core/guards.py
+      topics: [방어장치, A/B분리, human_gate, 화이트리스트, 단일숫자, GuardViolation]
+  protocol:
+    - file: policy_lab/core/protocols.py
+      topics: [프로토콜, 12단계, stage, 숙의]
+    - file: policy_lab/core/deliberation.py
+      topics: [vote, segment, mind_change, 선택변화]
+  plugin:
+    - file: policy_lab/core/plugin.py
+      topics: [DomainPlugin, 새도메인, 인터페이스]
+  domain_pension:
+    - file: policy_lab/domains/pension/
+      topics: [연금, pension, 수급연령, 국고투입, 기초연금, 교정숫자]
+  public_site:
+    - file: site/README.md
+      topics: [대외사이트, i18n, noindex, Azure Static Web Apps, policylab.nextain.io]
+    - file: docs/public-site-design.md
+      topics: [사이트맵, 디자인, 프로젝트 우선 정보구조, 연금 첫 사례]
+  policy_news:
+    - file: bots/policy_news/README.md
+      topics: [해외동향, Solar Open2, AnyLLM, Grok 4.3, 비공개 검토 레코드, Azure Container Apps Jobs, 매일 06시]
+    - file: deploy/azure/policy-news-prod/README.md
+      topics: [운영배포, 일정, 수동검증, 비밀키 최소권한, 삭제없는 Blob 역할]
+  research_data:
+    - file: .agents/context/research-data.yaml
+      topics: [연구데이터, 공개철회, 비공개자료, 수신문서, 재공개조건, 개인정보]
+    - file: contracts/pension-synthetic-run.schema.json
+      topics: [데이터계약, JSON Schema, 재사용]
+
+# 컨텍스트 SoT 우선순위
+context_priority:
+  - .agents/context/agents-rules.json
+  - AGENTS.md
+  - RFC-0001-framework.md
+  - .agents/context/project-index.yaml

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/contracts/aipol-calculator-receipt.schema.json",
+  "title": "AIPOL calculator completion receipt contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_id",
+    "version",
+    "mode",
+    "issuer",
+    "audience",
+    "public_key_id",
+    "receipt_format",
+    "signature_algorithm"
+  ],
+  "properties": {
+    "contract_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "version": {"type": "string", "minLength": 1, "maxLength": 64},
+    "mode": {"const": "signed_one_time_completion"},
+    "issuer": {"type": "string", "format": "uri", "pattern": "^https://"},
+    "audience": {"type": "string", "minLength": 1, "maxLength": 256},
+    "public_key_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "receipt_format": {"const": "flattened_jws_json"},
+    "signature_algorithm": {"const": "EdDSA"}
+  }
+}

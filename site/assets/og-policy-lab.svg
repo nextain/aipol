@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Policy Lab</title>
+  <desc id="desc">NEXTAIN and the Korean Association for Policy Studies — Open-source AI policy R&amp;D</desc>
+  <rect width="1200" height="630" fill="#f3f0e8"/>
+  <path d="M0 0h1200v42H0z" fill="#173b36"/>
+  <g stroke="#c9cec6" stroke-width="1" opacity=".72">
+    <path d="M760 82v486M840 82v486M920 82v486M1000 82v486M1080 82v486"/>
+    <path d="M720 122h420M720 202h420M720 282h420M720 362h420M720 442h420M720 522h420"/>
+  </g>
+  <circle cx="786" cy="166" r="16" fill="#d9563f"/>
+  <circle cx="914" cy="276" r="16" fill="#173b36"/>
+  <circle cx="1054" cy="386" r="16" fill="#d9563f"/>
+  <path d="M802 166h74l38 110h102l38 110" fill="none" stroke="#173b36" stroke-width="4"/>
+  <text x="78" y="126" fill="#8f2f22" font-family="Arial, sans-serif" font-size="23" font-weight="700" letter-spacing="4">OPEN SOURCE AI POLICY R&amp;D</text>
+  <text x="72" y="290" fill="#173b36" font-family="Georgia, serif" font-size="104" font-weight="700">POLICY</text>
+  <text x="72" y="392" fill="#173b36" font-family="Georgia, serif" font-size="104" font-weight="700">LAB</text>
+  <text x="78" y="472" fill="#49635f" font-family="Arial, sans-serif" font-size="30">OPEN-SOURCE AI POLICY DEVELOPMENT</text>
+  <text x="78" y="534" fill="#173b36" font-family="Arial, sans-serif" font-size="25" font-weight="700">NEXTAIN × KAPS</text>
+</svg>

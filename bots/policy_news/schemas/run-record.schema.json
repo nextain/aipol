@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aipol.kaps.or.kr/schemas/policy-news/run-record-v1.json",
+  "title": "AIPOL policy-news auditable run record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "idempotency_key", "state", "source", "config_snapshot", "created_at", "updated_at", "attempts", "audit"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "run_id": {"type": "string", "pattern": "^[a-f0-9]{24}$"},
+    "idempotency_key": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "state": {"enum": ["discovered", "drafted", "review_blocked", "review_passed", "kb_compiled", "human_approved", "rejected", "published"]},
+    "source": {
+      "type": "object",
+      "required": ["source_id", "source_name", "source_url", "published", "country", "title", "fetched_at", "content_sha256", "license_note"],
+      "properties": {
+        "source_id": {"type": "string"}, "source_name": {"type": "string"},
+        "source_url": {"type": "string", "pattern": "^https://"}, "published": {"type": "string", "format": "date"},
+        "country": {"type": "string"}, "title": {"type": "string"}, "fetched_at": {"type": "string", "format": "date-time"},
+        "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "license_note": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "config_snapshot": {"type": "object"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "draft": {"type": ["object", "null"]},
+    "review": {"type": ["object", "null"]},
+    "kb": {"type": ["object", "null"]},
+    "attempts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 5}},
+    "audit": {"type": "array", "items": {"type": "object"}}
+  }
+}
