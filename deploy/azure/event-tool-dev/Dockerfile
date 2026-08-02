@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir --requirement /tmp/requirements.txt \
 # package. Keep this Dockerfile's build context at the repository root.
 COPY event-tool/*.py ./
 COPY event-tool/web ./web
+COPY event-tool/review-catalogs ./review-catalogs
 COPY policy_lab ./policy_lab
 COPY deploy/azure/event-tool-dev/serialized_app.py ./serialized_app.py
 COPY deploy/azure/event-tool-dev/backup_sqlite.py ./backup_sqlite.py

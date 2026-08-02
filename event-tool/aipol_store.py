@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import base64
 import json
 import os
 import re
@@ -664,6 +665,75 @@ CREATE TABLE IF NOT EXISTS aipol_experiment_audit_outbox (
 CREATE INDEX IF NOT EXISTS idx_aipol_experiment_audit_pending
 ON aipol_experiment_audit_outbox(delivered_at, created_at);
 
+CREATE TABLE IF NOT EXISTS aipol_review_seat_sets (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL,
+  snapshot_hash TEXT NOT NULL CHECK(length(snapshot_hash)=64),
+  idempotency_key TEXT NOT NULL,
+  credential_key_id TEXT NOT NULL,
+  issued_by TEXT NOT NULL,
+  issued_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  UNIQUE(experiment_id,idempotency_key),
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_review_seats (
+  id TEXT PRIMARY KEY,
+  review_id TEXT NOT NULL,
+  experiment_id TEXT NOT NULL,
+  logical_seat_id TEXT NOT NULL,
+  seat_position INTEGER NOT NULL CHECK(seat_position >= 1),
+  token_hash TEXT NOT NULL CHECK(length(token_hash)=64),
+  snapshot_hash TEXT NOT NULL CHECK(length(snapshot_hash)=64),
+  issued_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  UNIQUE(review_id,logical_seat_id),
+  FOREIGN KEY(review_id) REFERENCES aipol_review_seat_sets(id),
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_review_sessions (
+  id TEXT PRIMARY KEY,
+  seat_id TEXT NOT NULL UNIQUE,
+  experiment_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL CHECK(length(token_hash)=64),
+  exchange_nonce_hash TEXT NOT NULL CHECK(length(exchange_nonce_hash)=64),
+  snapshot_hash TEXT NOT NULL CHECK(length(snapshot_hash)=64),
+  issued_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  FOREIGN KEY(seat_id) REFERENCES aipol_review_seats(id),
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_review_revocations (
+  id TEXT PRIMARY KEY,
+  seat_id TEXT NOT NULL UNIQUE,
+  experiment_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  revoked_by TEXT NOT NULL,
+  revoked_at TEXT NOT NULL,
+  FOREIGN KEY(seat_id) REFERENCES aipol_review_seats(id),
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TRIGGER IF NOT EXISTS aipol_review_seat_sets_no_update
+BEFORE UPDATE ON aipol_review_seat_sets BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_review_seat_sets_no_delete
+BEFORE DELETE ON aipol_review_seat_sets BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_review_seats_no_update
+BEFORE UPDATE ON aipol_review_seats BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_review_seats_no_delete
+BEFORE DELETE ON aipol_review_seats BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_review_sessions_no_update
+BEFORE UPDATE ON aipol_review_sessions BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_review_sessions_no_delete
+BEFORE DELETE ON aipol_review_sessions BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_review_revocations_no_update
+BEFORE UPDATE ON aipol_review_revocations BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_review_revocations_no_delete
+BEFORE DELETE ON aipol_review_revocations BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+
 CREATE TRIGGER IF NOT EXISTS aipol_consents_no_update
 BEFORE UPDATE ON aipol_consents BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_consents_no_delete
@@ -975,6 +1045,21 @@ def init() -> None:
             connection.execute(
                 "ALTER TABLE aipol_experiments ADD COLUMN freeze_manifest_anchor_id TEXT"
             )
+        review_set_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(aipol_review_seat_sets)")
+        }
+        if "credential_key_id" not in review_set_columns:
+            connection.execute(
+                "ALTER TABLE aipol_review_seat_sets ADD COLUMN credential_key_id "
+                "TEXT NOT NULL DEFAULT 'legacy-event-session'"
+            )
+        review_seat_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(aipol_review_seats)")
+        }
+        if "seat_position" not in review_seat_columns:
+            connection.execute(
+                "ALTER TABLE aipol_review_seats ADD COLUMN seat_position INTEGER NOT NULL DEFAULT 1"
+            )
         selection_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(aipol_e2_selections)")
         }
@@ -1048,6 +1133,22 @@ def _id(prefix: str) -> str:
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _review_token_hash(secret: str, *, key_id: str) -> str:
+    return _secret_hash("professor-review-token", secret, key_id=key_id)
+
+
+def _review_exchange_nonce_hash(nonce: str, *, key_id: str) -> str:
+    return _secret_hash("professor-review-exchange-nonce", nonce, key_id=key_id)
+
+
+def _review_session_secret(
+    seat_id: str, review_secret: str, exchange_nonce: str, *, key_id: str,
+) -> str:
+    key = _credential_secret(key_id).encode()
+    payload = f"professor-review-session-v1:{seat_id}:{review_secret}:{exchange_nonce}".encode()
+    return base64.urlsafe_b64encode(hmac.new(key, payload, hashlib.sha256).digest()).decode().rstrip("=")
 
 
 LEGACY_CREDENTIAL_KEY_ID = "legacy-event-session"
@@ -3352,6 +3453,78 @@ def release_e2(
     return get_experiment(experiment_id)
 
 
+_REVIEW_STAGE_IDS = (
+    "intro", "expert-options", "m1-result", "personal-impact", "m2-result",
+    "t6-analysis", "d", "expert-audience", "d-prime", "m3-result", "closing",
+)
+_REVIEW_POLICY_COLUMNS = (
+    "수급개시연령", "기금운용전략(운영수익률)", "국고투입(지원)수준",
+)
+_REVIEW_PRIVATE_MARKERS = (
+    "pension-final-report-260713", "prelearning-1", "prelearning-2",
+    "step-by-step.pdf", ".agents/work", "/var/home/", "/home/luke/",
+)
+
+
+def _validate_review_catalog(content: dict) -> None:
+    packaged_path = Path(__file__).parent / "review-catalogs" / "pension-professor-review-v1.json"
+    try:
+        packaged = json.loads(packaged_path.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ExperimentError("승인된 교수 검토 카탈로그 패키지를 읽을 수 없습니다") from exc
+    if content != packaged:
+        raise ExperimentError("배포에 결박된 승인 교수 검토 카탈로그와 일치하지 않습니다")
+    if content.get("schema_version") != "professor-review-catalog-v1":
+        raise ExperimentError("교수 검토 카탈로그 schema_version이 올바르지 않습니다")
+    if "합성" not in str(content.get("disclosure") or ""):
+        raise ExperimentError("교수 검토 카탈로그에는 실제 결과가 아니라는 합성 고지가 필요합니다")
+    if tuple(content.get("policy_columns") or ()) != _REVIEW_POLICY_COLUMNS:
+        raise ExperimentError("정책안 표는 승인된 세 열과 순서를 사용해야 합니다")
+    options = content.get("policy_options")
+    if not isinstance(options, list) or [row.get("id") for row in options if isinstance(row, dict)] != ["A", "B", "C"]:
+        raise ExperimentError("교수 검토 카탈로그에는 A/B/C 정책안이 순서대로 필요합니다")
+    option_fields = {"id", "start_age", "fund_strategy", "government_support"}
+    if any(set(row) != option_fields or any(not str(row[field]).strip() for field in option_fields) for row in options):
+        raise ExperimentError("A/B/C 정책안은 승인된 세 레버의 완전한 값을 가져야 합니다")
+    stages = content.get("stages")
+    if not isinstance(stages, list) or tuple(
+        row.get("id") for row in stages if isinstance(row, dict)
+    ) != _REVIEW_STAGE_IDS:
+        raise ExperimentError("교수 검토 카탈로그는 승인된 11단계 순서를 따라야 합니다")
+    if any(
+        row.get("position") != index
+        or row.get("data_classification") != "synthetic_review_only"
+        or not str(row.get("title") or "").strip()
+        or not str(row.get("summary") or "").strip()
+        for index, row in enumerate(stages, start=1)
+    ):
+        raise ExperimentError("각 검토 단계에는 순서·제목·합성 분류가 필요합니다")
+    source = content.get("source_contract")
+    if not isinstance(source, dict) or source.get("mode") != "approved_derived_only":
+        raise ExperimentError("검토 자료는 승인된 파생 데이터만 사용할 수 있습니다")
+    hashes = source.get("document_hashes")
+    if not isinstance(hashes, list) or not hashes or any(
+        not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+        for value in hashes
+    ):
+        raise ExperimentError("검토 자료에는 정본 SHA-256 결박이 필요합니다")
+    mapping = source.get("page_mapping")
+    if not isinstance(mapping, dict) or set(mapping) != set(_REVIEW_STAGE_IDS) or any(
+        not isinstance(pages, list) or not pages or any(
+            isinstance(page, bool) or not isinstance(page, int) or page < 1 for page in pages
+        ) for pages in mapping.values()
+    ):
+        raise ExperimentError("11단계 모두 정본 페이지 매핑이 필요합니다")
+    golden = content.get("golden_contract")
+    if not isinstance(golden, dict) or golden != {
+        "reset_stage": "intro", "stage_count": 11, "actual_data_included": False,
+    }:
+        raise ExperimentError("검토 카탈로그의 golden contract가 올바르지 않습니다")
+    serialized = _json(content).lower()
+    if any(marker.lower() in serialized for marker in _REVIEW_PRIVATE_MARKERS):
+        raise ExperimentError("비공개 원문 파일명·경로는 공개 검토 카탈로그에 포함할 수 없습니다")
+
+
 def set_artifact(
     experiment_id: str,
     *,
@@ -3367,7 +3540,9 @@ def set_artifact(
     artifact_kind = ArtifactKind(kind)
     if artifact_kind is ArtifactKind.AI_OPINION:
         raise ExperimentError("AI 의견은 primary/fallback 후보 등록 API를 사용해야 합니다")
-    if artifact_kind is ArtifactKind.PERSONAL_COMPARISON:
+    if artifact_kind is ArtifactKind.REVIEW_CATALOG:
+        _validate_review_catalog(content)
+    elif artifact_kind is ArtifactKind.PERSONAL_COMPARISON:
         launch_url = str(content.get("launch_url") or "")
         parsed = urlparse(launch_url)
         if parsed.scheme != "https" or not parsed.netloc:
@@ -3548,6 +3723,359 @@ def set_artifact(
             payload={"kind": artifact.kind.value, "content_hash": digest, "approval_id": approval_id},
         )
     return artifact_public(experiment_id, artifact.kind.value, include_content=True)
+
+
+def _review_base_snapshot(connection: sqlite3.Connection, experiment_id: str) -> tuple[str, dict]:
+    experiment = get_experiment(experiment_id, connection)
+    if not experiment.get("freeze_manifest"):
+        raise ExperimentError("교수 검토 좌석은 실험 동결 뒤에만 발급할 수 있습니다")
+    if experiment["freeze_manifest"].get("collection_enabled") is not False or experiment["registration_open"]:
+        raise ExperimentError("교수 검토 좌석은 수집·등록이 닫힌 독립 실험에서만 발급할 수 있습니다")
+    if connection.execute(
+        "SELECT 1 FROM aipol_participants WHERE experiment_id=? LIMIT 1", (experiment_id,)
+    ).fetchone():
+        raise ExperimentError("참가자가 등록된 실험에는 교수 검토 좌석을 발급할 수 없습니다")
+    artifact = connection.execute(
+        "SELECT * FROM aipol_artifacts WHERE experiment_id=? AND kind=?",
+        (experiment_id, ArtifactKind.REVIEW_CATALOG.value),
+    ).fetchone()
+    if not artifact:
+        raise ExperimentError("승인된 교수 검토 카탈로그가 없습니다")
+    _parse_artifact(artifact, connection)
+    catalog = json.loads(artifact["content"])
+    _validate_review_catalog(catalog)
+    manifest_path = Path(__file__).parent / "review-catalogs" / "pension-professor-review-v1.manifest.json"
+    try:
+        review_manifest = json.loads(manifest_path.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ExperimentError("교수 검토 요구사항 manifest를 읽을 수 없습니다") from exc
+    expected_manifest_fields = {
+        "schema_version", "catalog_id", "scope", "requirements_ledger_hash",
+        "traceability_hash", "gap_analysis_hash", "implementation_plan_hash",
+        "uc_fe_contract_hash", "source_verification_receipt_file",
+        "source_verification_receipt_hash", "catalog_file",
+    }
+    if set(review_manifest) != expected_manifest_fields or any(
+        not re.fullmatch(r"[0-9a-f]{64}", str(review_manifest[field]))
+        for field in (
+            "requirements_ledger_hash", "traceability_hash", "gap_analysis_hash",
+            "implementation_plan_hash", "uc_fe_contract_hash",
+            "source_verification_receipt_hash",
+        )
+    ):
+        raise ExperimentError("교수 검토 요구사항 manifest 계약이 올바르지 않습니다")
+    if review_manifest["source_verification_receipt_file"] != (
+        "pension-professor-review-v1.source-receipt.json"
+    ):
+        raise ExperimentError("교수 검토 원문 검증 영수증 파일이 올바르지 않습니다")
+    receipt_path = manifest_path.parent / review_manifest["source_verification_receipt_file"]
+    try:
+        receipt_bytes = receipt_path.read_bytes()
+        source_receipt = json.loads(receipt_bytes)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ExperimentError("교수 검토 원문 검증 영수증을 읽을 수 없습니다") from exc
+    if not hmac.compare_digest(
+        hashlib.sha256(receipt_bytes).hexdigest(),
+        review_manifest["source_verification_receipt_hash"],
+    ):
+        raise ExperimentError("교수 검토 원문 검증 영수증 해시가 일치하지 않습니다")
+    if (
+        source_receipt.get("schema_version") != "professor-source-verification-receipt-v1"
+        or source_receipt.get("source_sha256") != catalog["source_contract"]["document_hashes"]
+        or source_receipt.get("catalog_sha256")
+        != hashlib.sha256(
+            (manifest_path.parent / review_manifest["catalog_file"]).read_bytes()
+        ).hexdigest()
+        or set(source_receipt.get("stage_page_text_sha256") or {}) != set(_REVIEW_STAGE_IDS)
+    ):
+        raise ExperimentError("교수 검토 원문 검증 영수증 계약이 올바르지 않습니다")
+    runtime = {
+        "build_commit": os.environ.get("AIPOL_BUILD_COMMIT", ""),
+        "image_digest": os.environ.get("AIPOL_IMAGE_DIGEST", ""),
+        "db_instance_id": os.environ.get("AIPOL_DB_INSTANCE_ID", ""),
+        "db_seed_hash": os.environ.get("AIPOL_DB_SEED_HASH", ""),
+        "deployment_revision": os.environ.get("AIPOL_DEPLOYMENT_REVISION", ""),
+        "public_origin": os.environ.get("AIPOL_PUBLIC_ORIGIN", ""),
+    }
+    if any(not value for value in runtime.values()):
+        raise ExperimentError("검토 좌석 발급에는 build/image/DB/deployment/origin 결박이 필요합니다")
+    if not re.fullmatch(r"[0-9a-f]{40}", runtime["build_commit"]):
+        raise ExperimentError("AIPOL_BUILD_COMMIT은 40자리 Git commit이어야 합니다")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", runtime["image_digest"]):
+        raise ExperimentError("AIPOL_IMAGE_DIGEST는 sha256 digest여야 합니다")
+    if not re.fullmatch(r"[0-9a-f]{64}", runtime["db_seed_hash"]):
+        raise ExperimentError("AIPOL_DB_SEED_HASH는 SHA-256이어야 합니다")
+    parsed_origin = urlparse(runtime["public_origin"])
+    if (
+        parsed_origin.scheme != "https"
+        or not parsed_origin.hostname
+        or parsed_origin.username is not None
+        or parsed_origin.password is not None
+        or parsed_origin.path not in ("", "/")
+        or parsed_origin.params
+        or parsed_origin.query
+        or parsed_origin.fragment
+    ):
+        raise ExperimentError("AIPOL_PUBLIC_ORIGIN은 HTTPS origin이어야 합니다")
+    runtime_config_hash = content_hash({
+        "event_env": os.environ.get("EVENT_ENV", "development").lower(),
+        "review_cookie_path": "/api/aipol/review",
+        "review_max_ttl_seconds": 2_592_000,
+        "review_schema": "aipol-review-schema-v1",
+    })
+    envelope = {
+        "contract": "professor-review-snapshot-v1",
+        "experiment_id": experiment_id,
+        "experiment_version": experiment["experiment_version"],
+        "freeze_manifest": experiment["freeze_manifest"],
+        "review_catalog_hash": artifact["content_hash"],
+        "review_manifest_hash": content_hash(review_manifest),
+        "review_manifest": review_manifest,
+        "procedure_version": experiment["procedure_config"].get("version"),
+        "runtime": runtime,
+        "runtime_config_hash": runtime_config_hash,
+        "schema_contract": "aipol-review-schema-v1",
+    }
+    return content_hash(envelope), catalog
+
+
+def _review_set_snapshot(
+    connection: sqlite3.Connection, review_id: str,
+) -> tuple[str, dict]:
+    seat_set = connection.execute(
+        "SELECT * FROM aipol_review_seat_sets WHERE id=?", (review_id,)
+    ).fetchone()
+    if not seat_set:
+        raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+    base_hash, catalog = _review_base_snapshot(connection, seat_set["experiment_id"])
+    seats = connection.execute(
+        "SELECT logical_seat_id FROM aipol_review_seats WHERE review_id=? ORDER BY seat_position",
+        (review_id,),
+    ).fetchall()
+    snapshot_hash = content_hash({
+        "contract": "professor-review-seat-set-snapshot-v1",
+        "base_snapshot_hash": base_hash,
+        "review_id": review_id,
+        "authorized_seats": [row["logical_seat_id"] for row in seats],
+        "credential_key_id": seat_set["credential_key_id"],
+        "issued_at": seat_set["issued_at"],
+        "expires_at": seat_set["expires_at"],
+    })
+    if not hmac.compare_digest(snapshot_hash, seat_set["snapshot_hash"]):
+        raise ImmutableRecordConflict("review seat-set snapshot drift detected")
+    return snapshot_hash, catalog
+
+
+def issue_review_seat_set(
+    experiment_id: str,
+    *,
+    logical_seat_ids: list[str],
+    expires_in_seconds: int,
+    idempotency_key: str,
+    issued_by: str,
+) -> dict:
+    if (
+        not isinstance(logical_seat_ids, list)
+        or not 1 <= len(logical_seat_ids) <= 20
+        or len(set(logical_seat_ids)) != len(logical_seat_ids)
+        or any(not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{2,63}", value) for value in logical_seat_ids)
+    ):
+        raise ExperimentError("review logical seat은 3~64자의 고유 안전 식별자여야 합니다")
+    if isinstance(expires_in_seconds, bool) or not 60 <= expires_in_seconds <= 2_592_000:
+        raise ExperimentError("review 좌석 만료는 60초~30일이어야 합니다")
+    if not isinstance(idempotency_key, str) or not 8 <= len(idempotency_key) <= 128:
+        raise ExperimentError("review 좌석 idempotency_key는 8~128자여야 합니다")
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=expires_in_seconds)
+    review_id = _id("review")
+    seats: list[dict] = []
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        base_snapshot_hash, _ = _review_base_snapshot(connection, experiment_id)
+        experiment = get_experiment(experiment_id, connection)
+        credential_key_id = str(experiment["credential_key_id"])
+        _credential_secret(credential_key_id)
+        if connection.execute(
+            "SELECT 1 FROM aipol_review_seat_sets WHERE experiment_id=? AND idempotency_key=?",
+            (experiment_id, idempotency_key),
+        ).fetchone():
+            raise IdempotencyConflict("review 좌석 원문 토큰은 한 번만 전달됩니다")
+        snapshot_hash = content_hash({
+            "contract": "professor-review-seat-set-snapshot-v1",
+            "base_snapshot_hash": base_snapshot_hash,
+            "review_id": review_id,
+            "authorized_seats": logical_seat_ids,
+            "credential_key_id": credential_key_id,
+            "issued_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+        })
+        connection.execute(
+            "INSERT INTO aipol_review_seat_sets VALUES(?,?,?,?,?,?,?,?)",
+            (
+                review_id, experiment_id, snapshot_hash, idempotency_key,
+                credential_key_id, issued_by, now.isoformat(), expires_at.isoformat(),
+            ),
+        )
+        for seat_position, logical_seat_id in enumerate(logical_seat_ids, start=1):
+            seat_id = _id("rseat")
+            secret = secrets.token_urlsafe(32)
+            connection.execute(
+                "INSERT INTO aipol_review_seats VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    seat_id, review_id, experiment_id, logical_seat_id, seat_position,
+                    _review_token_hash(secret, key_id=credential_key_id), snapshot_hash, now.isoformat(),
+                    expires_at.isoformat(),
+                ),
+            )
+            seats.append({
+                "logical_seat_id": logical_seat_id,
+                "review_token": f"{seat_id}.{secret}",
+                "snapshot_hash": snapshot_hash,
+                "expires_at": expires_at.isoformat(),
+            })
+        _queue_experiment_audit(
+            connection, actor=issued_by, action="experiment.review_seats.issued",
+            experiment_id=experiment_id,
+            payload={"review_id": review_id, "seat_count": len(seats), "snapshot_hash": snapshot_hash},
+        )
+    return {"review_id": review_id, "snapshot_hash": snapshot_hash, "seats": seats}
+
+
+def _split_review_token(token: str, expected_prefix: str) -> tuple[str, str]:
+    if not isinstance(token, str) or token.count(".") != 1:
+        raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+    record_id, secret = token.split(".", 1)
+    if not record_id.startswith(expected_prefix) or len(secret) < 43:
+        raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+    return record_id, secret
+
+
+def exchange_review_token(experiment_id: str, review_token: str, exchange_nonce: str) -> str:
+    seat_id, secret = _split_review_token(review_token, "rseat-")
+    if not isinstance(exchange_nonce, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", exchange_nonce):
+        raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+    now = datetime.now(timezone.utc)
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        seat = connection.execute(
+            "SELECT s.*,ss.credential_key_id,r.id AS revoked FROM aipol_review_seats s "
+            "JOIN aipol_review_seat_sets ss ON ss.id=s.review_id "
+            "LEFT JOIN aipol_review_revocations r ON r.seat_id=s.id WHERE s.id=? AND s.experiment_id=?",
+            (seat_id, experiment_id),
+        ).fetchone()
+        if (
+            not seat
+            or seat["revoked"] is not None
+            or datetime.fromisoformat(seat["expires_at"]) <= now
+            or not hmac.compare_digest(
+                seat["token_hash"], _review_token_hash(secret, key_id=seat["credential_key_id"])
+            )
+        ):
+            raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+        try:
+            current_snapshot, _ = _review_set_snapshot(connection, seat["review_id"])
+        except ImmutableRecordConflict as exc:
+            raise ParticipantAuthenticationError("검토 인증에 실패했습니다") from exc
+        if not hmac.compare_digest(seat["snapshot_hash"], current_snapshot):
+            raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+        nonce_hash = _review_exchange_nonce_hash(exchange_nonce, key_id=seat["credential_key_id"])
+        session_secret = _review_session_secret(
+            seat_id, secret, exchange_nonce, key_id=seat["credential_key_id"]
+        )
+        existing = connection.execute(
+            "SELECT * FROM aipol_review_sessions WHERE seat_id=?", (seat_id,)
+        ).fetchone()
+        if existing:
+            if (
+                not hmac.compare_digest(existing["exchange_nonce_hash"], nonce_hash)
+                or not hmac.compare_digest(
+                    existing["token_hash"],
+                    _review_token_hash(session_secret, key_id=seat["credential_key_id"]),
+                )
+            ):
+                raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+            return f"{existing['id']}.{session_secret}"
+        session_id = _id("rsession")
+        connection.execute(
+            "INSERT INTO aipol_review_sessions VALUES(?,?,?,?,?,?,?,?)",
+            (
+                session_id, seat_id, experiment_id,
+                _review_token_hash(session_secret, key_id=seat["credential_key_id"]),
+                nonce_hash, current_snapshot, now.isoformat(), seat["expires_at"],
+            ),
+        )
+    return f"{session_id}.{session_secret}"
+
+
+def get_review_catalog(experiment_id: str, session_token: str, stage: str = "intro") -> dict:
+    session_id, secret = _split_review_token(session_token, "rsession-")
+    if stage not in _REVIEW_STAGE_IDS:
+        raise ExperimentError("알 수 없는 교수 검토 단계입니다")
+    now = datetime.now(timezone.utc)
+    with db._conn() as connection:
+        row = connection.execute(
+            "SELECT x.*,s.expires_at AS seat_expires_at,s.review_id,ss.credential_key_id,r.id AS revoked "
+            "FROM aipol_review_sessions x JOIN aipol_review_seats s ON s.id=x.seat_id "
+            "JOIN aipol_review_seat_sets ss ON ss.id=s.review_id "
+            "LEFT JOIN aipol_review_revocations r ON r.seat_id=s.id "
+            "WHERE x.id=? AND x.experiment_id=?",
+            (session_id, experiment_id),
+        ).fetchone()
+        if (
+            not row
+            or row["revoked"] is not None
+            or datetime.fromisoformat(row["expires_at"]) <= now
+            or datetime.fromisoformat(row["seat_expires_at"]) <= now
+            or not hmac.compare_digest(
+                row["token_hash"], _review_token_hash(secret, key_id=row["credential_key_id"])
+            )
+        ):
+            raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+        try:
+            snapshot_hash, catalog = _review_set_snapshot(connection, row["review_id"])
+        except ImmutableRecordConflict as exc:
+            raise ParticipantAuthenticationError("검토 인증에 실패했습니다") from exc
+        if not hmac.compare_digest(row["snapshot_hash"], snapshot_hash):
+            raise ParticipantAuthenticationError("검토 인증에 실패했습니다")
+    public_catalog = {key: value for key, value in catalog.items() if key != "source_contract"}
+    return {
+        "catalog": public_catalog,
+        "current_stage_id": stage,
+        "snapshot_hash": snapshot_hash,
+        "expires_at": row["expires_at"],
+        "scope": "national-pension-only",
+    }
+
+
+def revoke_review_seat(
+    experiment_id: str, review_id: str, *, logical_seat_id: str, reason: str, revoked_by: str,
+) -> dict:
+    if not isinstance(reason, str) or not 3 <= len(reason.strip()) <= 500:
+        raise ExperimentError("review 철회 사유는 3~500자여야 합니다")
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        seat = connection.execute(
+            "SELECT * FROM aipol_review_seats WHERE review_id=? AND experiment_id=? AND logical_seat_id=?",
+            (review_id, experiment_id, logical_seat_id),
+        ).fetchone()
+        if not seat:
+            raise KeyError("review seat not found")
+        try:
+            connection.execute(
+                "INSERT INTO aipol_review_revocations VALUES(?,?,?,?,?,?)",
+                (
+                    _id("rrv"), seat["id"], experiment_id, reason.strip(), revoked_by,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise IdempotencyConflict("review 좌석은 이미 철회되었습니다") from exc
+        _queue_experiment_audit(
+            connection, actor=revoked_by, action="experiment.review_seat.revoked",
+            experiment_id=experiment_id,
+            payload={"review_id": review_id, "logical_seat_id": logical_seat_id, "reason": reason.strip()},
+        )
+    return {"review_id": review_id, "logical_seat_id": logical_seat_id, "revoked": True}
 
 
 def _public_audience_input_snapshot(

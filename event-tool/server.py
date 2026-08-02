@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 BASE = Path(__file__).parent
@@ -188,6 +188,11 @@ AIPOL_CHATBOT_PUBLIC_ENABLED = os.environ.get("AIPOL_CHATBOT_PUBLIC_ENABLED", "f
 AIPOL_CHAT_RATE_LIMIT = max(1, int(os.environ.get("AIPOL_CHAT_RATE_LIMIT_PER_MINUTE", "10")))
 CHAT_RATE: dict[str, list[float]] = {}
 CHAT_RATE_LOCK = threading.Lock()
+AIPOL_REVIEW_EXCHANGE_RATE_LIMIT = min(
+    100, max(1, int(os.environ.get("AIPOL_REVIEW_EXCHANGE_RATE_LIMIT_PER_MINUTE", "12")))
+)
+REVIEW_EXCHANGE_RATE: dict[str, list[float]] = {}
+REVIEW_EXCHANGE_RATE_LOCK = threading.Lock()
 AIPOL_REGISTRATION_FAILURE_WINDOW_SECONDS = min(
     3600, max(10, int(os.environ.get("AIPOL_REGISTRATION_FAILURE_WINDOW_SECONDS", "300")))
 )
@@ -343,7 +348,14 @@ async def production_guards(request: Request, call_next):
         "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
         "connect-src 'self'; form-action 'self'"
     )
-    if request.url.path.startswith("/api/") or request.url.path.startswith("/admin") or request.url.path == "/aipol-calculator-return.html":
+    if (
+        request.url.path.startswith("/api/")
+        or request.url.path.startswith("/admin")
+        or request.url.path == "/aipol-calculator-return.html"
+        or request.url.path in {
+            "/aipol-review.html", "/aipol-review.js", "/aipol-review.css",
+        }
+    ):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -844,6 +856,49 @@ def aipol_admin_rotate_legacy_admission_seats(
     )
     return _audit_experiment_mutation(
         actor, "experiment.admission_seats.rotated", experiment_id, result
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/review-seat-sets")
+def aipol_admin_issue_review_seat_set(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    actor = require_aipol_mutation(x_admin_token, Action.MANAGE_ADMISSION)
+    _require_exact_contract(
+        body, {"logical_seat_ids", "expires_in_seconds", "idempotency_key"}, set(),
+        "professor review seat set",
+    )
+    result = _aipol_call(
+        aipol_store.issue_review_seat_set,
+        experiment_id,
+        logical_seat_ids=body.get("logical_seat_ids"),
+        expires_in_seconds=body.get("expires_in_seconds"),
+        idempotency_key=body.get("idempotency_key"),
+        issued_by=actor,
+    )
+    return JSONResponse(
+        result,
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/review-seat-sets/{review_id}/revoke")
+def aipol_admin_revoke_review_seat(
+    experiment_id: str, review_id: str, body: dict,
+    x_admin_token: str = Header(default=""),
+):
+    actor = require_aipol_mutation(x_admin_token, Action.MANAGE_ADMISSION)
+    _require_exact_contract(body, {"logical_seat_id", "reason"}, set(), "review seat revoke")
+    result = _aipol_call(
+        aipol_store.revoke_review_seat,
+        experiment_id,
+        review_id,
+        logical_seat_id=body.get("logical_seat_id"),
+        reason=body.get("reason"),
+        revoked_by=actor,
+    )
+    return _audit_experiment_mutation(
+        actor, "experiment.review_seat.revoked", experiment_id, result
     )
 
 
@@ -1564,6 +1619,81 @@ def aipol_public_chat(body: dict, request: Request):
         "mode": mode,
         "notice": "승인된 공개 지식에 근거한 안내이며 공식 정책 결정이 아닙니다.",
     }
+
+
+def _require_review_exchange_origin(request: Request) -> None:
+    origin = request.headers.get("origin", "")
+    approved_origin = os.environ.get("AIPOL_PUBLIC_ORIGIN", "")
+    if origin != approved_origin or urlparse(origin).scheme != "https":
+        raise HTTPException(403, "검토 인증 요청 출처가 올바르지 않습니다")
+
+
+def _check_review_exchange_rate(request: Request) -> None:
+    remote = _remote_address(request)
+    now = time.time()
+    with REVIEW_EXCHANGE_RATE_LOCK:
+        if len(REVIEW_EXCHANGE_RATE) >= 10_000:
+            for key in [
+                key for key, values in REVIEW_EXCHANGE_RATE.items()
+                if not values or now - values[-1] >= 60
+            ]:
+                REVIEW_EXCHANGE_RATE.pop(key, None)
+            if remote not in REVIEW_EXCHANGE_RATE and len(REVIEW_EXCHANGE_RATE) >= 10_000:
+                raise HTTPException(429, "검토 인증 요청이 너무 많습니다")
+        recent = [value for value in REVIEW_EXCHANGE_RATE.get(remote, []) if now - value < 60]
+        if len(recent) >= AIPOL_REVIEW_EXCHANGE_RATE_LIMIT:
+            raise HTTPException(429, "검토 인증 요청이 너무 많습니다", headers={"Retry-After": "60"})
+        REVIEW_EXCHANGE_RATE[remote] = recent + [now]
+
+
+@app.post("/api/aipol/review/exchange")
+def aipol_review_exchange(body: dict, request: Request):
+    _require_exact_contract(
+        body, {"experiment_id", "review_token", "exchange_nonce"}, set(), "review exchange"
+    )
+    if not all(
+        isinstance(body.get(key), str)
+        for key in ("experiment_id", "review_token", "exchange_nonce")
+    ):
+        raise HTTPException(400, "review exchange fields must be strings")
+    _require_review_exchange_origin(request)
+    _check_review_exchange_rate(request)
+    session_token = _aipol_call(
+        aipol_store.exchange_review_token,
+        body["experiment_id"],
+        body["review_token"],
+        body["exchange_nonce"],
+    )
+    response = Response(
+        status_code=204,
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
+    response.set_cookie(
+        "aipol_review_session",
+        session_token,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+        path="/api/aipol/review",
+    )
+    return response
+
+
+@app.get("/api/aipol/review/{experiment_id}/catalog")
+def aipol_review_catalog(experiment_id: str, request: Request, stage: str = "intro"):
+    session_token = request.cookies.get("aipol_review_session", "")
+    result = _aipol_call(
+        aipol_store.get_review_catalog, experiment_id, session_token, stage
+    )
+    return JSONResponse(
+        result,
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow",
+        },
+    )
 
 
 @app.post("/api/aipol/experiments/{experiment_id}/participants")

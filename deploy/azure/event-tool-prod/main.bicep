@@ -68,6 +68,15 @@ param trustedProxyCidrs string = ''
 param customDomainName string = ''
 param customDomainCertificateId string = ''
 
+@description('Exact Git commit presented in the professor-review snapshot (40 lowercase hex).')
+param reviewBuildCommit string = ''
+@description('SHA-256 of the reviewed database seed (64 lowercase hex).')
+param reviewDbSeedHash string = ''
+@description('Immutable deployment revision presented in the professor-review snapshot.')
+param reviewDeploymentRevision string = ''
+@description('Exact HTTPS origin used by the professor-review browser.')
+param reviewPublicOrigin string = ''
+
 var tags = {
   project: 'AIPOL'
   component: 'event-tool'
@@ -83,11 +92,12 @@ var digestRemainder = replace(replace(replace(replace(replace(replace(replace(re
 var imageGuard = startsWith(containerImage, expectedImagePrefix) && length(containerImage) == length(expectedImagePrefix) + 64 && length(imageDigest) == 64 && empty(digestRemainder)
 var safetyGuard = enableExternalIngress && !collectionEnabled && !chatbotEnabled && !batchEnabled && !receiptVerifierEnabled
 var secretsGuard = !empty(eventSessionSecretVersion) && !empty(eventAdminUsersSecretVersion) && !empty(eventAdminRolesSecretVersion) && !empty(eventAdminTotpSecretVersion) && !empty(eventCredentialKeysetVersion) && !empty(eventAuditCheckpointKeysetVersion) && !empty(eventCredentialActiveKeyId) && !empty(eventAuditCheckpointActiveKeyId)
+var reviewPinGuard = length(reviewBuildCommit) == 40 && length(reviewDbSeedHash) == 64 && reviewDeploymentRevision == '${containerAppName}--${revisionSuffix}' && revisionSuffix != 'not-deployed' && startsWith(reviewPublicOrigin, 'https://')
 var resourceGroupGuard = resourceGroup().name == expectedResourceGroupName
 var foundationGuard = deployFoundation && resourceGroupGuard
 var provisionAuditPolicy = foundationGuard && manageAuditPolicy
 var configureAccess = foundationGuard && configureRuntimeAccess
-var provisionApp = foundationGuard && configureRuntimeAccess && deployApp && imageGuard && safetyGuard && secretsGuard && auditImmutabilityPolicyLocked && !empty(auditImmutabilityLockEvidenceId)
+var provisionApp = foundationGuard && configureRuntimeAccess && deployApp && imageGuard && safetyGuard && secretsGuard && reviewPinGuard && auditImmutabilityPolicyLocked && !empty(auditImmutabilityLockEvidenceId)
 
 
 resource dnsZone 'Microsoft.Network/dnsZones@2018-05-01' existing = {
@@ -357,6 +367,12 @@ var runtimeEnv = [
   { name: 'AIPOL_BATCH_AZURE_ENABLED', value: 'false' }
   { name: 'AIPOL_RECEIPT_VERIFIER_MODE', value: 'disabled' }
   { name: 'AIPOL_TRUSTED_PROXY_CIDRS', value: trustedProxyCidrs }
+  { name: 'AIPOL_BUILD_COMMIT', value: reviewBuildCommit }
+  { name: 'AIPOL_IMAGE_DIGEST', value: 'sha256:${imageDigest}' }
+  { name: 'AIPOL_DB_INSTANCE_ID', value: '${storageAccountName}/${fileShareName}/event.db' }
+  { name: 'AIPOL_DB_SEED_HASH', value: reviewDbSeedHash }
+  { name: 'AIPOL_DEPLOYMENT_REVISION', value: reviewDeploymentRevision }
+  { name: 'AIPOL_PUBLIC_ORIGIN', value: reviewPublicOrigin }
   { name: 'AZURE_CLIENT_ID', value: identity!.properties.clientId }
   { name: 'EVENT_SESSION_SECRET', secretRef: 'session-secret' }
   { name: 'EVENT_ADMIN_USERS_JSON_B64', secretRef: 'admin-users-b64' }

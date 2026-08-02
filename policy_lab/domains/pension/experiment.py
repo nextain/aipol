@@ -96,6 +96,7 @@ class ArtifactKind(str, Enum):
     EXPERT_EXPLANATION = "expert_explanation"
     AI_OPINION = "ai_opinion"
     FINAL_AI_OPINION = "final_ai_opinion"
+    REVIEW_CATALOG = "review_catalog"
 
 
 MEASUREMENT_FOR_STAGE = {

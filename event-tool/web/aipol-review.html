@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow">
+  <title>AIPOL 국민연금 숙의 검토</title>
+  <link rel="stylesheet" href="/aipol-review.css">
+</head>
+<body>
+  <main class="review-shell">
+    <header class="review-header">
+      <p class="eyebrow">AIPOL · 교수 검토본</p>
+      <h1>국민연금 숙의 시나리오</h1>
+      <p id="review-snapshot" class="snapshot" aria-live="polite"></p>
+      <p id="review-expiry" class="snapshot" aria-live="polite"></p>
+    </header>
+
+    <aside id="review-disclosure" class="disclosure" hidden></aside>
+    <nav id="review-stage-list" class="stage-list" aria-label="검토 단계"></nav>
+
+    <section id="review-status" class="status" role="status" aria-live="polite">검토 자료를 확인하고 있습니다.</section>
+    <button id="review-retry" class="retry" type="button" hidden>다시 시도</button>
+    <article id="review-content" class="review-card" tabindex="-1" hidden></article>
+
+    <footer class="review-actions">
+      <button id="review-previous" type="button" disabled>이전</button>
+      <button id="review-reset" type="button" disabled>처음부터</button>
+      <button id="review-next" class="primary" type="button" disabled>다음</button>
+    </footer>
+  </main>
+  <script src="/aipol-review.js" defer></script>
+</body>
+</html>

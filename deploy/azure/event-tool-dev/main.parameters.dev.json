@@ -8,6 +8,9 @@
     "deployApp": {
       "value": false
     },
+    "revisionSuffix": {
+      "value": "not-deployed"
+    },
     "enableExternalIngress": {
       "value": false
     },
@@ -25,6 +28,18 @@
     },
     "auditImmutabilityPolicyLocked": {
       "value": false
+    },
+    "reviewBuildCommit": {
+      "value": ""
+    },
+    "reviewDbSeedHash": {
+      "value": ""
+    },
+    "reviewDeploymentRevision": {
+      "value": ""
+    },
+    "reviewPublicOrigin": {
+      "value": ""
     }
   }
 }

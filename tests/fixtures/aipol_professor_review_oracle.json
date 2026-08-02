@@ -1,0 +1,39 @@
+{
+  "oracle_version": "source-derived-review-oracle-v1",
+  "authority_hashes": [
+    "f7dfe2d05c7729822b29d078fd8225c6d4f52288973d3b48fa01d83ec852ee5a",
+    "1229894633a810de01b8f3d7fe2b1c56afaae94e29207cf78eab1021285da36f",
+    "9fb9479dd7ec735e7130802453a3f82e0a18528600dbf680d8a306cae32d99c8",
+    "b9fb159169dcf19df435f8106a251321d59e0ae6abc5706c7aef7cb5c6585e55"
+  ],
+  "stage_ids": [
+    "intro", "expert-options", "m1-result", "personal-impact", "m2-result",
+    "t6-analysis", "d", "expert-audience", "d-prime", "m3-result", "closing"
+  ],
+  "policy_columns": [
+    "수급개시연령", "기금운용전략(운영수익률)", "국고투입(지원)수준"
+  ],
+  "policy_options": [
+    ["A", "65세", "안정형 5.5%", "매년 GDP 0.6%"],
+    ["B", "68세까지 점진 상향", "안정형 5.5%", "초기 100조원 + 이후 매년 GDP 0.25%"],
+    ["C", "68세까지 점진 상향", "적극형 6.0%", "정기 지원 없음(5년마다 필요 시 보충)"]
+  ],
+  "m1_inputs": ["A/B/C 중 한 안 선택"],
+  "personal_inputs": ["현재 나이", "월소득(현재 또는 예상)", "예상 국민연금 가입기간", "예상 최종 은퇴연령"],
+  "personal_outputs": [
+    "안별 예상 월연금", "수급 개시 시점과 은퇴 후 소득공백",
+    "83.5세 기준 예상 생애 총수급액", "1인당 예상 연 조세부담률",
+    "기금 소진시점 또는 70년 후 적립배율", "개인 상황을 고려한 AI 정책 해설"
+  ],
+  "m2_inputs": ["A/B/C 재선택", "선택안 수용 또는 조건부 수용과 사유", "나머지 두 안 비선택과 사유"],
+  "t6_variables": ["나이", "월소득", "예상 가입기간", "예상 최종 은퇴연령"],
+  "d_inputs": ["동결된 A/B/C", "실제 M2 구조화 집계", "승인된 근거"],
+  "discussion_scope": "D안의 비용과 제약",
+  "d_prime_inputs": ["승인된 D안", "승인된 전문가 논평", "진행자가 선별한 공개 청중 의견"],
+  "m3_choices": ["A", "B", "C", "D′"],
+  "required_example_types": [
+    "timeline", "policy_table", "choice_result", "personal_impact", "m2_result",
+    "segment_result", "generated_policy", "commentary", "generated_policy",
+    "m3_result", "closing"
+  ]
+}

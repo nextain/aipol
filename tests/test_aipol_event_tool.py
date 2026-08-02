@@ -5,9 +5,11 @@ import base64
 import ipaddress
 import importlib
 import json
+import socket
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -54,6 +56,12 @@ def aipol_app(tmp_path, monkeypatch):
     monkeypatch.setenv("EVENT_ROSTER_PATH", str(tmp_path / "roster.json"))
     monkeypatch.setenv("EVENT_SQLITE_NOLOCK", "false")
     monkeypatch.setenv("EVENT_SESSION_SECRET", "s" * 48)
+    monkeypatch.setenv("AIPOL_BUILD_COMMIT", "1" * 40)
+    monkeypatch.setenv("AIPOL_IMAGE_DIGEST", "sha256:" + "2" * 64)
+    monkeypatch.setenv("AIPOL_DB_INSTANCE_ID", "pytest-review-db")
+    monkeypatch.setenv("AIPOL_DB_SEED_HASH", "3" * 64)
+    monkeypatch.setenv("AIPOL_DEPLOYMENT_REVISION", "pytest-review-r1")
+    monkeypatch.setenv("AIPOL_PUBLIC_ORIGIN", "https://testserver")
     monkeypatch.setenv(
         "EVENT_ADMIN_USERS_JSON",
         json.dumps({"hong": PASSWORD, "editor": EDITOR_PASSWORD}),
@@ -3218,3 +3226,552 @@ def test_participant_ui_parses_flattened_jws_and_production_verifier_accepts_it(
             check=False,
         )
         assert result.returncode == 7
+
+
+def _professor_review_catalog() -> dict:
+    return json.loads(
+        (EVENT_TOOL / "review-catalogs" / "pension-professor-review-v1.json")
+        .read_text("utf-8")
+    )
+
+
+def _prepare_professor_review(client: TestClient, headers: dict, *, suffix: str) -> tuple[dict, dict]:
+    experiment = _create(client, headers, suffix=suffix, procedure_version="v3")
+    _canonical_documents(client, headers, experiment["id"])
+    _artifact(client, headers, experiment["id"], "personal_comparison", f"personal-review{suffix}")
+    catalog = _professor_review_catalog()
+    response = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "review_catalog",
+            "artifact_id": f"professor-review{suffix}",
+            "artifact_version": "v1",
+            "content": catalog,
+            "approval_id": f"approval-{experiment['id']}-professor-review",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    freeze_body = _freeze_body(client, headers, experiment)
+    freeze_body["collection_enabled"] = False
+    _artifact(client, headers, experiment["id"], "expert_explanation", "expert")
+    _artifact(client, headers, experiment["id"], "ai_opinion", "ai-fallback", fallback=True)
+    frozen = client.put(
+        f"/api/admin/aipol/experiments/{experiment['id']}/freeze",
+        headers=headers,
+        json=freeze_body,
+    )
+    assert frozen.status_code == 200, frozen.text
+    assert frozen.json()["registration_open"] is False
+    return experiment, catalog
+
+
+def _actual_experiment_counts(db_path: Path, experiment_id: str) -> dict[str, int]:
+    table_names = (
+        "aipol_participants", "aipol_measurements", "aipol_exposures",
+        "aipol_calculator_receipts", "aipol_admission_claims",
+    )
+    with sqlite3.connect(db_path) as connection:
+        available = {
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        return {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in table_names if table in available
+        }
+
+
+def _cookie_header(response, name: str = "aipol_review_session") -> dict[str, str]:
+    value = response.cookies.get(name)
+    assert value
+    return {"Cookie": f"{name}={value}"}
+
+
+def _review_exchange_json(experiment_id: str, review_token: str, nonce: str = "n" * 43) -> dict:
+    return {
+        "experiment_id": experiment_id,
+        "review_token": review_token,
+        "exchange_nonce": nonce,
+    }
+
+
+def test_professor_review_seat_set_exchange_catalog_revoke_is_read_only(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment, catalog = _prepare_professor_review(client, headers, suffix="-professor-review")
+    before = _actual_experiment_counts(db_path, experiment["id"])
+
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-1", "luke-review"],
+            "expires_in_seconds": 3600,
+            "idempotency_key": "professor-review-seat-set-1",
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    payload = issued.json()
+    assert len(payload["seats"]) == 2
+    assert len({seat["review_token"] for seat in payload["seats"]}) == 2
+    assert {seat["snapshot_hash"] for seat in payload["seats"]} == {payload["snapshot_hash"]}
+    for seat in payload["seats"]:
+        secret = seat["review_token"].split(".", 1)[-1]
+        decoded = base64.urlsafe_b64decode(secret + "=" * (-len(secret) % 4))
+        assert len(decoded) >= 32
+
+    sessions = []
+    public_catalog = {key: value for key, value in catalog.items() if key != "source_contract"}
+    for seat in payload["seats"]:
+        exchange = client.post(
+            "/api/aipol/review/exchange",
+            headers={"Origin": "https://testserver"},
+            json=_review_exchange_json(experiment["id"], seat["review_token"]),
+        )
+        assert exchange.status_code == 204, exchange.text
+        set_cookie = exchange.headers["set-cookie"].lower()
+        assert "secure" in set_cookie and "httponly" in set_cookie
+        assert "samesite=strict" in set_cookie
+        assert seat["review_token"] not in exchange.text + set_cookie
+        sessions.append(_cookie_header(exchange))
+
+    for session in sessions:
+        for stage in catalog["stages"]:
+            response = client.get(
+                f"/api/aipol/review/{experiment['id']}/catalog",
+                headers=session,
+                params={"stage": stage["id"]},
+            )
+            assert response.status_code == 200, response.text
+            assert response.headers["cache-control"] == "no-store"
+            body = response.json()
+            assert body["current_stage_id"] == stage["id"]
+            assert body["snapshot_hash"] == payload["snapshot_hash"]
+            assert body["catalog"] == public_catalog
+            assert "source_contract" not in response.text
+            assert body["scope"] == "national-pension-only"
+            assert body["expires_at"]
+            assert all(seat["review_token"] not in response.text for seat in payload["seats"])
+
+    assert _actual_experiment_counts(db_path, experiment["id"]) == before
+    mutation = client.post(
+        f"/api/aipol/experiments/{experiment['id']}/participants",
+        headers=sessions[0],
+        json={"admission_code": "Wrong-Review-Seat-123!", "registration_nonce": "n" * 16, "idempotency_key": "review-mutation"},
+    )
+    assert mutation.status_code == 423
+
+    revoked = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets/{payload['review_id']}/revoke",
+        headers=headers,
+        json={"logical_seat_id": "professor-1", "reason": "reissue test"},
+    )
+    assert revoked.status_code == 200, revoked.text
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=sessions[0]
+    ).status_code == 401
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=sessions[1]
+    ).status_code == 200
+
+
+def test_professor_review_tokens_are_hash_only_and_fail_closed(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-review-security")
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-1"], "expires_in_seconds": 60,
+            "idempotency_key": "professor-review-security-1",
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    token = issued.json()["seats"][0]["review_token"]
+
+    for candidate_id, candidate_token in (
+        ("wrong-experiment", token),
+        (experiment["id"], "malformed-token"),
+    ):
+        denied = client.post(
+            "/api/aipol/review/exchange",
+            headers={"Origin": "https://testserver"},
+            json=_review_exchange_json(candidate_id, candidate_token),
+        )
+        assert denied.status_code == 401
+        assert token not in denied.text
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(aipol_review_seats)")
+        }
+        assert "token_hash" in columns and "review_token" not in columns
+        serialized = json.dumps(connection.execute(
+            "SELECT * FROM aipol_review_seats"
+        ).fetchall())
+        assert token not in serialized
+
+
+def test_professor_review_exchange_recovers_commit_after_response_loss(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-response-loss")
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-response-loss"],
+            "expires_in_seconds": 3600,
+            "idempotency_key": "professor-review-response-loss",
+        },
+    ).json()
+    review_token = issued["seats"][0]["review_token"]
+    request = _review_exchange_json(experiment["id"], review_token, "r" * 43)
+
+    first = client.post(
+        "/api/aipol/review/exchange", headers={"Origin": "https://testserver"}, json=request,
+    )
+    assert first.status_code == 204
+    # Model a lost response by deliberately discarding the first cookie. The
+    # browser repeats the same nonce and must recover exactly the committed session.
+    recovered = client.post(
+        "/api/aipol/review/exchange", headers={"Origin": "https://testserver"}, json=request,
+    )
+    assert recovered.status_code == 204
+    assert _cookie_header(recovered) == _cookie_header(first)
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=_cookie_header(recovered)
+    ).status_code == 200
+
+    stolen_retry = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://testserver"},
+        json=_review_exchange_json(experiment["id"], review_token, "s" * 43),
+    )
+    assert stolen_retry.status_code == 401
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM aipol_review_sessions").fetchone()[0] == 1
+        row = connection.execute(
+            "SELECT token_hash,exchange_nonce_hash FROM aipol_review_sessions"
+        ).fetchone()
+        assert all(len(value) == 64 for value in row)
+        assert review_token not in json.dumps(row)
+
+
+def test_professor_review_static_entry_is_never_cached(aipol_app):
+    _, client, _ = aipol_app
+    for path in ("/aipol-review.html", "/aipol-review.js", "/aipol-review.css"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
+
+
+def test_professor_review_actual_https_browser_uses_real_cookie_and_isolates_seats(
+    aipol_app, monkeypatch,
+):
+    from playwright.sync_api import sync_playwright
+    import uvicorn
+
+    server_module, client, db_path = aipol_app
+    with socket.socket() as handle:
+        handle.bind(("127.0.0.1", 0))
+        port = int(handle.getsockname()[1])
+    base = f"https://localhost:{port}"
+    monkeypatch.setenv("AIPOL_PUBLIC_ORIGIN", base)
+    headers = _admin_headers(client)
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-live-browser")
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-live-1", "professor-live-2"],
+            "expires_in_seconds": 3600,
+            "idempotency_key": "live-browser-review-seats-1",
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    grant = issued.json()
+    before = _actual_experiment_counts(db_path, experiment["id"])
+
+    cert = db_path.parent / "review-cert.pem"
+    key = db_path.parent / "review-key.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(key), "-out", str(cert), "-days", "1",
+            "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
+        ],
+        check=True, capture_output=True,
+    )
+    live = uvicorn.Server(uvicorn.Config(
+        server_module.app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        lifespan="off",
+        ssl_keyfile=str(key),
+        ssl_certfile=str(cert),
+    ))
+    thread = threading.Thread(target=live.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 10
+    while not live.started and time.time() < deadline:
+        time.sleep(0.05)
+    assert live.started
+    errors: list[str] = []
+    requests: list[tuple[str, str]] = []
+    try:
+        with sync_playwright() as runtime:
+            browser = runtime.chromium.launch(headless=True)
+            contexts = []
+            pages = []
+            for seat in grant["seats"]:
+                context = browser.new_context(
+                    viewport={"width": 390, "height": 844}, ignore_https_errors=True,
+                )
+                context.on("request", lambda request: requests.append((request.method, request.url)))
+                page = context.new_page()
+                page.on(
+                    "console", lambda message: errors.append(message.text)
+                    if message.type == "error" else None,
+                )
+                entry = page.goto(
+                    f"{base}/aipol-review.html?experiment={experiment['id']}"
+                    f"#review_token={seat['review_token']}"
+                )
+                assert entry is not None and entry.status == 200
+                assert entry.headers["cache-control"] == "no-store"
+                page.locator("#review-content").filter(has_text="실험 안내").wait_for()
+                assert page.evaluate("location.hash") == ""
+                assert seat["review_token"] not in page.url
+                assert page.evaluate("localStorage.length + sessionStorage.length") == 0
+                contexts.append(context)
+                pages.append(page)
+
+            pages[0].locator("#review-next").click()
+            pages[0].locator("#review-content").filter(has_text="전문가 A/B/C안").wait_for()
+            pages[0].reload()
+            pages[0].locator("#review-content").filter(has_text="전문가 A/B/C안").wait_for()
+            pages[0].locator("#review-next").click()
+            pages[0].locator("#review-content").filter(has_text="M1 단순 투표 결과").wait_for()
+            pages[0].go_back()
+            pages[0].locator("#review-content").filter(has_text="전문가 A/B/C안").wait_for()
+            pages[0].go_forward()
+            pages[0].locator("#review-content").filter(has_text="M1 단순 투표 결과").wait_for()
+            assert pages[1].locator("#review-content").inner_text().find("실험 안내") >= 0
+            assert not errors
+
+            revoked = client.post(
+                f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets/{grant['review_id']}/revoke",
+                headers=headers,
+                json={"logical_seat_id": "professor-live-1", "reason": "live isolation check"},
+            )
+            assert revoked.status_code == 200
+            pages[0].reload()
+            pages[0].locator("#review-status").filter(has_text="새 링크").wait_for()
+            assert pages[0].locator("#review-stage-list button").count() == 0
+            assert pages[0].locator("#review-previous").is_disabled()
+            assert pages[0].locator("#review-next").is_disabled()
+            assert pages[0].locator("#review-reset").is_disabled()
+            pages[1].reload()
+            pages[1].locator("#review-content").filter(has_text="실험 안내").wait_for()
+            assert errors == [
+                "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+            ]
+            for context in contexts:
+                context.close()
+            browser.close()
+    finally:
+        live.should_exit = True
+        thread.join(timeout=10)
+
+    assert _actual_experiment_counts(db_path, experiment["id"]) == before
+    forbidden = ("/participants", "/measurements/", "/exposures/", "/withdraw", "/api/admin/")
+    assert not [
+        url for method, url in requests
+        if method != "GET" and any(marker in url for marker in forbidden)
+    ]
+
+
+def test_professor_review_session_revalidates_snapshot_and_expiry(aipol_app, monkeypatch):
+    server, client, _ = aipol_app
+    headers = _admin_headers(client)
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-revalidate")
+
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["snapshot-seat"], "expires_in_seconds": 60,
+            "idempotency_key": "review-revalidate-snapshot",
+        },
+    ).json()
+    exchange = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://testserver"},
+        json=_review_exchange_json(experiment["id"], issued["seats"][0]["review_token"]),
+    )
+    assert exchange.status_code == 204
+    session = _cookie_header(exchange)
+    monkeypatch.setenv("AIPOL_BUILD_COMMIT", "4" * 40)
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=session
+    ).status_code == 401
+    monkeypatch.setenv("AIPOL_BUILD_COMMIT", "1" * 40)
+
+    class FrozenDateTime(datetime):
+        current = datetime.now(timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current if tz else cls.current.replace(tzinfo=None)
+
+    monkeypatch.setattr(server.aipol_store, "datetime", FrozenDateTime)
+    expiring = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["expiring-seat"], "expires_in_seconds": 60,
+            "idempotency_key": "review-revalidate-expiry",
+        },
+    ).json()
+    exchange = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://testserver"},
+        json=_review_exchange_json(experiment["id"], expiring["seats"][0]["review_token"]),
+    )
+    assert exchange.status_code == 204
+    expiring_session = _cookie_header(exchange)
+    FrozenDateTime.current += timedelta(seconds=61)
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=expiring_session
+    ).status_code == 401
+
+
+def test_professor_review_catalog_snapshot_and_delivery_fail_closed(aipol_app, monkeypatch):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+
+    draft = _create(client, headers, suffix="-catalog-allowlist", procedure_version="v3")
+    _canonical_documents(client, headers, draft["id"])
+    _artifact(client, headers, draft["id"], "personal_comparison", "personal-catalog-allowlist")
+    malicious = _professor_review_catalog()
+    malicious["stages"][0]["raw_discord"] = "should never be served"
+    denied = client.post(
+        f"/api/admin/aipol/experiments/{draft['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "review_catalog", "artifact_id": "malicious-review",
+            "artifact_version": "v1", "content": malicious,
+            "approval_id": "approval-malicious-review", "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert denied.status_code == 400
+
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-snapshot-contract")
+    first = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-a", "professor-b"],
+            "expires_in_seconds": 604800, "idempotency_key": "seven-day-review-first",
+        },
+    )
+    assert first.status_code == 200, first.text
+    second = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-b", "professor-a"],
+            "expires_in_seconds": 604800, "idempotency_key": "seven-day-review-second",
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert first.json()["snapshot_hash"] != second.json()["snapshot_hash"]
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TRIGGER aipol_artifacts_no_update")
+        connection.execute(
+            "UPDATE aipol_artifacts SET content=? WHERE experiment_id=? AND kind='review_catalog'",
+            (json.dumps({"tampered": True}), experiment["id"]),
+        )
+        connection.execute(
+            "CREATE TRIGGER aipol_artifacts_no_update BEFORE UPDATE ON aipol_artifacts "
+            "BEGIN SELECT RAISE(ABORT, 'append-only'); END"
+        )
+        connection.commit()
+    corrupted = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-c"], "expires_in_seconds": 3600,
+            "idempotency_key": "tampered-catalog-must-fail",
+        },
+    )
+    assert corrupted.status_code == 409
+
+    clean, _ = _prepare_professor_review(client, headers, suffix="-production-binding")
+    monkeypatch.delenv("AIPOL_IMAGE_DIGEST")
+    unpinned = client.post(
+        f"/api/admin/aipol/experiments/{clean['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-prod"], "expires_in_seconds": 3600,
+            "idempotency_key": "production-unpinned-must-fail",
+        },
+    )
+    assert unpinned.status_code == 400
+    assert "build/image/DB/deployment/origin" in unpinned.text
+
+    for variable, invalid in (
+        ("AIPOL_BUILD_COMMIT", "not-a-commit"),
+        ("AIPOL_IMAGE_DIGEST", "sha256:not-a-digest"),
+        ("AIPOL_DB_SEED_HASH", "not-a-seed-hash"),
+        ("AIPOL_PUBLIC_ORIGIN", "https://testserver/path"),
+    ):
+        monkeypatch.setenv("AIPOL_IMAGE_DIGEST", "sha256:" + "2" * 64)
+        monkeypatch.setenv("AIPOL_BUILD_COMMIT", "1" * 40)
+        monkeypatch.setenv("AIPOL_DB_SEED_HASH", "3" * 64)
+        monkeypatch.setenv("AIPOL_PUBLIC_ORIGIN", "https://testserver")
+        monkeypatch.setenv(variable, invalid)
+        denied = client.post(
+            f"/api/admin/aipol/experiments/{clean['id']}/review-seat-sets",
+            headers=headers,
+            json={
+                "logical_seat_ids": ["invalid-pin-seat"],
+                "expires_in_seconds": 3600,
+                "idempotency_key": f"invalid-pin-{variable.lower()}",
+            },
+        )
+        assert denied.status_code == 400, (variable, denied.text)
+
+
+def test_professor_review_exchange_has_exact_origin_and_dedicated_rate_limit(aipol_app):
+    _, client, _ = aipol_app
+    wrong_origin = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://attacker.example"},
+        json=_review_exchange_json("unknown", "malformed-token"),
+    )
+    assert wrong_origin.status_code == 403
+    for _ in range(12):
+        denied = client.post(
+            "/api/aipol/review/exchange",
+            headers={"Origin": "https://testserver"},
+            json=_review_exchange_json("unknown", "malformed-token"),
+        )
+        assert denied.status_code == 401
+    limited = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://testserver"},
+        json=_review_exchange_json("unknown", "malformed-token"),
+    )
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "60"

@@ -281,6 +281,7 @@ az deployment group what-if `
                deployInfrastructure=true `
                deployApp=true `
                containerImage=$AipolImage `
+               revisionSuffix=$AipolDeploymentRevision `
                eventSessionSecretVersion=$EventSessionSecretVersion `
                eventAdminUsersSecretVersion=$EventAdminUsersSecretVersion `
                eventAdminRolesSecretVersion=$EventAdminRolesSecretVersion `
@@ -291,6 +292,10 @@ az deployment group what-if `
                eventAuditCheckpointActiveKeyId=audit-checkpoints-2026-01 `
                auditImmutabilityPolicyLocked=true `
                auditImmutabilityLockEvidenceId=$AipolAuditLockEvidenceId `
+               reviewBuildCommit=$AipolBuildCommit `
+               reviewDbSeedHash=$AipolDbSeedHash `
+               reviewDeploymentRevision=$AipolDeploymentRevision `
+               reviewPublicOrigin=$AipolPublicOrigin `
                enableExternalIngress=false `
                collectionEnabled=false `
                chatbotEnabled=false `
@@ -308,7 +313,10 @@ deploy with `receiptVerifierEnabled=true`, `receiptPublicKeySecretVersion=<versi
 contract must match those values exactly. This adds `Key Vault Secrets User` only on that named public-key secret.
 The readiness response must show `receipt_verifier=configured` and `collection_ready=true` before the rehearsal.
 
-The template creates no app unless the image contains `@sha256:` and all six required secret versions are provided. After
+The template creates no app unless the image contains `@sha256:`, all six required secret versions are provided,
+and the professor-review build commit, DB seed hash, exact revision suffix, and exact HTTPS origin are pinned. The
+`reviewDeploymentRevision` value must equal the resulting full revision name
+`ca-aipol-event-tool-dev--<revisionSuffix>`. After
 the `what-if` output, image digest, and `appInputGuardAccepted=true` are approved, repeat with
 `az deployment group create`. The deployment must show `minReplicas=1`, `maxReplicas=1`, one Uvicorn worker, and
 `/data` mounted from `event-tool-state`. Collection and chatbot parameters accept only `false`; external ingress is

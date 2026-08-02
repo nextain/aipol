@@ -227,14 +227,45 @@ def test_container_build_uses_root_context_and_pinned_base_image() -> None:
 
     assert re.search(r"^FROM python:3\.12-slim-bookworm@sha256:[0-9a-f]{64}$", dockerfile, re.MULTILINE)
     assert "COPY event-tool/*.py ./" in dockerfile
+    assert "COPY event-tool/review-catalogs ./review-catalogs" in dockerfile
     assert "COPY policy_lab ./policy_lab" in dockerfile
     assert "COPY deploy/azure/event-tool-dev/serialized_app.py ./serialized_app.py" in dockerfile
     assert "COPY deploy/azure/event-tool-dev/backup_sqlite.py ./backup_sqlite.py" in dockerfile
     assert "COPY . ." not in dockerfile
     assert "!event-tool/web/**" in dockerignore
+    assert "!event-tool/review-catalogs/**" in dockerignore
     assert "!policy_lab/**" in dockerignore
     assert "!deploy/azure/event-tool-dev/serialized_app.py" in dockerignore
     assert "!deploy/azure/event-tool-dev/backup_sqlite.py" in dockerignore
+
+
+def test_professor_review_runtime_is_pinned_in_dev_and_production_iac() -> None:
+    dev = _text(BICEP)
+    prod = _text(ROOT / "deploy" / "azure" / "event-tool-prod" / "main.bicep")
+
+    required = {
+        "AIPOL_BUILD_COMMIT",
+        "AIPOL_IMAGE_DIGEST",
+        "AIPOL_DB_INSTANCE_ID",
+        "AIPOL_DB_SEED_HASH",
+        "AIPOL_DEPLOYMENT_REVISION",
+        "AIPOL_PUBLIC_ORIGIN",
+    }
+    for name in required:
+        assert name in dev
+        assert name in prod
+    for parameter in (
+        "reviewBuildCommit",
+        "reviewDbSeedHash",
+        "reviewDeploymentRevision",
+        "reviewPublicOrigin",
+    ):
+        assert parameter in dev
+        assert parameter in prod
+    assert "reviewDeploymentRevision == '${containerAppName}--${revisionSuffix}'" in dev
+    assert "reviewDeploymentRevision == '${containerAppName}--${revisionSuffix}'" in prod
+    assert "revisionSuffix: revisionSuffix" in dev
+    assert "revisionSuffix: revisionSuffix" in prod
 
 
 def test_runbook_states_sqlite_and_feature_flag_limitations() -> None:

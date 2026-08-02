@@ -1,0 +1,46 @@
+{
+  "catalog_sha256": "eefcc4f1f21469a9ef7ed2a03b650a453a97134497d4dc3220eb52881beb7e3e",
+  "extracted_text_sha256": [
+    "57f0f1105cf684c50fb38bccee11e4010224cfe1fe42cefc148df0e5c146e58d",
+    "1809d2d51f7a5240bb000b565ea5ef790d93e4bec4615f68516a188287dc5a0b",
+    "e4fbc5a81f41173ce83b98a2da862de142e0408ff40d50e90359341c917eae51",
+    "4ef29e5f21934f1f3ab685258ede438ff9bdea787d7f2e290df9ded9c8d22578"
+  ],
+  "extractors": {
+    "hwp5txt": "hwp5txt 0.1b15",
+    "pdftotext": "pdftotext version 26.01.0"
+  },
+  "oracle_sha256": "41139919f2f29998e5c2392991d9c04687a3e6d833b754091e61013dabf705a2",
+  "pdf_page_count": 5,
+  "pdf_page_text_sha256": [
+    "78bc3fa8b27675a0c0918e67669b0a940bbd46b32a7a603602efbeac9083a1fe",
+    "8a05f98e6acfa4e7c1c269561bc5d75e634a16eeeb784ec3ef7196c6c197e59c",
+    "96703bf7658fda7067e8197ad0fba56fb7bc7c5dba1a45e6430acf60c5354405",
+    "0d2b34e32b5cf9b72d2efc67acbdf6ca822f7a629eef7b41c3838ea48c0b5e2e",
+    "ec7d092cccaeea04331c9ce33d57fabeffdab28a5c37ea1601b13ccea2a29260"
+  ],
+  "schema_version": "professor-source-verification-receipt-v1",
+  "semantic_check_ids": {
+    "final_report_policy_values": ["0.25%", "0.6%", "100조", "5.5%", "5년", "6%", "65세", "68세"],
+    "step_flow_markers": ["1차", "2차", "3차", "D'", "D′", "D안", "개인", "국고투입(지원)수준", "기금운용전략(운영수익률)", "마무리", "수급개시연령", "연금", "전문가"]
+  },
+  "source_sha256": [
+    "f7dfe2d05c7729822b29d078fd8225c6d4f52288973d3b48fa01d83ec852ee5a",
+    "1229894633a810de01b8f3d7fe2b1c56afaae94e29207cf78eab1021285da36f",
+    "9fb9479dd7ec735e7130802453a3f82e0a18528600dbf680d8a306cae32d99c8",
+    "b9fb159169dcf19df435f8106a251321d59e0ae6abc5706c7aef7cb5c6585e55"
+  ],
+  "stage_page_text_sha256": {
+    "closing": ["ec7d092cccaeea04331c9ce33d57fabeffdab28a5c37ea1601b13ccea2a29260"],
+    "d": ["96703bf7658fda7067e8197ad0fba56fb7bc7c5dba1a45e6430acf60c5354405", "0d2b34e32b5cf9b72d2efc67acbdf6ca822f7a629eef7b41c3838ea48c0b5e2e"],
+    "d-prime": ["0d2b34e32b5cf9b72d2efc67acbdf6ca822f7a629eef7b41c3838ea48c0b5e2e"],
+    "expert-audience": ["0d2b34e32b5cf9b72d2efc67acbdf6ca822f7a629eef7b41c3838ea48c0b5e2e"],
+    "expert-options": ["78bc3fa8b27675a0c0918e67669b0a940bbd46b32a7a603602efbeac9083a1fe"],
+    "intro": ["78bc3fa8b27675a0c0918e67669b0a940bbd46b32a7a603602efbeac9083a1fe"],
+    "m1-result": ["78bc3fa8b27675a0c0918e67669b0a940bbd46b32a7a603602efbeac9083a1fe"],
+    "m2-result": ["8a05f98e6acfa4e7c1c269561bc5d75e634a16eeeb784ec3ef7196c6c197e59c", "96703bf7658fda7067e8197ad0fba56fb7bc7c5dba1a45e6430acf60c5354405"],
+    "m3-result": ["0d2b34e32b5cf9b72d2efc67acbdf6ca822f7a629eef7b41c3838ea48c0b5e2e", "ec7d092cccaeea04331c9ce33d57fabeffdab28a5c37ea1601b13ccea2a29260"],
+    "personal-impact": ["78bc3fa8b27675a0c0918e67669b0a940bbd46b32a7a603602efbeac9083a1fe", "8a05f98e6acfa4e7c1c269561bc5d75e634a16eeeb784ec3ef7196c6c197e59c"],
+    "t6-analysis": ["96703bf7658fda7067e8197ad0fba56fb7bc7c5dba1a45e6430acf60c5354405"]
+  }
+}

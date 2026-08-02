@@ -1,4 +1,5 @@
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -199,3 +200,100 @@ def test_admin_javascript_has_one_experiment_path_and_parses_in_node():
     assert "AI 의견은 primary/fallback" not in base
     assert "personal_comparison / expert_explanation / ai_opinion" not in base + preparation
     assert preparation.count("async function openPreparation") == 1
+
+
+def test_professor_review_assets_are_read_only_private_safe_and_mobile_first():
+    html_path = WEB / "aipol-review.html"
+    script_path = WEB / "aipol-review.js"
+    style_path = WEB / "aipol-review.css"
+    assert html_path.exists() and script_path.exists() and style_path.exists()
+
+    html = html_path.read_text("utf-8")
+    script = script_path.read_text("utf-8")
+    style = style_path.read_text("utf-8")
+    soup = BeautifulSoup(html, "html.parser")
+    assert soup.html["lang"] == "ko"
+    assert soup.find("meta", attrs={"name": "referrer", "content": "no-referrer"})
+    assert soup.find("meta", attrs={"name": "robots", "content": "noindex,nofollow"})
+    for element_id in (
+        "review-disclosure", "review-content", "review-previous",
+        "review-next", "review-reset", "review-expiry", "review-retry",
+    ):
+        assert soup.find(id=element_id)
+
+    assert "/api/aipol/review/exchange" in script
+    assert "/api/aipol/review/" in script and "/catalog" in script
+    assert "history.replaceState" in script
+    assert "localStorage" not in script and "sessionStorage" not in script
+    for forbidden_route in (
+        "/participants", "/measurements/", "/exposures/", "/withdraw", "/api/admin/",
+    ):
+        assert forbidden_route not in script
+    for private_marker in (
+        "pension-final-report-260713", "prelearning-1", "prelearning-2",
+        "step-by-step.pdf", ".agents/work", "/var/home/",
+    ):
+        assert private_marker not in html + script + style
+
+    assert "@media" in style and "390px" in style
+    subprocess.run(
+        ["node", "--check", str(script_path)], check=True, capture_output=True, text=True
+    )
+
+
+def test_professor_review_private_source_receipt_is_reproducible_and_runtime_bound():
+    catalog_dir = ROOT / "event-tool" / "review-catalogs"
+    manifest = json.loads((catalog_dir / "pension-professor-review-v1.manifest.json").read_text("utf-8"))
+    receipt_path = catalog_dir / manifest["source_verification_receipt_file"]
+    receipt = json.loads(receipt_path.read_text("utf-8"))
+    catalog_path = catalog_dir / manifest["catalog_file"]
+    oracle_path = ROOT / "tests" / "fixtures" / "aipol_professor_review_oracle.json"
+    catalog = json.loads(catalog_path.read_text("utf-8"))
+    assert hashlib.sha256(receipt_path.read_bytes()).hexdigest() == manifest[
+        "source_verification_receipt_hash"
+    ]
+    assert receipt["source_sha256"] == catalog["source_contract"]["document_hashes"]
+    assert receipt["catalog_sha256"] == hashlib.sha256(catalog_path.read_bytes()).hexdigest()
+    assert receipt["oracle_sha256"] == hashlib.sha256(oracle_path.read_bytes()).hexdigest()
+    assert set(receipt["stage_page_text_sha256"]) == {
+        stage["id"] for stage in catalog["stages"]
+    }
+    verifier = ROOT / "scripts" / "verify_professor_review_sources.py"
+    assert verifier.exists()
+    source = verifier.read_text("utf-8")
+    for command in ("hwp5txt", "pdftotext", "pdfinfo"):
+        assert command in source
+
+
+def test_professor_review_catalog_binds_final_plan_and_latest_scenario():
+    catalog_path = ROOT / "event-tool" / "review-catalogs" / "pension-professor-review-v1.json"
+    assert catalog_path.exists()
+    catalog = json.loads(catalog_path.read_text("utf-8"))
+    oracle = json.loads(
+        (ROOT / "tests" / "fixtures" / "aipol_professor_review_oracle.json").read_text("utf-8")
+    )
+    assert catalog["schema_version"] == "professor-review-catalog-v1"
+    assert catalog["policy_columns"] == oracle["policy_columns"]
+    assert [
+        [row["id"], row["start_age"], row["fund_strategy"], row["government_support"]]
+        for row in catalog["policy_options"]
+    ] == oracle["policy_options"]
+    stages = {stage["id"]: stage for stage in catalog["stages"]}
+    assert list(stages) == oracle["stage_ids"]
+    assert stages["m1-result"]["input_contract"] == oracle["m1_inputs"]
+    assert all(
+        forbidden not in " ".join(stages["m1-result"]["input_contract"])
+        for forbidden in ("사유", "확신", "자유서술", "응답보류")
+    )
+    assert stages["personal-impact"]["input_contract"] == oracle["personal_inputs"]
+    assert stages["personal-impact"]["output_contract"] == oracle["personal_outputs"]
+    assert stages["m2-result"]["input_contract"] == oracle["m2_inputs"]
+    assert stages["t6-analysis"]["grouping_variables"] == oracle["t6_variables"]
+    assert stages["d"]["generation_inputs"] == oracle["d_inputs"]
+    assert stages["expert-audience"]["discussion_scope"] == oracle["discussion_scope"]
+    assert stages["d-prime"]["generation_inputs"] == oracle["d_prime_inputs"]
+    assert stages["m3-result"]["choice_set"] == oracle["m3_choices"]
+    assert stages["m3-result"]["example_view"]["d_prime"]["start_age"] == "67세(점진 전환)"
+    assert catalog["source_contract"]["document_hashes"] == oracle["authority_hashes"]
+    assert set(catalog["source_contract"]["page_mapping"]) == set(stages)
+    assert [stage["example_view"]["type"] for stage in catalog["stages"]] == oracle["required_example_types"]
