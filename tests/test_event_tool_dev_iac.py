@@ -61,7 +61,7 @@ def test_dev_deployment_is_opt_in_and_feature_switches_default_off() -> None:
     assert "{ name: 'AIPOL_BATCH_AZURE_ENABLED', value: string(batchEnabled) }" in bicep
     assert "AIPOL_BATCH_AZURE_JOB_RESOURCE_ID" in bicep
     assert "POLICY_NEWS_ENABLED" not in bicep
-    assert "{ name: 'EVENT_ENV', value: 'development' }" in bicep
+    assert "{ name: 'EVENT_ENV', value: enableExternalIngress ? 'production' : 'development' }" in bicep
     assert "{ name: 'EVENT_DEMO_ENABLED', value: 'false' }" in bicep
 
 
@@ -89,6 +89,8 @@ def test_stateful_sqlite_contract_is_single_replica_and_persistent() -> None:
     assert '"serialized_app:app"' in dockerfile
     assert "useradd --uid 10001 --gid 10001" in dockerfile
     assert "install -d -o 10001 -g 10001 -m 0750 /data" in dockerfile
+    assert "/app/instances" in dockerfile
+    assert "COPY event-tool/instances" not in dockerfile
     assert "USER 10001:10001" in dockerfile
 
     serialized_app = _text(UNIT / "serialized_app.py")
@@ -127,8 +129,8 @@ def test_identity_is_used_for_acr_and_key_vault_without_literal_secrets() -> Non
     assert "scope: eventCredentialSecrets" in bicep
     assert "scope: eventAuditCheckpointSecrets" in bicep
     assert "scope: receiptPublicKeySecret" in bicep
-    assert "five-named-secrets-only" in bicep
     assert "six-named-secrets-only" in bicep
+    assert "seven-named-secrets-only" in bicep
     assert "output vaultWideKeyVaultSecretsUserAllowed bool = false" in bicep
 
 
@@ -145,9 +147,10 @@ def test_deployment_unit_has_no_vm_public_ip_or_production_target() -> None:
     assert "output expectedResourceGroup string = 'rg-aipol-dev'" in bicep
     assert "var resourceGroupGuardPassed = resourceGroup().name == 'rg-aipol-dev'" in bicep
     assert "var provisionInfrastructure = deployInfrastructure && resourceGroupGuardPassed" in bicep
-    assert "var featureGuardPassed = !enableExternalIngress && !collectionEnabled && !chatbotEnabled" in bicep
+    assert "var featureGuardPassed = !collectionEnabled && !chatbotEnabled && (!enableExternalIngress || !batchEnabled)" in bicep
     assert "var provisionApp = provisionInfrastructure && deployApp && appInputGuardPassed && featureGuardPassed" in bicep
-    assert "@allowed([false])\nparam enableExternalIngress bool = false" in bicep
+    assert "param enableExternalIngress bool = false" in bicep
+    assert "@allowed([false])\nparam enableExternalIngress" not in bicep
     assert "contains(containerImage, '@sha256:')" in bicep
     assert "eventSessionSecretVersion" in bicep
     assert "eventAdminUsersSecretVersion" in bicep
@@ -157,6 +160,14 @@ def test_deployment_unit_has_no_vm_public_ip_or_production_target() -> None:
     assert "receiptPublicKeySecretVersion" in bicep
     assert "--resource-group rg-aipol-dev" in runbook
     assert "Do not substitute `rg-aipol-prod`" in runbook
+
+
+def test_immutable_audit_container_enables_required_blob_versioning() -> None:
+    bicep = _text(BICEP)
+    assert "isVersioningEnabled: true" in bicep
+    assert "immutableStorageWithVersioning" in bicep
+    assert "if (provisionInfrastructure && !auditImmutabilityPolicyLocked)" in bicep
+    assert "immutabilityPolicies/runAsSuperUser/action" not in bicep
 
 
 def test_batch_job_control_is_default_off_managed_identity_and_job_scoped() -> None:
@@ -256,6 +267,7 @@ def test_deployment_wrapper_serializes_http_requests_and_blocks_second_writer(
         active -= 1
 
     monkeypatch.setitem(sys.modules, "server", types.SimpleNamespace(app=inner))
+    monkeypatch.setenv("EVENT_DB_PATH", str(tmp_path / "event.db"))
     monkeypatch.setenv("EVENT_WRITER_LEASE_PATH", str(tmp_path / "writer-lease"))
     spec = importlib.util.spec_from_file_location(
         "event_tool_dev_serialized_app", UNIT / "serialized_app.py"
