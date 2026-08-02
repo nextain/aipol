@@ -1622,6 +1622,8 @@ def test_v2_uses_facilitator_selected_public_input_and_distinct_d_prime_through_
         assert connection.execute(
             "SELECT COUNT(*) FROM aipol_audience_discussion_acks"
         ).fetchone()[0] == 1
+
+
         assert connection.execute(
             "SELECT statement FROM aipol_public_audience_inputs"
         ).fetchone()[0] == public_statement
@@ -1650,6 +1652,72 @@ def test_v2_uses_facilitator_selected_public_input_and_distinct_d_prime_through_
         )
         assert restored.status_code == 200
         assert restored.json()["stage"] == "complete"
+
+
+def test_v2_synthetic_review_uses_explicit_synthetic_d_prime_without_real_aggregates(aipol_app):
+    _, client, _ = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(client, headers, suffix="-v2-synthetic", procedure_version="v2")
+    _artifact(client, headers, experiment["id"], "personal_comparison", "personal-v2-synthetic")
+    expert = _artifact(client, headers, experiment["id"], "expert_explanation", "expert-v2-synthetic")
+    _artifact(client, headers, experiment["id"], "ai_opinion", "ai-v2-synthetic", fallback=True)
+    frozen = client.put(
+        f"/api/admin/aipol/experiments/{experiment['id']}/freeze", headers=headers,
+        json={
+            "manifest_id": "freeze-v2-synthetic",
+            "experiment_version": experiment["experiment_version"],
+            "option_set_version": experiment["measurement_spec"]["option_set_version"],
+            "measurement_spec_hash": experiment["measurement_spec_hash"],
+            "status": "frozen", "collection_enabled": False, "approvals": [],
+        },
+    )
+    assert frozen.status_code == 200, frozen.text
+    created = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/synthetic-participants",
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    token = created.json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+    assert _post(client, f"{base}/consent", token, 0, "sv2-consent", consent_version="consent-v1", affirmed=True).json()["stage"] == "M1"
+    assert _post(client, f"{base}/measurements/M1", token, 1, "sv2-m1", choice="A", reason="", confidence=3).json()["stage"] == "E1a"
+    assert client.post(
+        f"{base}/exposures/E1a/open", headers=_participant_headers(token),
+        json={"expected_revision": 2, "idempotency_key": "sv2-e1a-open"},
+    ).status_code == 200
+    e1a = client.post(
+        f"{base}/exposures/E1a", headers=_participant_headers(token),
+        json={"expected_revision": 2, "idempotency_key": "sv2-e1a", "read_ack": True},
+    )
+    assert e1a.status_code == 200 and e1a.json()["stage"] == "M2"
+    assert _post(client, f"{base}/measurements/M2", token, 3, "sv2-m2", choice="B", stance="accept", reason="", confidence=3).json()["stage"] == "E2"
+    assert _post(client, f"{base}/exposures/E2", token, 4, "sv2-e2", read_ack=True).json()["stage"] == "E1b"
+    assert _post(client, f"{base}/exposures/E1b", token, 5, "sv2-e1b", read_ack=True).json()["stage"] == "A1"
+    assert _post(client, f"{base}/audience-discussion-ack", token, 6, "sv2-a1").json()["stage"] == "E3"
+    final = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts", headers=headers,
+        json={
+            "kind": "final_ai_opinion", "artifact_id": "d-prime-v2-synthetic",
+            "artifact_version": "v1", "approval_id": f"approval-{experiment['id']}-d-prime-synthetic",
+            "approved_by": "hong", "fallback_used": False,
+            "content": {
+                "title": "합성 검토용 수정 의견 D′",
+                "body": "실제 참가자 집계와 분리된 화면 흐름 검토용 자료입니다.",
+                "synthetic_review": True, "m2_aggregate_hash": None,
+                "public_audience_input_hash": None,
+                "expert_artifact_hash": expert["content_hash"],
+                "model": "synthetic-review-fixture", "deployment": "test-only",
+                "prompt_version": "synthetic-review-v1",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "evidence_refs": ["synthetic-review-only"],
+            },
+        },
+    )
+    assert final.status_code == 200, final.text
+    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert current["artifact"]["artifact_id"] == "d-prime-v2-synthetic"
+    assert current["artifact"]["content"]["synthetic_review"] is True
+    assert _post(client, f"{base}/exposures/E3", token, 7, "sv2-e3", read_ack=True).json()["stage"] == "M3"
 
 
 def test_no_skip_idempotency_conflict_and_stale_revision(aipol_app):

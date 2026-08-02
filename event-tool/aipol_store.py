@@ -2735,13 +2735,22 @@ def set_artifact(
         if artifact_kind is ArtifactKind.FINAL_AI_OPINION:
             if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
                 raise ExperimentError("D′ 자료는 v2 절차에서만 등록할 수 있습니다")
-            aggregate = _public_audience_input_snapshot(
-                connection, experiment_id, require_complete=True
-            )
-            if content.get("public_audience_input_hash") != aggregate["aggregate_hash"]:
-                raise ExperimentError("D′의 진행자 선별 공개 의견 해시가 마감 입력과 다릅니다")
-            if content.get("m2_aggregate_hash") != experiment.get("e2_m2_aggregate_hash"):
-                raise ExperimentError("D′의 M2 집계 해시가 공개된 D의 근거와 다릅니다")
+            synthetic_review = _synthetic_review_experiment(experiment)
+            if synthetic_review:
+                if content.get("synthetic_review") is not True:
+                    raise ExperimentError("합성 검토용 D′에는 synthetic_review=true가 필요합니다")
+                if any(content.get(key) is not None for key in (
+                    "m2_aggregate_hash", "public_audience_input_hash",
+                )):
+                    raise ExperimentError("합성 검토용 D′는 실제 M2·청중 집계 해시를 참조할 수 없습니다")
+            else:
+                aggregate = _public_audience_input_snapshot(
+                    connection, experiment_id, require_complete=True
+                )
+                if content.get("public_audience_input_hash") != aggregate["aggregate_hash"]:
+                    raise ExperimentError("D′의 진행자 선별 공개 의견 해시가 마감 입력과 다릅니다")
+                if content.get("m2_aggregate_hash") != experiment.get("e2_m2_aggregate_hash"):
+                    raise ExperimentError("D′의 M2 집계 해시가 공개된 D의 근거와 다릅니다")
             expert = connection.execute(
                 "SELECT content_hash FROM aipol_artifacts WHERE experiment_id=? AND kind=?",
                 (experiment_id, ArtifactKind.EXPERT_EXPLANATION.value),
