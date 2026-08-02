@@ -74,6 +74,9 @@ async function load() {
   if (!participantToken) { show("start"); return; }
   try {
     current = await api(`/api/aipol/experiments/${encodeURIComponent(experimentId)}/current`);
+    if (current.procedure_version === "aipol-pension-3-measurements-v2") {
+      $("procedure-summary").textContent = "1차 선택, 개인 비교와 2차 의견, 잠정 의견 D, 전문가·청중 의견, 수정 의견 D′ 뒤 최종 선택을 남깁니다.";
+    }
     if (pendingReviewToken) {
       if (current.participant_type !== "synthetic" || current.synthetic_review !== true) {
         const error = new Error("합성 검토 링크가 이 실험의 검토 권한과 일치하지 않습니다.");
@@ -84,7 +87,7 @@ async function load() {
       storedParticipantToken = pendingReviewToken;
       pendingReviewToken = "";
     }
-    if (["E1a","E1b","E2"].includes(current.stage) && current.artifact) {
+    if (["E1a","E1b","E2","E3"].includes(current.stage) && current.artifact) {
       const opened=actionKey(`${current.stage}-open`,current.state_revision);
       await api(`/api/aipol/experiments/${encodeURIComponent(experimentId)}/exposures/${current.stage}/open`,{method:"POST",body:JSON.stringify({expected_revision:current.state_revision,idempotency_key:opened.value})});
     }
@@ -156,15 +159,16 @@ function render() {
   if (current.stage === "complete") { show("done"); return; }
   if (current.stage === "withdrawn") { show("withdrawn"); return; }
   show("step");
-  const labels = {consent:"동의", E1a:"개인 조건 비교", M1:"1차 선택", E1b:"전문가 설명", M2:"2차 선택", E2:"AI 의견·시나리오", M3:"3차 선택"};
+  const labels = {consent:"동의", M1:"1차 선택", E1a:"개인 조건 비교", M2:"2차 선택", E2:"잠정 의견 D", E1b:"전문가 논평", A1:"청중 의견", E3:"수정 의견 D′", M3:"3차 선택"};
   $("step-line").textContent = `${labels[current.stage] || current.stage} · 기록 버전 ${current.state_revision}`;
-  if (current.stage === "E2" && current.waiting_for_e2_release) renderWaiting();
+  if ((current.stage === "E2" && current.waiting_for_e2_release) || (current.stage === "E3" && current.waiting_for_e3_release)) renderWaiting();
   else if (current.stage === "consent") renderConsent();
-  else if (["E1a","E1b","E2"].includes(current.stage)) renderExposure();
+  else if (["E1a","E1b","E2","E3"].includes(current.stage)) renderExposure();
+  else if (current.stage === "A1") renderAudienceFeedback();
   else renderMeasurement();
   const heading=document.querySelector("#step-content h2");if(heading){heading.tabIndex=-1;heading.focus();}
 }
-function renderWaiting() { $("step-content").innerHTML=`<section class="step-card"><h2>AI 의견 공개 대기</h2><p>모든 참가자의 2차 선택이 고정되고 진행자가 승인 자료를 공개할 때까지 기다려 주세요.</p><button id="step-submit" class="btn-primary">상태 새로고침</button></section>`;$("step-submit").onclick=load; }
+function renderWaiting() { const final=current.stage==="E3"; $("step-content").innerHTML=`<section class="step-card"><h2>${final ? "수정 의견 D′ 공개 대기" : "잠정 의견 D 공개 대기"}</h2><p>${final ? "전문가 논평과 청중 의견이 고정되고 진행자가 승인한 D′를 공개할 때까지 기다려 주세요." : "모든 참가자의 2차 선택이 고정되고 진행자가 승인한 D를 공개할 때까지 기다려 주세요."}</p><button id="step-submit" class="btn-primary">상태 새로고침</button></section>`;$("step-submit").onclick=load; }
 function renderConsent() {
   $("step-content").innerHTML = `<section class="step-card"><h2>연구 참여 동의</h2><p>${esc(current.consent_text)}</p><p class="artifact-meta">동의문 버전 ${esc(current.consent_version)}</p><label class="option-choice"><input id="consent-check" type="checkbox"><span>위 내용을 확인했으며 세 번의 선택과 자료 노출 기록 수집에 동의합니다.</span></label><p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">동의하고 계속</button></div></section>`;
   bindActions(() => submitAction("consent", {consent_version: current.consent_version, affirmed: true}, () => $("consent-check").checked || "동의 확인이 필요합니다."));
@@ -199,6 +203,13 @@ function renderExposure() {
       () => true,
     );
   });
+}
+function renderAudienceFeedback() {
+  $("step-content").innerHTML = `<section class="step-card"><h2>전문가 논평 뒤 청중 의견</h2><p>잠정 의견 D와 전문가 논평을 본 뒤, 수정 의견 D′에 반영할 의견을 적어 주세요.</p><p class="artifact-meta">이름·연락처·소속 등 개인을 알아볼 수 있는 정보는 적지 마세요. 원문은 공개 응답과 집계 화면에 표시되지 않습니다.</p><textarea id="audience-response" maxlength="2000" rows="6"></textarea><label class="option-choice"><input id="audience-abstain" type="checkbox"><span>의견 보류</span></label><p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">청중 의견 제출</button></div></section>`;
+  const response = $("audience-response");
+  const abstain = $("audience-abstain");
+  abstain.onchange = () => { response.disabled = abstain.checked; if (abstain.checked) response.value = ""; };
+  bindActions(() => submitAction("audience-feedback", {response:response.value.trim() || null, abstained:abstain.checked}, () => response.value.trim() || abstain.checked || "의견을 입력하거나 의견 보류를 선택해 주세요."));
 }
 function startCalculator() {
   const status = $("calculator-status");
@@ -245,12 +256,21 @@ function acceptManualReceipt() {
 }
 function renderMeasurement() {
   const options = current.policy_options || [];
-  $("step-content").innerHTML = `<section class="step-card"><h2>${esc(current.stage.replace("M", ""))}차 선택</h2><p>${esc(current.question_text || current.question_id)}</p><div class="option-list">${options.map((option) => `<label class="option-choice"><input type="radio" name="choice" value="${esc(option.policy_option_id)}"><span><strong>${esc(option.policy_option_id)} · ${esc(option.label)}</strong><small>정책 버전 ${esc(option.policy_version)}</small></span></label>`).join("")}<label class="option-choice"><input type="radio" name="choice" value="__abstain__"><span><strong>응답 보류</strong><small>주 선택은 무응답으로 기록됩니다.</small></span></label></div><label class="field-label" for="reason">선택 이유 (선택)</label><p class="artifact-meta">이름·연락처·소속 등 개인을 알아볼 수 있는 정보는 적지 마세요.</p><textarea id="reason" maxlength="2000"></textarea><label class="field-label" for="confidence">선택 확신도 1~5</label><select id="confidence" class="field-input"><option value="">선택 안 함</option>${[1,2,3,4,5].map((n) => `<option value="${n}">${n}</option>`).join("")}</select>${current.stage === "M3" && current.secondary_evaluation ? `<hr><h3>AI가 제시한 별도 안 평가</h3><p class="stage-note">이 평가는 위 A/B/C 주 선택과 별도로 저장됩니다.</p><label class="field-label" for="secondary">수용도 1~5</label><select id="secondary" class="field-input"><option value="">선택 안 함</option>${[1,2,3,4,5].map((n) => `<option value="${n}">${n}</option>`).join("")}</select>` : ""}<p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">${esc(current.stage)} 제출</button></div></section>`;
+  const structuredM2 = current.stage === "M2" && current.procedure_version === "aipol-pension-3-measurements-v2";
+  const stance = structuredM2 ? `<label class="field-label" for="stance">선택한 안에 대한 판단</label><select id="stance" class="field-input"><option value="">선택해 주세요</option><option value="accept">수용</option><option value="conditional">조건부 수용</option><option value="reject">비선택</option></select>` : "";
+  const reasonLabel = structuredM2 ? "선택 이유 (조건부 수용·비선택은 필수)" : "선택 이유 (선택)";
+  $("step-content").innerHTML = `<section class="step-card"><h2>${esc(current.stage.replace("M", ""))}차 선택</h2><p>${esc(current.question_text || current.question_id)}</p><div class="option-list">${options.map((option) => `<label class="option-choice"><input type="radio" name="choice" value="${esc(option.policy_option_id)}"><span><strong>${esc(option.policy_option_id)} · ${esc(option.label)}</strong><small>정책 버전 ${esc(option.policy_version)}</small></span></label>`).join("")}<label class="option-choice"><input type="radio" name="choice" value="__abstain__"><span><strong>응답 보류</strong><small>주 선택은 무응답으로 기록됩니다.</small></span></label></div>${stance}<label class="field-label" for="reason">${reasonLabel}</label><p class="artifact-meta">이름·연락처·소속 등 개인을 알아볼 수 있는 정보는 적지 마세요.</p><textarea id="reason" maxlength="2000"></textarea><label class="field-label" for="confidence">선택 확신도 1~5</label><select id="confidence" class="field-input"><option value="">선택 안 함</option>${[1,2,3,4,5].map((n) => `<option value="${n}">${n}</option>`).join("")}</select>${current.stage === "M3" && current.secondary_evaluation ? `<hr><h3>AI가 제시한 별도 안 평가</h3><p class="stage-note">이 평가는 위 A/B/C 주 선택과 별도로 저장됩니다.</p><label class="field-label" for="secondary">수용도 1~5</label><select id="secondary" class="field-input"><option value="">선택 안 함</option>${[1,2,3,4,5].map((n) => `<option value="${n}">${n}</option>`).join("")}</select>` : ""}<p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">${esc(current.stage)} 제출</button></div></section>`;
   bindActions(() => {
     const choice = document.querySelector('input[name="choice"]:checked');
     const secondary = $("secondary");
     const extra = secondary && secondary.value ? {secondary_evaluation:{artifact_id:current.secondary_evaluation.artifact_id, acceptance:Number(secondary.value), reason:""}} : {};
-    submitAction(`measurements/${current.stage}`, {choice:choice?.value === "__abstain__" ? null : choice?.value, reason:$("reason").value, confidence:$("confidence").value ? Number($("confidence").value) : null, ...extra}, () => !!choice || "A/B/C 또는 응답 보류를 선택해 주세요.");
+    submitAction(`measurements/${current.stage}`, {choice:choice?.value === "__abstain__" ? null : choice?.value, stance:$("stance")?.value || null, reason:$("reason").value, confidence:$("confidence").value ? Number($("confidence").value) : null, ...extra}, () => {
+      if (!choice) return "A/B/C 또는 응답 보류를 선택해 주세요.";
+      const decision = $("stance")?.value;
+      if (structuredM2 && !decision) return "수용, 조건부 수용, 비선택 중 하나를 선택해 주세요.";
+      if (structuredM2 && ["conditional", "reject"].includes(decision) && !$("reason").value.trim()) return "조건부 수용과 비선택에는 이유를 적어 주세요.";
+      return true;
+    });
   });
 }
 function bindActions(primary) { $("step-submit").onclick = primary; const row=$("step-submit").parentElement; const withdraw=document.createElement("button");withdraw.type="button";withdraw.className="external-link";withdraw.textContent="참여 철회";withdraw.onclick=async()=>{if(!confirm("참여를 철회하면 이후 단계를 제출할 수 없습니다. 철회할까요?"))return;const idem=actionKey(`withdraw-${current.stage}`,current.state_revision);try{await api(`/api/aipol/experiments/${encodeURIComponent(experimentId)}/withdraw`,{method:"POST",body:JSON.stringify({reason:"participant-request",expected_revision:current.state_revision,idempotency_key:idem.value})});localStorage.removeItem(idem.key);await load();}catch(e){$("step-error").textContent=e.message;}};row.appendChild(withdraw); }

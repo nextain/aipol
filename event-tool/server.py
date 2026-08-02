@@ -795,7 +795,7 @@ def aipol_admin_create(body: dict, x_admin_token: str = Header(default="")):
             "consent_text", "question_id", "question_text", "option_set_version",
             "policy_options", "capacity",
         },
-        set(),
+        {"procedure_version"},
         "experiment creation",
     )
     result = _aipol_call(
@@ -811,6 +811,7 @@ def aipol_admin_create(body: dict, x_admin_token: str = Header(default="")):
         policy_options=body.get("policy_options") or [],
         capacity=body.get("capacity"),
         created_by=created_by,
+        procedure_version=str(body.get("procedure_version") or "v1"),
     )
     return _audit_experiment_mutation(created_by, "experiment.created", result["id"], result)
 
@@ -1061,6 +1062,14 @@ def aipol_admin_m2_aggregate(
 ):
     require_aipol_admin(x_admin_token, Action.READ)
     return _aipol_call(aipol_store.m2_aggregate_snapshot, experiment_id)
+
+
+@app.get("/api/admin/aipol/experiments/{experiment_id}/audience-feedback-aggregate")
+def aipol_admin_audience_feedback_aggregate(
+    experiment_id: str, x_admin_token: str = Header(default="")
+):
+    require_aipol_admin(x_admin_token, Action.READ)
+    return _aipol_call(aipol_store.audience_feedback_aggregate_snapshot, experiment_id)
 
 
 @app.post("/api/admin/aipol/experiments/{experiment_id}/mark-pending-attrition")
@@ -1577,6 +1586,9 @@ def aipol_measurement(
         raise HTTPException(400, "선택 이유는 문자열 또는 null이어야 합니다")
     if reason is not None and len(reason) > 2_000:
         raise HTTPException(400, "선택 이유는 2,000자 이하여야 합니다")
+    stance = body.get("stance")
+    if stance is not None and stance not in ("accept", "conditional", "reject"):
+        raise HTTPException(400, "stance는 accept, conditional, reject 또는 null이어야 합니다")
     secondary = body.get("secondary_evaluation")
     if secondary is not None and not isinstance(secondary, dict):
         raise HTTPException(400, "secondary_evaluation은 JSON 객체 또는 null이어야 합니다")
@@ -1591,6 +1603,37 @@ def aipol_measurement(
         expected_revision=_expected_revision(body),
         idempotency_key=str(body.get("idempotency_key") or ""),
         secondary_evaluation=secondary,
+        stance=stance,
+    )
+
+
+@app.post("/api/aipol/experiments/{experiment_id}/audience-feedback")
+def aipol_audience_feedback(
+    experiment_id: str,
+    body: dict,
+    x_participant_token: str = Header(default=""),
+):
+    _require_exact_contract(
+        body,
+        {"response", "abstained", "expected_revision", "idempotency_key"},
+        set(),
+        "audience feedback",
+    )
+    response = body.get("response")
+    if response is not None and not isinstance(response, str):
+        raise HTTPException(400, "response는 문자열 또는 null이어야 합니다")
+    if isinstance(response, str) and len(response) > 2_000:
+        raise HTTPException(400, "청중 의견은 2,000자 이하여야 합니다")
+    if not isinstance(body.get("abstained"), bool):
+        raise HTTPException(400, "abstained는 boolean이어야 합니다")
+    return _aipol_call(
+        aipol_store.submit_audience_feedback,
+        experiment_id,
+        x_participant_token,
+        response=response,
+        abstained=body["abstained"],
+        expected_revision=_expected_revision(body),
+        idempotency_key=str(body.get("idempotency_key") or ""),
     )
 
 

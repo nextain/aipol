@@ -25,7 +25,12 @@ from policy_lab.domains.pension import (
     PolicyOptionDefinition,
     StateRevisionConflict,
 )
-from policy_lab.domains.pension.experiment import ExperimentError, InvalidTransition, content_hash
+from policy_lab.domains.pension.experiment import (
+    ExperimentError,
+    InvalidTransition,
+    PROCEDURE_CONFIG,
+    content_hash,
+)
 
 
 FIXED_NOW = datetime(2026, 8, 12, 5, 30, tzinfo=timezone.utc)
@@ -213,6 +218,52 @@ def test_three_measurements_are_append_only_and_keep_same_question_options_and_o
     assert records[0].preceding_exposure_hash != records[1].preceding_exposure_hash
     with pytest.raises(FrozenInstanceError):
         records[0].choice = "B"  # type: ignore[misc]
+
+
+def test_v2_collects_m1_before_personal_comparison_without_breaking_audit_hashes():
+    spec = _spec()
+    session = PensionExperimentSession(
+        experiment_version="2026-08-12.1",
+        session_id="session-v2",
+        measurement_spec=spec,
+        policy_options=_options(),
+        freeze_manifest=_freeze(spec),
+        procedure_config=PROCEDURE_CONFIG,
+        clock=lambda: FIXED_NOW,
+    )
+    session.register_participant("real-v2", ParticipantType.REAL)
+    session.record_consent(
+        "real-v2", consent_version="v2", affirmed=True,
+        expected_revision=0, idempotency_key="consent-v2",
+    )
+    assert session.participant_state("real-v2") == (ExperimentStage.M1, 1)
+    first = session.submit_measurement(
+        "real-v2", "M1", choice="A", reason="최초 선택", confidence=3,
+        expected_revision=1, idempotency_key="m1-v2",
+    )
+    assert first.preceding_exposure_hash == content_hash(
+        [
+            {
+                "policy_option_id": option.policy_option_id,
+                "label": option.label,
+                "policy_version": option.policy_version,
+            }
+            for option in _options()
+        ]
+    )
+    assert session.participant_state("real-v2") == (ExperimentStage.E1A, 2)
+    personal = _artifact(ArtifactKind.PERSONAL_COMPARISON, "personal-v2")
+    session.record_exposure(
+        "real-v2", personal, read_ack=True,
+        expected_revision=2, idempotency_key="e1a-v2",
+    )
+    assert session.participant_state("real-v2") == (ExperimentStage.M2, 3)
+    session.submit_measurement(
+        "real-v2", "M2", choice="B", stance="conditional",
+        reason="재정 조건 확인 필요", confidence=3,
+        expected_revision=3, idempotency_key="m2-v2",
+    )
+    assert session.participant_state("real-v2") == (ExperimentStage.E2, 4)
 
 
 def test_skips_future_exposure_and_overwrite_are_rejected():

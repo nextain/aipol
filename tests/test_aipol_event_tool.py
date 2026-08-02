@@ -91,7 +91,14 @@ def _admin_headers(client: TestClient, username: str = "hong") -> dict:
     return {"X-Admin-Token": response.json()["token"]}
 
 
-def _create(client: TestClient, headers: dict, *, capacity: int = 20, suffix: str = "") -> dict:
+def _create(
+    client: TestClient,
+    headers: dict,
+    *,
+    capacity: int = 20,
+    suffix: str = "",
+    procedure_version: str = "v1",
+) -> dict:
     editor_headers = _admin_headers(client, "editor")
     response = client.post(
         "/api/admin/aipol/experiments",
@@ -106,6 +113,7 @@ def _create(client: TestClient, headers: dict, *, capacity: int = 20, suffix: st
             "question_text": "세 정책안 중 현재 가장 선호하는 안을 선택해 주세요.",
             "option_set_version": "approved-options-v1",
             "capacity": capacity,
+            "procedure_version": procedure_version,
             "policy_options": [
                 {"policy_option_id": "A", "label": "검증용 A안", "policy_version": "approved-options-v1",
                  "source": "test-fixture", "approved_by": "test-reviewer", "lever_values": {"fixture": "A"}},
@@ -1354,6 +1362,205 @@ def test_three_measurement_api_and_sqlite_ledger_are_append_only(aipol_app):
         assert len({row[2] for row in rows}) == 1
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             connection.execute("UPDATE aipol_measurements SET choice='B' WHERE measurement_id='M1'")
+
+    for module_name in MODULES:
+        sys.modules.pop(module_name, None)
+    restarted = importlib.import_module("server")
+    with TestClient(restarted.app) as restarted_client:
+        restored = restarted_client.get(
+            f"{base}/current", headers=_participant_headers(token)
+        )
+        assert restored.status_code == 200
+        assert restored.json()["stage"] == "complete"
+
+
+def test_v2_starts_with_m1_then_personal_comparison_and_structures_m2(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(client, headers, suffix="-v2-order", procedure_version="v2")
+    _artifact(client, headers, experiment["id"], "personal_comparison", "personal-v2-order")
+    assert _freeze(client, headers, experiment).status_code == 200
+    token = _register(client, experiment["id"]).json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+
+    consented = _post(
+        client, f"{base}/consent", token, 0, "v2-consent",
+        consent_version="consent-v1", affirmed=True,
+    )
+    assert consented.status_code == 200 and consented.json()["stage"] == "M1"
+    first = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert first["stage"] == "M1" and len(first["policy_options"]) == 3
+
+    m1 = _post(
+        client, f"{base}/measurements/M1", token, 1, "v2-m1",
+        choice="A", reason="최초 선택", confidence=3,
+    )
+    assert m1.status_code == 200 and m1.json()["stage"] == "E1a"
+    assert _post(
+        client, f"{base}/exposures/E1a", token, 2, "v2-e1a", read_ack=True,
+    ).json()["stage"] == "M2"
+
+    missing = _post(
+        client, f"{base}/measurements/M2", token, 3, "v2-m2-missing",
+        choice="B", reason="", confidence=3,
+    )
+    assert missing.status_code == 400
+    conditional_without_reason = _post(
+        client, f"{base}/measurements/M2", token, 3, "v2-m2-empty",
+        choice="B", stance="conditional", reason="", confidence=3,
+    )
+    assert conditional_without_reason.status_code == 400
+    accepted = _post(
+        client, f"{base}/measurements/M2", token, 3, "v2-m2",
+        choice="B", stance="conditional", reason="재정 조건 확인 필요", confidence=3,
+    )
+    assert accepted.status_code == 200 and accepted.json()["stage"] == "E2"
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    aggregate = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/m2-aggregate",
+        headers=headers,
+    ).json()
+    assert aggregate["stance_counts"] == {"accept": 0, "conditional": 1, "reject": 0}
+    assert "재정 조건 확인 필요" not in json.dumps(aggregate, ensure_ascii=False)
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            "SELECT measurement_id,stance,preceding_exposure_hash "
+            "FROM aipol_measurements ORDER BY state_revision"
+        ).fetchall()
+    assert rows[0][0] == "M1" and rows[0][1] is None and len(rows[0][2]) == 64
+    assert rows[1][:2] == ("M2", "conditional")
+
+
+def test_v2_persists_private_feedback_and_distinct_d_prime_through_restart(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(client, headers, suffix="-v2-complete", procedure_version="v2")
+    _artifact(client, headers, experiment["id"], "personal_comparison", "personal-v2-complete")
+    assert _freeze(client, headers, experiment).status_code == 200
+    token = _register(client, experiment["id"]).json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+
+    assert _post(
+        client, f"{base}/consent", token, 0, "v2c-consent",
+        consent_version="consent-v1", affirmed=True,
+    ).json()["stage"] == "M1"
+    assert _post(
+        client, f"{base}/measurements/M1", token, 1, "v2c-m1",
+        choice="A", reason="", confidence=3,
+    ).json()["stage"] == "E1a"
+    assert _post(
+        client, f"{base}/exposures/E1a", token, 2, "v2c-e1a", read_ack=True,
+    ).json()["stage"] == "M2"
+    assert _post(
+        client, f"{base}/measurements/M2", token, 3, "v2c-m2",
+        choice="B", stance="conditional", reason="조건을 확인해야 함", confidence=4,
+    ).json()["stage"] == "E2"
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    release = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/release-e2",
+        headers=headers,
+        json={"candidate_role": "fallback", "selection_reason": "v2 검토용 D 선택"},
+    )
+    assert release.status_code == 200
+    released = release.json()
+    assert _post(
+        client, f"{base}/exposures/E2", token, 4, "v2c-e2", read_ack=True,
+    ).json()["stage"] == "E1b"
+    assert _post(
+        client, f"{base}/exposures/E1b", token, 5, "v2c-e1b", read_ack=True,
+    ).json()["stage"] == "A1"
+
+    raw_feedback = "전문가 논평 뒤 재정 조건을 더 명확히 밝혀야 합니다"
+    feedback = _post(
+        client, f"{base}/audience-feedback", token, 6, "v2c-feedback",
+        response=raw_feedback, abstained=False,
+    )
+    assert feedback.status_code == 200 and feedback.json()["stage"] == "E3"
+    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert current["waiting_for_e3_release"] is True
+    assert raw_feedback not in json.dumps(current, ensure_ascii=False)
+
+    aggregate_response = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/audience-feedback-aggregate",
+        headers=headers,
+    )
+    assert aggregate_response.status_code == 200
+    aggregate = aggregate_response.json()
+    assert aggregate["participant_count"] == 1 and aggregate["abstained_count"] == 0
+    assert raw_feedback not in json.dumps(aggregate, ensure_ascii=False)
+    with sqlite3.connect(db_path) as connection:
+        expert_hash = connection.execute(
+            "SELECT content_hash FROM aipol_artifacts WHERE experiment_id=? AND kind='expert_explanation'",
+            (experiment["id"],),
+        ).fetchone()[0]
+    final = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "final_ai_opinion",
+            "artifact_id": "d-prime-v2",
+            "artifact_version": "v1",
+            "content": {
+                "title": "수정 의견 D′",
+                "body": "M2, 전문가 논평, 청중 의견을 반영한 수정 의견입니다.",
+                "m2_aggregate_hash": released["e2_m2_aggregate_hash"],
+                "expert_artifact_hash": expert_hash,
+                "audience_feedback_aggregate_hash": aggregate["aggregate_hash"],
+                "model": "fixture-revision-model",
+                "deployment": "fixture-revision-deployment",
+                "prompt_version": "fixture-d-prime-v1",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "evidence_refs": ["m2-finalization", "expert-approved", "audience-finalized"],
+            },
+            "approval_id": f"approval-{experiment['id']}-d-prime-v2",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert final.status_code == 200, final.text
+    assert final.json()["artifact_id"] == "d-prime-v2"
+    assert final.json()["content_hash"] != released["e2_selected_candidate_id"]
+
+    e3 = _post(
+        client, f"{base}/exposures/E3", token, 7, "v2c-e3", read_ack=True,
+    )
+    assert e3.status_code == 200, e3.text
+    assert e3.json()["stage"] == "M3"
+    completed = _post(
+        client, f"{base}/measurements/M3", token, 8, "v2c-m3",
+        choice="C", reason="최종 선택", confidence=4,
+        secondary_evaluation={
+            "artifact_id": "d-prime-v2", "acceptance": 4, "reason": "최종 별도 평가",
+        },
+    )
+    assert completed.status_code == 200 and completed.json()["stage"] == "complete"
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT response FROM aipol_audience_feedback"
+        ).fetchone()[0] == raw_feedback
+        assert connection.execute("SELECT COUNT(*) FROM aipol_v2_exposures").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(DISTINCT artifact_id) FROM aipol_artifacts "
+            "WHERE experiment_id=? AND kind='final_ai_opinion'",
+            (experiment["id"],),
+        ).fetchone()[0] == 1
+        d_id = connection.execute(
+            "SELECT c.artifact_id FROM aipol_ai_candidates c JOIN aipol_experiments e "
+            "ON e.e2_selected_candidate_id=c.id WHERE e.id=?", (experiment["id"],),
+        ).fetchone()[0]
+        d_prime_id = connection.execute(
+            "SELECT artifact_id FROM aipol_artifacts WHERE experiment_id=? "
+            "AND kind='final_ai_opinion'", (experiment["id"],),
+        ).fetchone()[0]
+        assert d_id != d_prime_id
 
     for module_name in MODULES:
         sys.modules.pop(module_name, None)

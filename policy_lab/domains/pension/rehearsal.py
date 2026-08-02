@@ -33,9 +33,7 @@ class RehearsalFailure(RuntimeError):
 
 
 def _validate_procedure(procedure_config: dict) -> None:
-    expected = tuple(
-        stage.value for stage in ExperimentStage if stage is not ExperimentStage.WITHDRAWN
-    )
+    expected = tuple(PROCEDURE_CONFIG["stages"])
     configured = tuple(procedure_config.get("stages") or ())
     if configured != expected:
         raise RehearsalFailure(
@@ -44,9 +42,11 @@ def _validate_procedure(procedure_config: dict) -> None:
     if tuple(procedure_config.get("measurements") or ()) != ("M1", "M2", "M3"):
         raise RehearsalFailure("procedure measurement drift")
     if procedure_config.get("exposures") != {
-        "E1a": "calculator", "E1b": "expert", "E2": "ai"
+        "E1a": "calculator", "E2": "d", "E1b": "expert", "E3": "d_prime"
     }:
         raise RehearsalFailure("procedure exposure drift")
+    if procedure_config.get("feedback") != {"A1": "audience"}:
+        raise RehearsalFailure("procedure feedback drift")
 
 
 def run_virtual_rehearsal(
@@ -82,6 +82,7 @@ def run_virtual_rehearsal(
         session_id="virtual-clock",
         measurement_spec=spec,
         policy_options=options,
+        procedure_config=config,
         clock=now,
     )
     personal = ExperimentArtifact(
@@ -97,9 +98,11 @@ def run_virtual_rehearsal(
         )
 
     expert = approved_artifact("expert", ArtifactKind.EXPERT_EXPLANATION)
-    ai = approved_artifact("ai", ArtifactKind.AI_OPINION)
+    ai = approved_artifact("d", ArtifactKind.AI_OPINION)
+    final_ai = approved_artifact("d-prime", ArtifactKind.FINAL_AI_OPINION)
     session.set_expert_artifact(expert)
     session.set_session_ai_artifact(ai)
+    session.set_session_final_ai_artifact(final_ai)
     participant = "synthetic-rehearsal"
     session.register_participant(participant, ParticipantType.SYNTHETIC)
 
@@ -108,21 +111,20 @@ def run_virtual_rehearsal(
         participant, consent_version="v1", affirmed=True,
         expected_revision=0, idempotency_key="consent",
     )
-    advance(25, "E1a 개인 비교와 M1 완료")
-    session.record_exposure(
-        participant, personal, read_ack=True, expected_revision=1, idempotency_key="E1a"
-    )
+    advance(18, "M1 최초 선택 완료")
     session.submit_measurement(
         participant, "M1", choice="A", reason=None, confidence=3,
-        expected_revision=2, idempotency_key="M1",
+        expected_revision=1, idempotency_key="M1",
     )
-    advance(40, "E1b 전문가 설명과 M2 완료")
+    advance(25, "E1a 개인 비교 완료")
     session.record_exposure(
-        participant, expert, read_ack=True, expected_revision=3, idempotency_key="E1b"
+        participant, personal, read_ack=True,
+        expected_revision=2, idempotency_key="E1a"
     )
+    advance(40, "M2 투표와 구조화 의견 완료")
     session.submit_measurement(
         participant, "M2", choice="B", reason=None, confidence=3,
-        expected_revision=4, idempotency_key="M2",
+        expected_revision=3, idempotency_key="M2", stance="accept",
     )
 
     if "ai_live_unavailable" in failures:
@@ -130,7 +132,18 @@ def run_virtual_rehearsal(
         recoveries.append("승인된 고정 E2 대체본 사용")
     else:
         advance(58, "AI 자료 준비와 사람 승인 완료")
-    advance(70, "M2 집계·AI 승인·선정 완료")
+    session.record_exposure(
+        participant, ai, read_ack=True, expected_revision=4, idempotency_key="E2-D"
+    )
+    advance(65, "D 공개 뒤 전문가 논평 완료")
+    session.record_exposure(
+        participant, expert, read_ack=True, expected_revision=5, idempotency_key="E1b"
+    )
+    advance(70, "청중 의견 수렴 완료")
+    session.submit_audience_feedback(
+        participant, response="재정 조건을 더 설명해 주세요", abstained=False,
+        expected_revision=6, idempotency_key="A1",
+    )
 
     if "participant_network_drop" in failures:
         advance(78, "참가자 재접속·마지막 완료 단계 복구")
@@ -139,13 +152,14 @@ def run_virtual_rehearsal(
         raise RehearsalFailure(
             "M3 저장소 복구 실패: 실제 행사를 중단하고 측정 누락을 숨기지 않는다"
         )
-    advance(85, "E2 AI 자료와 M3 완료")
+    advance(82, "D′ 생성과 사람 승인 완료")
     session.record_exposure(
-        participant, ai, read_ack=True, expected_revision=5, idempotency_key="E2"
+        participant, final_ai, read_ack=True, expected_revision=7, idempotency_key="E3-D-prime"
     )
+    advance(85, "D′ 확인과 M3 완료")
     session.submit_measurement(
         participant, "M3", choice="C", reason=None, confidence=3,
-        expected_revision=6, idempotency_key="M3",
+        expected_revision=8, idempotency_key="M3",
     )
     stage, _ = session.participant_state(participant)
     if stage is not ExperimentStage.COMPLETE:
