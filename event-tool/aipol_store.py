@@ -4047,6 +4047,47 @@ def get_review_catalog(experiment_id: str, session_token: str, stage: str = "int
     }
 
 
+def get_planning_review_catalog(stage: str = "intro") -> dict:
+    """Return the immutable synthetic planning review without a seat or expiry."""
+
+    if stage not in _REVIEW_STAGE_IDS:
+        raise ExperimentError("알 수 없는 교수 검토 단계입니다")
+    catalog_dir = Path(__file__).parent / "review-catalogs"
+    catalog_path = catalog_dir / "pension-professor-review-v1.json"
+    manifest_path = catalog_dir / "pension-professor-review-v1.manifest.json"
+    try:
+        catalog_bytes = catalog_path.read_bytes()
+        catalog = json.loads(catalog_bytes)
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes)
+        receipt_path = catalog_dir / manifest["source_verification_receipt_file"]
+        receipt_bytes = receipt_path.read_bytes()
+        receipt = json.loads(receipt_bytes)
+    except (OSError, KeyError, json.JSONDecodeError) as exc:
+        raise ExperimentError("합성 기획 검토본을 읽을 수 없습니다") from exc
+    _validate_review_catalog(catalog)
+    if (
+        hashlib.sha256(catalog_bytes).hexdigest() != receipt.get("catalog_sha256")
+        or hashlib.sha256(receipt_bytes).hexdigest()
+        != manifest.get("source_verification_receipt_hash")
+    ):
+        raise ExperimentError("합성 기획 검토본 검증 영수증이 일치하지 않습니다")
+    public_catalog = {key: value for key, value in catalog.items() if key != "source_contract"}
+    snapshot_hash = content_hash({
+        "contract": "public-synthetic-planning-review-v1",
+        "catalog_sha256": hashlib.sha256(catalog_bytes).hexdigest(),
+        "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+    })
+    return {
+        "catalog": public_catalog,
+        "current_stage_id": stage,
+        "snapshot_hash": snapshot_hash,
+        "expires_at": None,
+        "scope": "national-pension-only",
+        "access": "public-synthetic-planning-review",
+    }
+
+
 def revoke_review_seat(
     experiment_id: str, review_id: str, *, logical_seat_id: str, reason: str, revoked_by: str,
 ) -> dict:

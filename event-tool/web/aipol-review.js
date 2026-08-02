@@ -3,6 +3,7 @@
 
   const query = new URLSearchParams(location.search);
   const experimentId = query.get("experiment") || "";
+  const planningMode = query.get("mode") === "planning";
   const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
   let pendingReviewToken = fragment.get("review_token") || "";
   let exchangeNonce = "";
@@ -71,7 +72,7 @@
 
   function writeStageUrl(stage, mode) {
     const params = new URLSearchParams(location.search);
-    params.set("experiment", experimentId);
+    if (experimentId) params.set("experiment", experimentId);
     params.set("stage", stage);
     history[mode === "push" ? "pushState" : "replaceState"](
       {stage}, "", `${location.pathname}?${params.toString()}`,
@@ -94,8 +95,11 @@
     activeLoad = controller;
     setBusy(true);
     try {
+      const catalogUrl = planningMode
+        ? `/api/aipol/review/planning/catalog?stage=${encodeURIComponent(stage)}`
+        : `/api/aipol/review/${encodeURIComponent(experimentId)}/catalog?stage=${encodeURIComponent(stage)}`;
       const response = await fetch(
-        `/api/aipol/review/${encodeURIComponent(experimentId)}/catalog?stage=${encodeURIComponent(stage)}`,
+        catalogUrl,
         {credentials: "same-origin", cache: "no-store", signal: controller.signal},
       );
       if (!response.ok) {
@@ -234,7 +238,9 @@
     disclosure.textContent = catalog.disclosure;
     disclosure.hidden = false;
     snapshot.textContent = `검토 스냅숏 ${snapshotHash.slice(0, 12)}`;
-    expiry.textContent = `범위: ${scope === "national-pension-only" ? "국민연금" : "확인 필요"} · 만료: ${new Date(expiresAt).toLocaleString("ko-KR")}`;
+    expiry.textContent = expiresAt
+      ? `범위: ${scope === "national-pension-only" ? "국민연금" : "확인 필요"} · 만료: ${new Date(expiresAt).toLocaleString("ko-KR")}`
+      : `범위: ${scope === "national-pension-only" ? "국민연금" : "확인 필요"} · 합성 기획 검토본 · 만료 없음`;
     stageList.innerHTML = catalog.stages.map((item, index) => `
       <button type="button" data-stage="${escapeHtml(item.id)}" aria-current="${index === stageIndex ? "step" : "false"}">
         <span>${item.position}</span>${escapeHtml(item.title)}
@@ -299,7 +305,7 @@
     status.textContent = error.message || "검토 자료를 불러오지 못했습니다.";
   }
 
-  if (!experimentId) {
+  if (!experimentId && !planningMode) {
     showError(new Error("검토 대상 식별자가 없습니다."));
   } else {
     exchange().then(() => load(initialStage)).catch(showError);

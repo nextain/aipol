@@ -223,6 +223,9 @@ def test_professor_review_assets_are_read_only_private_safe_and_mobile_first():
 
     assert "/api/aipol/review/exchange" in script
     assert "/api/aipol/review/" in script and "/catalog" in script
+    assert "/api/aipol/review/planning/catalog" in script
+    assert 'query.get("mode") === "planning"' in script
+    assert "합성 기획 검토본 · 만료 없음" in script
     assert "history.replaceState" in script
     assert "localStorage" not in script and "sessionStorage" not in script
     for forbidden_route in (

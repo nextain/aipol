@@ -26,6 +26,9 @@
     "receiptVerifierEnabled": {
       "value": false
     },
+    "adminTotpOptionalUsersJson": {
+      "value": "[\"planning-review\"]"
+    },
     "auditImmutabilityPolicyLocked": {
       "value": false
     },

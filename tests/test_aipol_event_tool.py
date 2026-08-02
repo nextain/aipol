@@ -3472,6 +3472,41 @@ def test_professor_review_static_entry_is_never_cached(aipol_app):
         assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
 
 
+def test_public_synthetic_planning_review_is_reusable_and_never_mutates(aipol_app):
+    _, client, db_path = aipol_app
+    catalog = _professor_review_catalog()
+    protected_tables = (
+        "aipol_participants", "aipol_measurements", "aipol_exposures",
+        "aipol_review_seat_sets", "aipol_review_seats", "aipol_review_sessions",
+    )
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in protected_tables
+        }
+    snapshots = set()
+    for stage in catalog["stages"]:
+        response = client.get(
+            "/api/aipol/review/planning/catalog", params={"stage": stage["id"]}
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["cache-control"] == "no-store"
+        body = response.json()
+        assert body["current_stage_id"] == stage["id"]
+        assert body["expires_at"] is None
+        assert body["access"] == "public-synthetic-planning-review"
+        assert body["scope"] == "national-pension-only"
+        assert "source_contract" not in response.text
+        snapshots.add(body["snapshot_hash"])
+    assert len(snapshots) == 1
+    with sqlite3.connect(db_path) as connection:
+        after = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in protected_tables
+        }
+    assert after == before
+
+
 def test_professor_review_actual_https_browser_uses_real_cookie_and_isolates_seats(
     aipol_app, monkeypatch,
 ):

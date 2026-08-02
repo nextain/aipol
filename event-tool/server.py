@@ -1679,6 +1679,20 @@ def aipol_review_exchange(body: dict, request: Request):
     return response
 
 
+@app.get("/api/aipol/review/planning/catalog")
+def aipol_planning_review_catalog(stage: str = "intro"):
+    result = _aipol_call(aipol_store.get_planning_review_catalog, stage)
+    return JSONResponse(
+        result,
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow",
+        },
+    )
+
+
 @app.get("/api/aipol/review/{experiment_id}/catalog")
 def aipol_review_catalog(experiment_id: str, request: Request, stage: str = "intro"):
     session_token = request.cookies.get("aipol_review_session", "")
