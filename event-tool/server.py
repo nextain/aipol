@@ -1041,6 +1041,30 @@ def aipol_admin_close_registration(
     return _audit_experiment_mutation(actor, "experiment.registration.closed", experiment_id, result)
 
 
+@app.post("/api/admin/aipol/experiments/{experiment_id}/public-results/{result_stage}/release")
+def aipol_admin_release_public_result(
+    experiment_id: str,
+    result_stage: str,
+    body: dict,
+    x_admin_token: str = Header(default=""),
+):
+    actor = require_aipol_mutation(x_admin_token, Action.RUN_BATCH)
+    _require_exact_contract(
+        body, {"cutoff_at", "rules_version"}, set(), "public result release"
+    )
+    result = _aipol_call(
+        aipol_store.release_public_result,
+        experiment_id,
+        result_stage,
+        cutoff_at=str(body.get("cutoff_at") or ""),
+        rules_version=str(body.get("rules_version") or ""),
+        released_by=actor,
+    )
+    return _audit_experiment_mutation(
+        actor, f"experiment.public_result.{result_stage.lower()}.released", experiment_id, result
+    )
+
+
 @app.post("/api/admin/aipol/experiments/{experiment_id}/release-e2")
 def aipol_admin_release_e2(
     experiment_id: str, body: dict, x_admin_token: str = Header(default="")
@@ -1062,6 +1086,66 @@ def aipol_admin_m2_aggregate(
 ):
     require_aipol_admin(x_admin_token, Action.READ)
     return _aipol_call(aipol_store.m2_aggregate_snapshot, experiment_id)
+
+
+@app.get("/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-pending")
+def aipol_admin_m2_reason_classification_pending(
+    experiment_id: str, x_admin_token: str = Header(default="")
+):
+    classifier = require_aipol_mutation(x_admin_token, Action.EDIT_KNOWLEDGE)
+    return _aipol_call(
+        aipol_store.list_pending_m2_reason_classifications,
+        experiment_id, classifier=classifier,
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-drafts")
+def aipol_admin_m2_reason_classification_draft(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    classified_by = require_aipol_mutation(x_admin_token, Action.EDIT_KNOWLEDGE)
+    _require_exact_contract(
+        body,
+        {"participant_pseudonym", "option_id", "reason_hash", "topic_codes"},
+        set(),
+        "M2 reason classification draft",
+    )
+    if not isinstance(body.get("topic_codes"), list):
+        raise HTTPException(400, "topic_codes는 사전 승인 코드 배열이어야 합니다")
+    result = _aipol_call(
+        aipol_store.register_m2_reason_classification_draft,
+        experiment_id,
+        participant_pseudonym=str(body.get("participant_pseudonym") or ""),
+        option_id=str(body.get("option_id") or ""),
+        reason_hash=str(body.get("reason_hash") or ""),
+        topic_codes=body["topic_codes"],
+        classified_by=classified_by,
+    )
+    return _audit_experiment_mutation(
+        classified_by, "experiment.m2_reason_classification.drafted", experiment_id, result
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/m2-reason-classifications")
+def aipol_admin_m2_reason_classification(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    approved_by = require_aipol_mutation(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    _require_exact_contract(
+        body, {"draft_id", "draft_hash", "approval_id"}, set(),
+        "M2 reason classification approval",
+    )
+    result = _aipol_call(
+        aipol_store.approve_m2_reason_classification,
+        experiment_id,
+        draft_id=str(body.get("draft_id") or ""),
+        draft_hash=str(body.get("draft_hash") or ""),
+        approval_id=str(body.get("approval_id") or ""),
+        approved_by=approved_by,
+    )
+    return _audit_experiment_mutation(
+        approved_by, "experiment.m2_reason_classification.approved", experiment_id, result
+    )
 
 
 @app.get("/api/admin/aipol/experiments/{experiment_id}/public-audience-inputs")
@@ -1557,6 +1641,54 @@ def aipol_consent(
     )
 
 
+@app.post("/api/aipol/experiments/{experiment_id}/research-profile")
+def aipol_research_profile(
+    experiment_id: str, body: dict, x_participant_token: str = Header(default="")
+):
+    _require_exact_contract(
+        body,
+        {"profile", "consented", "consent_version", "expected_revision", "idempotency_key"},
+        set(),
+        "research profile",
+    )
+    if body.get("consented") is True and not isinstance(body.get("profile"), dict):
+        raise HTTPException(400, "profile은 네 개의 구간 ID 객체여야 합니다")
+    if body.get("consented") is not True and body.get("profile") not in (None, {}):
+        raise HTTPException(400, "동의하지 않은 경우 profile을 제출할 수 없습니다")
+    return _aipol_call(
+        aipol_store.record_research_profile,
+        experiment_id,
+        x_participant_token,
+        profile=body["profile"],
+        consented=body.get("consented") is True,
+        consent_version=str(body.get("consent_version") or ""),
+        expected_revision=_expected_revision(body),
+        idempotency_key=str(body.get("idempotency_key") or ""),
+    )
+
+
+@app.post("/api/aipol/experiments/{experiment_id}/t6-ack")
+def aipol_t6_ack(
+    experiment_id: str, body: dict, x_participant_token: str = Header(default="")
+):
+    _require_exact_contract(
+        body,
+        {"content_hash", "expected_revision", "idempotency_key"},
+        set(),
+        "T6 acknowledgement",
+    )
+    if not isinstance(body.get("content_hash"), str):
+        raise HTTPException(400, "content_hash는 문자열이어야 합니다")
+    return _aipol_call(
+        aipol_store.acknowledge_t6_snapshot,
+        experiment_id,
+        x_participant_token,
+        content_hash_value=body["content_hash"],
+        expected_revision=_expected_revision(body),
+        idempotency_key=str(body.get("idempotency_key") or ""),
+    )
+
+
 @app.post("/api/aipol/experiments/{experiment_id}/exposures/{stage}")
 def aipol_exposure(
     experiment_id: str,
@@ -1616,6 +1748,16 @@ def aipol_measurement(
     secondary = body.get("secondary_evaluation")
     if secondary is not None and not isinstance(secondary, dict):
         raise HTTPException(400, "secondary_evaluation은 JSON 객체 또는 null이어야 합니다")
+    option_assessments = body.get("option_assessments")
+    if option_assessments is not None and not isinstance(option_assessments, dict):
+        raise HTTPException(400, "option_assessments는 JSON 객체 또는 null이어야 합니다")
+    if isinstance(option_assessments, dict):
+        for assessment in option_assessments.values():
+            if not isinstance(assessment, dict):
+                continue
+            nested_reason = assessment.get("reason")
+            if isinstance(nested_reason, str) and len(nested_reason) > 2_000:
+                raise HTTPException(400, "안별 사유는 2,000자 이하여야 합니다")
     return _aipol_call(
         aipol_store.submit_measurement,
         experiment_id,
@@ -1628,6 +1770,53 @@ def aipol_measurement(
         idempotency_key=str(body.get("idempotency_key") or ""),
         secondary_evaluation=secondary,
         stance=stance,
+        option_assessments=option_assessments,
+    )
+
+
+@app.post("/api/aipol/experiments/{experiment_id}/policy-options-ack")
+def aipol_policy_options_ack(
+    experiment_id: str,
+    body: dict,
+    x_participant_token: str = Header(default=""),
+):
+    content_hash_value = body.get("content_hash")
+    if not isinstance(content_hash_value, str):
+        raise HTTPException(400, "content_hash는 문자열이어야 합니다")
+    return _aipol_call(
+        aipol_store.acknowledge_policy_options,
+        experiment_id,
+        x_participant_token,
+        content_hash_value=content_hash_value,
+        expected_revision=_expected_revision(body),
+        idempotency_key=str(body.get("idempotency_key") or ""),
+    )
+
+
+@app.post("/api/aipol/experiments/{experiment_id}/public-results/{result_stage}/ack")
+def aipol_public_result_ack(
+    experiment_id: str,
+    result_stage: str,
+    body: dict,
+    x_participant_token: str = Header(default=""),
+):
+    _require_exact_contract(
+        body,
+        {"content_hash", "expected_revision", "idempotency_key"},
+        set(),
+        "public result acknowledgement",
+    )
+    content_hash_value = body.get("content_hash")
+    if not isinstance(content_hash_value, str):
+        raise HTTPException(400, "content_hash는 문자열이어야 합니다")
+    return _aipol_call(
+        aipol_store.acknowledge_public_result,
+        experiment_id,
+        x_participant_token,
+        result_stage,
+        content_hash_value=content_hash_value,
+        expected_revision=_expected_revision(body),
+        idempotency_key=str(body.get("idempotency_key") or ""),
     )
 
 

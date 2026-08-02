@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +29,7 @@ from policy_lab.domains.pension.experiment import (
     ExperimentError,
     InvalidTransition,
     PROCEDURE_CONFIG,
+    V2_PROCEDURE_CONFIG,
     content_hash,
 )
 
@@ -220,7 +221,7 @@ def test_three_measurements_are_append_only_and_keep_same_question_options_and_o
         records[0].choice = "B"  # type: ignore[misc]
 
 
-def test_v2_collects_m1_before_personal_comparison_without_breaking_audit_hashes():
+def test_v3_collects_m1_before_personal_comparison_without_breaking_audit_hashes():
     spec = _spec()
     session = PensionExperimentSession(
         experiment_version="2026-08-12.1",
@@ -236,12 +237,8 @@ def test_v2_collects_m1_before_personal_comparison_without_breaking_audit_hashes
         "real-v2", consent_version="v2", affirmed=True,
         expected_revision=0, idempotency_key="consent-v2",
     )
-    assert session.participant_state("real-v2") == (ExperimentStage.M1, 1)
-    first = session.submit_measurement(
-        "real-v2", "M1", choice="A", reason="최초 선택", confidence=3,
-        expected_revision=1, idempotency_key="m1-v2",
-    )
-    assert first.preceding_exposure_hash == content_hash(
+    assert session.participant_state("real-v2") == (ExperimentStage.E0, 1)
+    option_table_hash = content_hash(
         [
             {
                 "policy_option_id": option.policy_option_id,
@@ -251,19 +248,90 @@ def test_v2_collects_m1_before_personal_comparison_without_breaking_audit_hashes
             for option in _options()
         ]
     )
-    assert session.participant_state("real-v2") == (ExperimentStage.E1A, 2)
+    session.acknowledge_policy_options(
+        "real-v2", content_hash_value=option_table_hash,
+        expected_revision=1, idempotency_key="options-v2",
+    )
+    assert session.participant_state("real-v2") == (ExperimentStage.M1, 2)
+    first = session.submit_measurement(
+        "real-v2", "M1", choice="A", reason="최초 선택", confidence=3,
+        expected_revision=2, idempotency_key="m1-v2",
+    )
+    assert first.preceding_exposure_hash == option_table_hash
+    assert session.participant_state("real-v2") == (ExperimentStage.E1A, 3)
     personal = _artifact(ArtifactKind.PERSONAL_COMPARISON, "personal-v2")
     session.record_exposure(
         "real-v2", personal, read_ack=True,
-        expected_revision=2, idempotency_key="e1a-v2",
+        expected_revision=3, idempotency_key="e1a-v2",
     )
-    assert session.participant_state("real-v2") == (ExperimentStage.M2, 3)
-    session.submit_measurement(
-        "real-v2", "M2", choice="B", stance="conditional",
-        reason="재정 조건 확인 필요", confidence=3,
-        expected_revision=3, idempotency_key="m2-v2",
+    assert session.participant_state("real-v2") == (ExperimentStage.M2, 4)
+    valid_assessments = {
+        "A": {"stance": "reject", "reason": "국고 부담"},
+        "B": {"stance": "conditional", "reason": "재정 조건 확인 필요"},
+        "C": {"stance": "reject", "reason": "운용 위험"},
+    }
+    invalid_assessments = (
+        {"A": valid_assessments["A"], "B": valid_assessments["B"]},
+        {**valid_assessments, "B": {"stance": "reject", "reason": "선택안 오류"}},
+        {**valid_assessments, "A": {"stance": "reject", "reason": ""}},
+        {**valid_assessments, "B": {"stance": "conditional", "reason": ""}},
+        {**valid_assessments, "C": {"stance": "reject", "reason": "x" * 2_001}},
     )
-    assert session.participant_state("real-v2") == (ExperimentStage.E2, 4)
+    for index, assessments in enumerate(invalid_assessments):
+        with pytest.raises(ExperimentError):
+            session.submit_measurement(
+                "real-v2", "M2", choice="B", reason=None, confidence=3,
+                expected_revision=4, idempotency_key=f"invalid-m2-{index}",
+                option_assessments=assessments,
+            )
+    second = session.submit_measurement(
+        "real-v2", "M2", choice="B", reason=None, confidence=3,
+        expected_revision=4, idempotency_key="m2-v2",
+        option_assessments=valid_assessments,
+    )
+    assert (second.stance, second.reason) == ("conditional", "재정 조건 확인 필요")
+    assert session.participant_state("real-v2") == (ExperimentStage.E2, 5)
+
+
+def test_saved_v2_keeps_m1_first_and_single_stance_m2_contract():
+    spec = _spec()
+    session = PensionExperimentSession(
+        experiment_version="2026-08-12.1",
+        session_id="session-v2-preserved",
+        measurement_spec=spec,
+        policy_options=_options(),
+        freeze_manifest=_freeze(spec),
+        procedure_config=V2_PROCEDURE_CONFIG,
+        clock=lambda: FIXED_NOW,
+    )
+    session.register_participant("saved-v2", ParticipantType.REAL)
+    session.record_consent(
+        "saved-v2", consent_version="v2", affirmed=True,
+        expected_revision=0, idempotency_key="saved-v2-consent",
+    )
+    assert session.participant_state("saved-v2") == (ExperimentStage.M1, 1)
+    first = session.submit_measurement(
+        "saved-v2", "M1", choice="A", reason=None, confidence=3,
+        expected_revision=1, idempotency_key="saved-v2-m1",
+    )
+    assert first.preceding_exposure_hash == content_hash([asdict(option) for option in _options()])
+    personal = _artifact(ArtifactKind.PERSONAL_COMPARISON, "saved-v2-personal")
+    session.record_exposure(
+        "saved-v2", personal, read_ack=True,
+        expected_revision=2, idempotency_key="saved-v2-e1a",
+    )
+    with pytest.raises(ExperimentError, match="단일 stance/reason"):
+        session.submit_measurement(
+            "saved-v2", "M2", choice="B", reason="조건 확인", stance="conditional",
+            confidence=3, option_assessments={"A": {}, "B": {}, "C": {}},
+            expected_revision=3, idempotency_key="saved-v2-structured-m2",
+        )
+    second = session.submit_measurement(
+        "saved-v2", "M2", choice="B", reason="조건 확인", stance="conditional",
+        confidence=3, expected_revision=3, idempotency_key="saved-v2-m2",
+    )
+    assert (second.choice, second.stance, second.reason) == ("B", "conditional", "조건 확인")
+    assert session.participant_state("saved-v2") == (ExperimentStage.E2, 4)
 
 
 def test_skips_future_exposure_and_overwrite_are_rejected():

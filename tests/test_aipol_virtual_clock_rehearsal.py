@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from policy_lab.domains.pension.rehearsal import RehearsalFailure, run_virtual_rehearsal
+from policy_lab.domains.pension.experiment import V2_PROCEDURE_CONFIG
 
 
 def test_virtual_clock_preserves_three_measurements_and_five_minute_buffer() -> None:
@@ -18,6 +19,13 @@ def test_virtual_clock_recovers_ai_and_network_failures_without_dropping_measure
     assert receipt.measurements == ("M1", "M2", "M3")
     assert receipt.recoveries == ("승인된 고정 E2 대체본 사용", "M3 전 체크포인트에서 재개")
     assert receipt.essential_complete_minute == 95
+
+
+def test_virtual_clock_preserves_the_saved_v2_driver_without_v3_inputs() -> None:
+    receipt = run_virtual_rehearsal(procedure_config=V2_PROCEDURE_CONFIG)
+    assert receipt.measurements == ("M1", "M2", "M3")
+    assert all("A/B/C 비교표" not in label for _, label in receipt.timeline)
+    assert receipt.event_end_minute == 100
 
 
 def test_virtual_clock_reports_unrecoverable_storage_failure_instead_of_false_completion() -> None:

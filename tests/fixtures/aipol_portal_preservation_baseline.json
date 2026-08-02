@@ -3,10 +3,10 @@
   "integration_base_commit": "90376ff973afbf3d759f6e8cc854605b8a043662",
   "branding_revision": "2026-07-30 logo-led visual system, public metadata, legal notices, portal integration, and production administrator MFA",
   "core_sha256": {
-    "event-tool/web/index.html": "6a2eee17f13e8ffc341c8204c0cf8010378bdea65ec5f579c3094465be2b1770",
-    "event-tool/web/app.js": "204754f79a2a6eb65ba446665fa53cee9a3f858a29a04496b41b95c2b48ae930",
-    "event-tool/web/style.css": "3bf6cf2360306ac88fe5b69ae2f8bdbb22b576c463db3d1c2b0c52191d4ad0c1",
-    "event-tool/web/admin.js": "a9599f48d739f70f294152cb0f3a82f51b6555d155088c36fdf4a0148d1c540c"
+    "event-tool/web/index.html": "fe8fb6ae11d018ed5f1408a762c1f63efa8b0e397dbe92a5f96e3d38c21dd78a",
+    "event-tool/web/app.js": "0dea4bcde2622e111f5e06da1671e77cc1161d914e503e20f935a991829125d8",
+    "event-tool/web/style.css": "1dbf73fb007c1020a8515cfe1f9f03e3492d152b900b5ddc40b577f4ee0cb8f9",
+    "event-tool/web/admin.js": "0b15db317fded2b4ba1876ecd555aad027f6f2c1ead15b75ba77a957b6bfd986"
   },
   "public_portal_normalized_sha256": {
     "site/index.html": "24a315dc2c61b4bdec31fe3a927afa4ae29d77e5dd04058d9888864585ba0ea9",

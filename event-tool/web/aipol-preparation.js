@@ -201,7 +201,14 @@ async function saveExpert() {
 async function saveAiCandidate() {
   try {
     const role = $("ai-role").value;
-    const saved = await api(`/api/admin/aipol/experiments/${selected.id}/ai-candidates`, {method: "POST", body: JSON.stringify({candidate_role: role, artifact_id: $("ai-id").value.trim(), artifact_version: $("ai-version").value.trim(), content: {title: $("ai-title").value.trim(), body: $("ai-body").value.trim()}, model: $("ai-model").value.trim(), deployment: $("ai-deployment").value.trim(), prompt_version: $("ai-prompt").value.trim(), generated_at: approvedAt("ai-generated"), evidence_refs: $("ai-evidence").value.split(",").map((value) => value.trim()).filter(Boolean), m2_aggregate_hash: role === "primary" ? $("ai-m2-hash").value.trim() : null, approval_id: $("ai-approval").value.trim(), approved_by: prepActor()})});
+    const content = {title: $("ai-title").value.trim(), body: $("ai-body").value.trim()};
+    if (selected.procedure_config?.version === "aipol-pension-3-measurements-v3") {
+      content.lever_values = Object.fromEntries(
+        [...new Set((selected.policy_options || []).flatMap((option) => Object.keys(option.lever_values || {})))]
+          .map((key) => [key, `D: ${key}`]),
+      );
+    }
+    const saved = await api(`/api/admin/aipol/experiments/${selected.id}/ai-candidates`, {method: "POST", body: JSON.stringify({candidate_role: role, artifact_id: $("ai-id").value.trim(), artifact_version: $("ai-version").value.trim(), content, model: $("ai-model").value.trim(), deployment: $("ai-deployment").value.trim(), prompt_version: $("ai-prompt").value.trim(), generated_at: approvedAt("ai-generated"), evidence_refs: $("ai-evidence").value.split(",").map((value) => value.trim()).filter(Boolean), m2_aggregate_hash: role === "primary" ? $("ai-m2-hash").value.trim() : null, approval_id: $("ai-approval").value.trim(), approved_by: prepActor()})});
     $("ai-result").textContent = `${role} 승인 ${saved.approval_id} · ${saved.content_hash} · 서버 시각 ${saved.approved_at}`;
   } catch (error) { $("admin-error").textContent = error.message; }
 }

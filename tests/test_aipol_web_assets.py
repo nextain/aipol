@@ -50,10 +50,76 @@ def test_participant_page_has_all_server_driven_states_and_no_result_container()
     assert "localStorage.setItem(recovery" not in script
 
 
+def test_participant_page_starts_with_experiment_intro_and_ends_with_panel_closing():
+    soup = BeautifulSoup((WEB / "aipol.html").read_text("utf-8"), "html.parser")
+    start = soup.find(id="state-start")
+    assert start.find(id="intro-procedure-title").get_text(strip=True) == "진행 절차"
+    procedure = start.find(id="intro-procedure")
+    assert len(procedure.find_all("li")) == 5
+    assert "정책전문가팀" in start.get_text(" ", strip=True)
+    assert "AI팀" in start.get_text(" ", strip=True)
+    assert "AI가 정책을 결정하거나 정답을 제시하지 않으며" in start.get_text(" ", strip=True)
+    assert start.find(id="admission-code")
+
+    done = soup.find(id="state-done")
+    assert done.find(id="closing-panel-title").get_text(strip=True) == "패널 총평과 마무리"
+    closing = done.get_text(" ", strip=True)
+    assert "정책전문가팀과 AI팀의 총평" in closing
+    assert "전체 시민의 여론이나 정책 효과를 뜻하지 않습니다" in closing
+
+
+def test_saved_v2_keeps_legacy_single_stance_form_and_intro_is_version_neutral():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    html = (WEB / "aipol.html").read_text("utf-8")
+    soup = BeautifulSoup(html, "html.parser")
+    tokenless_copy = " ".join((
+        soup.find(id="procedure-summary").get_text(" ", strip=True),
+        soup.find(id="state-start").get_text(" ", strip=True),
+    ))
+    assert 'legacyStructuredM2 = current.stage === "M2"' in script
+    assert 'aipol-pension-3-measurements-v2' in script
+    assert 'id="stance"' in script
+    assert "실험 버전" in tokenless_copy
+    assert "진행자가 안내한 실험 버전" in tokenless_copy
+    for version_specific_claim in (
+        "A/B/C/D′를 놓고",
+        "D와 D′",
+        "AI 수정 의견",
+        "청중 논평",
+        "세 번의 선택",
+    ):
+        assert version_specific_claim not in tokenless_copy
+
+
+def test_m2_renders_three_structured_option_assessments_with_reason_limits():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    assert "structured_option_assessment" in script
+    assert "세 안에 대한 판단" in script
+    assert "선택안은 수용 또는 조건부 수용" in script
+    assert "선택하지 않은 각 안은 비선택과 사유" in script
+    assert 'class="option-assessment-reason"' in script
+    assert 'maxlength="2000"' in script
+    assert "...(structuredAssessment ? {option_assessments:optionAssessments} : {})" in script
+
+
+def test_participant_provenance_and_suppressed_counts_are_explicit():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    for label in ("생성 시각", "승인자", "승인 시각", "대체안"):
+        assert label in script
+    assert 'current.stage === "E2" || current.stage === "E3"' in script
+    assert "snapshot.d_candidate_provenance" in script
+    assert "규칙 기반 분석 설명" in script
+    assert "승인된 AI 분석 설명" not in script
+    assert "resultCount(row.count)" in script
+    assert 'value == null ? "—"' in script
+
+
 def test_calculator_fragment_and_openerless_return_channel_validate_context():
     helper = WEB / "aipol-receipt.js"
     code = r"""
-const api=require(process.argv[1]);
+const fs=require('fs'),vm=require('vm'),m={exports:{}};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{module:m,exports:m.exports,globalThis:{},Buffer,URL,TextEncoder});
+const api=m.exports;
 const context={experiment_id:'xp',experiment_version:'v1',session_id:'s1',participant_pseudonym:'p1',artifact_id:'calc',artifact_hash:'a'.repeat(64),contract_hash:'b'.repeat(64)};
 const integration={contract_version:api.CONTRACT_VERSION,allowed_origin:'https://calculator.example',launch_url:'https://calculator.example/run',context_fragment_key:'aipol_context',max_context_bytes:2048};
 const channelId='123e4567-e89b-12d3-a456-426614174000';

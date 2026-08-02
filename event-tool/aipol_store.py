@@ -49,7 +49,29 @@ from policy_lab.domains.pension.experiment import (  # noqa: E402
     PROCEDURE_CONFIG,
     REQUIRED_FREEZE_APPROVALS,
     StateRevisionConflict,
+    V2_PROCEDURE_CONFIG,
     content_hash,
+)
+from policy_lab.domains.pension.public_results import (  # noqa: E402
+    DeidentifiedMeasurement,
+    DeidentifiedOptionAssessment,
+    PublicResultError,
+    build_t10_results,
+    build_t3_m1_results,
+    build_t5_results,
+    canonical_content_hash,
+)
+from policy_lab.domains.pension.research_segments import (  # noqa: E402
+    AGE_BAND_IDS,
+    APPROVED_REASON_TOPIC_CODES,
+    EXPECTED_CONTRIBUTION_YEARS_BAND_IDS,
+    EXPECTED_RETIREMENT_AGE_BAND_IDS,
+    MONTHLY_PERSONAL_INCOME_BAND_IDS,
+    PROFILE_FIELDS,
+    RULES_VERSION as RESEARCH_SEGMENT_RULES_VERSION,
+    ResearchSegmentError,
+    project_research_segments,
+    validate_research_profile,
 )
 
 
@@ -450,6 +472,145 @@ CREATE TABLE IF NOT EXISTS aipol_secondary_evaluations (
   FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
 );
 
+CREATE TABLE IF NOT EXISTS aipol_policy_option_acks (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL UNIQUE,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  acknowledged_at TEXT NOT NULL,
+  state_revision INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  UNIQUE(participant_id, idempotency_key),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_m2_option_assessments (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL,
+  option_id TEXT NOT NULL CHECK(option_id IN ('A','B','C')),
+  stance TEXT NOT NULL CHECK(stance IN ('accept','conditional','reject')),
+  reason TEXT CHECK(reason IS NULL OR length(reason) <= 2000),
+  created_at TEXT NOT NULL,
+  UNIQUE(participant_id, option_id),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_m2_reason_classification_drafts (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL,
+  option_id TEXT NOT NULL CHECK(option_id IN ('A','B','C')),
+  reason_hash TEXT NOT NULL CHECK(length(reason_hash)=64),
+  topic_codes TEXT NOT NULL,
+  classified_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(participant_id, option_id),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_m2_reason_classifications (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL,
+  option_id TEXT NOT NULL CHECK(option_id IN ('A','B','C')),
+  reason_hash TEXT NOT NULL CHECK(length(reason_hash)=64),
+  topic_codes TEXT NOT NULL,
+  draft_id TEXT NOT NULL UNIQUE,
+  draft_hash TEXT NOT NULL CHECK(length(draft_hash)=64),
+  classified_by TEXT NOT NULL,
+  approved_by TEXT NOT NULL,
+  approval_id TEXT NOT NULL UNIQUE,
+  approved_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(participant_id, option_id),
+  CHECK(classified_by <> approved_by),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id),
+  FOREIGN KEY(draft_id) REFERENCES aipol_m2_reason_classification_drafts(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_research_profiles (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL UNIQUE,
+  decision TEXT NOT NULL CHECK(decision IN ('accepted','declined')),
+  age_band_id TEXT,
+  monthly_personal_income_band_id TEXT,
+  expected_contribution_years_band_id TEXT,
+  expected_retirement_age_band_id TEXT,
+  consent_version TEXT NOT NULL,
+  consented_at TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  UNIQUE(participant_id, idempotency_key),
+  CHECK(
+    (decision='accepted' AND age_band_id IS NOT NULL AND monthly_personal_income_band_id IS NOT NULL
+      AND expected_contribution_years_band_id IS NOT NULL AND expected_retirement_age_band_id IS NOT NULL)
+    OR
+    (decision='declined' AND age_band_id IS NULL AND monthly_personal_income_band_id IS NULL
+      AND expected_contribution_years_band_id IS NULL AND expected_retirement_age_band_id IS NULL)
+  ),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_t6_snapshots (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL UNIQUE,
+  rules_version TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  frozen_at TEXT NOT NULL,
+  frozen_by TEXT NOT NULL,
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_t6_acks (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL UNIQUE,
+  snapshot_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  acknowledged_at TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  UNIQUE(participant_id, idempotency_key),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id),
+  FOREIGN KEY(snapshot_id) REFERENCES aipol_t6_snapshots(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_m3_option_assessments (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL,
+  option_id TEXT NOT NULL CHECK(option_id IN ('A','B','C','D_PRIME')),
+  stance TEXT NOT NULL CHECK(stance IN ('accept','conditional','reject')),
+  reason TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(participant_id, option_id),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_public_result_snapshots (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL,
+  result_stage TEXT NOT NULL CHECK(result_stage IN ('T3','T5','T10')),
+  participant_type TEXT NOT NULL CHECK(participant_type IN ('real','synthetic')),
+  scope_key TEXT NOT NULL,
+  cutoff_at TEXT NOT NULL,
+  rules_version TEXT NOT NULL CHECK(length(trim(rules_version)) > 0),
+  snapshot_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  released_by TEXT NOT NULL,
+  released_at TEXT NOT NULL,
+  UNIQUE(experiment_id,result_stage,participant_type,scope_key),
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_public_result_acks (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL,
+  snapshot_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  acknowledged_at TEXT NOT NULL,
+  state_revision INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  UNIQUE(participant_id,snapshot_id),
+  UNIQUE(participant_id,idempotency_key),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id),
+  FOREIGN KEY(snapshot_id) REFERENCES aipol_public_result_snapshots(id)
+);
+
 CREATE TABLE IF NOT EXISTS aipol_idempotency (
   participant_id TEXT NOT NULL,
   idempotency_key TEXT NOT NULL,
@@ -555,6 +716,46 @@ CREATE TRIGGER IF NOT EXISTS aipol_secondary_no_update
 BEFORE UPDATE ON aipol_secondary_evaluations BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_secondary_no_delete
 BEFORE DELETE ON aipol_secondary_evaluations BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_policy_option_acks_no_update
+BEFORE UPDATE ON aipol_policy_option_acks BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_policy_option_acks_no_delete
+BEFORE DELETE ON aipol_policy_option_acks BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m2_option_assessments_no_update
+BEFORE UPDATE ON aipol_m2_option_assessments BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m2_option_assessments_no_delete
+BEFORE DELETE ON aipol_m2_option_assessments BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m2_reason_classification_drafts_no_update
+BEFORE UPDATE ON aipol_m2_reason_classification_drafts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m2_reason_classification_drafts_no_delete
+BEFORE DELETE ON aipol_m2_reason_classification_drafts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m2_reason_classifications_no_update
+BEFORE UPDATE ON aipol_m2_reason_classifications BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m2_reason_classifications_no_delete
+BEFORE DELETE ON aipol_m2_reason_classifications BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_research_profiles_no_update
+BEFORE UPDATE ON aipol_research_profiles BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_research_profiles_no_delete
+BEFORE DELETE ON aipol_research_profiles BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_t6_snapshots_no_update
+BEFORE UPDATE ON aipol_t6_snapshots BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_t6_snapshots_no_delete
+BEFORE DELETE ON aipol_t6_snapshots BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_t6_acks_no_update
+BEFORE UPDATE ON aipol_t6_acks BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_t6_acks_no_delete
+BEFORE DELETE ON aipol_t6_acks BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m3_option_assessments_no_update
+BEFORE UPDATE ON aipol_m3_option_assessments BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m3_option_assessments_no_delete
+BEFORE DELETE ON aipol_m3_option_assessments BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_public_result_snapshots_no_update
+BEFORE UPDATE ON aipol_public_result_snapshots BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_public_result_snapshots_no_delete
+BEFORE DELETE ON aipol_public_result_snapshots BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_public_result_acks_no_update
+BEFORE UPDATE ON aipol_public_result_acks BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_public_result_acks_no_delete
+BEFORE DELETE ON aipol_public_result_acks BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_artifacts_no_update
 BEFORE UPDATE ON aipol_artifacts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_artifacts_no_delete
@@ -1189,9 +1390,11 @@ def create_experiment(
     if procedure_version == "v1":
         procedure_config = LEGACY_PROCEDURE_CONFIG
     elif procedure_version == "v2":
+        procedure_config = V2_PROCEDURE_CONFIG
+    elif procedure_version == "v3":
         procedure_config = PROCEDURE_CONFIG
     else:
-        raise ExperimentError("procedure_version은 v1 또는 v2여야 합니다")
+        raise ExperimentError("procedure_version은 v1, v2 또는 v3여야 합니다")
     option_records = []
     for supplied, option in zip(policy_options, options, strict=True):
         if not isinstance(supplied, dict):
@@ -2409,7 +2612,8 @@ def mark_pending_attrition(experiment_id: str, *, actor: str, reason: str) -> di
 
 def _m2_aggregate_snapshot(connection, experiment_id: str) -> dict:
     experiment = get_experiment(experiment_id, connection)
-    v2 = experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
+    is_v2_procedure = _procedure_version(experiment) == V2_PROCEDURE_CONFIG["version"]
+    is_current_procedure = _uses_current_procedure(experiment)
     rows = connection.execute(
         "SELECT p.pseudonym,m.choice,m.stance,m.reason,m.submitted_at FROM aipol_measurements m "
         "JOIN aipol_participants p ON p.id=m.participant_id "
@@ -2422,7 +2626,38 @@ def _m2_aggregate_snapshot(connection, experiment_id: str) -> dict:
         counts[row["choice"] if row["choice"] in ("A", "B", "C") else "null"] += 1
     cutoff_at = max((row["submitted_at"] for row in rows), default=None)
     stance_counts = {"accept": 0, "conditional": 0, "reject": 0}
-    if v2:
+    assessment_payloads: dict[str, list[dict[str, str]]] = {}
+    if is_current_procedure:
+        assessment_rows = connection.execute(
+            "SELECT p.pseudonym,a.option_id,a.stance,a.reason "
+            "FROM aipol_m2_option_assessments a "
+            "JOIN aipol_participants p ON p.id=a.participant_id "
+            "WHERE p.experiment_id=? AND p.participant_type='real' "
+            "ORDER BY p.pseudonym,CASE a.option_id WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END",
+            (experiment_id,),
+        ).fetchall()
+        for assessment in assessment_rows:
+            assessment_payloads.setdefault(assessment["pseudonym"], []).append({
+                "option_id": assessment["option_id"],
+                "stance": assessment["stance"],
+                "reason_hash": content_hash(assessment["reason"] or ""),
+            })
+        for row in rows:
+            assessments = assessment_payloads.get(row["pseudonym"], [])
+            if [assessment["option_id"] for assessment in assessments] != ["A", "B", "C"]:
+                raise ImmutableRecordConflict("M2 structured option assessments are incomplete")
+            selected = next(
+                assessment for assessment in assessments
+                if assessment["option_id"] == row["choice"]
+            )
+            if (
+                selected["stance"] != row["stance"]
+                or selected["reason_hash"] != content_hash(row["reason"] or "")
+            ):
+                raise ImmutableRecordConflict(
+                    "M2 selected assessment no longer matches the measurement snapshot"
+                )
+    if is_v2_procedure or is_current_procedure:
         for row in rows:
             if row["stance"] in stance_counts:
                 stance_counts[row["stance"]] += 1
@@ -2437,18 +2672,21 @@ def _m2_aggregate_snapshot(connection, experiment_id: str) -> dict:
                     "participant": row["pseudonym"],
                     "choice": row["choice"],
                     **(
-                        {
+                        {"option_assessments": assessment_payloads[row["pseudonym"]]}
+                        if is_current_procedure
+                        else {
                             "stance": row["stance"],
                             "reason_hash": content_hash(row["reason"] or ""),
                         }
-                        if v2 else {}
+                        if is_v2_procedure
+                        else {}
                     ),
                 }
             )
             for row in rows
         ],
     }
-    if v2:
+    if is_v2_procedure or is_current_procedure:
         payload["stance_counts"] = stance_counts
     return {**payload, "aggregate_hash": content_hash(payload)}
 
@@ -2609,6 +2847,426 @@ def m2_aggregate_snapshot(experiment_id: str) -> dict:
         }
 
 
+def _research_profile_public_contract() -> dict:
+    return {
+        "rules_version": RESEARCH_SEGMENT_RULES_VERSION,
+        "consent_text": (
+            "조건별 연구 분석을 위해 정확한 나이·소득·가입기간·은퇴예상연령이 아닌 "
+            "아래 네 구간 ID만 저장하는 데 동의합니다. 구간 정보는 개인 계산 입력과 분리되며 "
+            "작은 집단은 공개 결과에서 숨깁니다."
+        ),
+        "fields": {
+            "age_band_id": list(AGE_BAND_IDS),
+            "monthly_personal_income_band_id": list(MONTHLY_PERSONAL_INCOME_BAND_IDS),
+            "expected_contribution_years_band_id": list(EXPECTED_CONTRIBUTION_YEARS_BAND_IDS),
+            "expected_retirement_age_band_id": list(EXPECTED_RETIREMENT_AGE_BAND_IDS),
+        },
+        "stores_exact_values": False,
+    }
+
+
+def record_research_profile(
+    experiment_id: str,
+    participant_token: str,
+    *,
+    profile: dict | None,
+    consented: bool,
+    consent_version: str,
+    expected_revision: int,
+    idempotency_key: str,
+) -> dict:
+    """Store only four pre-banded values after explicit participant consent."""
+    if consent_version != RESEARCH_SEGMENT_RULES_VERSION:
+        raise ExperimentError("현재 연구 구간 동의 버전과 일치하지 않습니다")
+    canonical: tuple[str, ...] = ()
+    if consented:
+        try:
+            canonical = validate_research_profile(profile)  # type: ignore[arg-type]
+        except ResearchSegmentError as exc:
+            raise ExperimentError(str(exc)) from exc
+    elif profile not in (None, {}):
+        raise ExperimentError("동의하지 않은 경우 연구 구간 값을 제출할 수 없습니다")
+    canonical_profile = dict(zip(PROFILE_FIELDS, canonical, strict=True)) if consented else {}
+    decision = "accepted" if consented else "declined"
+    payload = {
+        "operation": "research_profile",
+        "profile": canonical_profile,
+        "consented": consented,
+        "consent_version": consent_version,
+    }
+
+    def apply(connection, experiment, participant, session):
+        stage, revision = session.participant_state(participant["pseudonym"])
+        if not _uses_current_procedure(experiment):
+            raise InvalidTransition("연구 구간 프로필은 v3 절차에서만 제출할 수 있습니다")
+        if participant["participant_type"] != ParticipantType.REAL.value:
+            raise InvalidTransition("합성 검토에는 실제 참가자 연구 프로필을 저장하지 않습니다")
+        if stage is not ExperimentStage.E1A or revision != expected_revision:
+            raise StateRevisionConflict("E1a 현재 상태에서만 연구 구간 프로필을 제출할 수 있습니다")
+        existing = connection.execute(
+            "SELECT * FROM aipol_research_profiles WHERE participant_id=?",
+            (participant["id"],),
+        ).fetchone()
+        if existing:
+            existing_profile = (
+                {field: existing[field] for field in PROFILE_FIELDS}
+                if existing["decision"] == "accepted" else {}
+            )
+            if (
+                existing_profile != canonical_profile
+                or existing["decision"] != decision
+                or existing["consent_version"] != consent_version
+            ):
+                raise ImmutableRecordConflict("이미 제출한 연구 구간 프로필은 변경할 수 없습니다")
+            return {"stage": stage.value, "state_revision": revision, "profile_recorded": True}
+        connection.execute(
+            "INSERT INTO aipol_research_profiles("
+            "id,participant_id,decision,age_band_id,monthly_personal_income_band_id,"
+            "expected_contribution_years_band_id,expected_retirement_age_band_id,"
+            "consent_version,consented_at,idempotency_key) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (
+                _id("rp"), participant["id"], decision,
+                *(canonical if consented else (None, None, None, None)), consent_version,
+                datetime.now(timezone.utc).isoformat(), idempotency_key,
+            ),
+        )
+        return {
+            "stage": stage.value, "state_revision": revision,
+            "research_profile_decision": decision,
+        }
+
+    return _write_action(experiment_id, participant_token, idempotency_key, payload, apply)
+
+
+def list_pending_m2_reason_classifications(experiment_id: str, *, classifier: str) -> list[dict]:
+    """Return raw reasons only to the authenticated classifier after collection closes."""
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
+        if experiment["registration_open"]:
+            raise CollectionDisabled("수집 마감 뒤에만 M2 사유를 분류할 수 있습니다")
+        rows = connection.execute(
+            "SELECT p.pseudonym,a.option_id,a.reason FROM aipol_m2_option_assessments a "
+            "JOIN aipol_participants p ON p.id=a.participant_id "
+            "JOIN aipol_research_profiles r ON r.participant_id=p.id AND r.decision='accepted' "
+            "LEFT JOIN aipol_m2_reason_classification_drafts d "
+            "ON d.participant_id=a.participant_id AND d.option_id=a.option_id "
+            "WHERE p.experiment_id=? AND p.participant_type='real' AND d.id IS NULL "
+            "ORDER BY p.pseudonym,a.option_id",
+            (experiment_id,),
+        ).fetchall()
+        result = [{
+            "participant_pseudonym": row["pseudonym"], "option_id": row["option_id"],
+            "reason": row["reason"], "reason_hash": content_hash(row["reason"]),
+        } for row in rows]
+        _queue_experiment_audit(
+            connection, actor=classifier, action="experiment.m2_reason_classification.pending_read",
+            experiment_id=experiment_id, payload={"record_count": len(result)},
+        )
+        return result
+
+
+def register_m2_reason_classification_draft(
+    experiment_id: str, *, participant_pseudonym: str, option_id: str,
+    reason_hash: str, topic_codes: list[str], classified_by: str,
+) -> dict:
+    if option_id not in ("A", "B", "C"):
+        raise ExperimentError("분류할 정책안은 A, B, C 중 하나여야 합니다")
+    if (
+        not isinstance(topic_codes, list)
+        or any(not isinstance(code, str) for code in topic_codes)
+        or len(topic_codes) != len(set(topic_codes))
+        or set(topic_codes) - set(APPROVED_REASON_TOPIC_CODES)
+    ):
+        raise ExperimentError("사유 분류는 중복 없는 사전 승인 주제 코드만 포함해야 합니다")
+    canonical_topics = sorted(topic_codes)
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
+        if experiment["registration_open"]:
+            raise CollectionDisabled("수집 마감 뒤에만 M2 사유 분류 초안을 등록할 수 있습니다")
+        row = connection.execute(
+            "SELECT p.id,a.reason FROM aipol_participants p "
+            "JOIN aipol_research_profiles r ON r.participant_id=p.id AND r.decision='accepted' "
+            "JOIN aipol_m2_option_assessments a "
+            "ON a.participant_id=p.id WHERE p.experiment_id=? AND p.pseudonym=? "
+            "AND p.participant_type='real' AND a.option_id=?",
+            (experiment_id, participant_pseudonym, option_id),
+        ).fetchone()
+        if not row or reason_hash != content_hash(row["reason"]):
+            raise ImmutableRecordConflict("분류 초안의 reason_hash가 원문과 일치하지 않습니다")
+        draft_id = _id("m2d")
+        created_at = datetime.now(timezone.utc).isoformat()
+        connection.execute(
+            "INSERT INTO aipol_m2_reason_classification_drafts VALUES(?,?,?,?,?,?,?)",
+            (draft_id, row["id"], option_id, reason_hash, _json(canonical_topics), classified_by, created_at),
+        )
+        draft_envelope = {
+            "draft_id": draft_id, "participant_pseudonym": participant_pseudonym,
+            "option_id": option_id, "reason_hash": reason_hash,
+            "topic_codes": canonical_topics, "classified_by": classified_by,
+        }
+        draft_hash = content_hash(draft_envelope)
+        _queue_experiment_audit(
+            connection, actor=classified_by, action="experiment.m2_reason_classification.drafted",
+            experiment_id=experiment_id, payload={**draft_envelope, "draft_hash": draft_hash},
+        )
+    return {**draft_envelope, "draft_hash": draft_hash, "created_at": created_at}
+
+
+def approve_m2_reason_classification(
+    experiment_id: str, *, draft_id: str, draft_hash: str,
+    approval_id: str, approved_by: str,
+) -> dict:
+    """Approve an immutable classifier draft with a separately authenticated actor."""
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        draft = connection.execute(
+            "SELECT d.*,p.pseudonym FROM aipol_m2_reason_classification_drafts d "
+            "JOIN aipol_participants p ON p.id=d.participant_id "
+            "WHERE d.id=? AND p.experiment_id=?",
+            (draft_id, experiment_id),
+        ).fetchone()
+        if not draft:
+            raise ExperimentError("승인할 분류 초안을 찾을 수 없습니다")
+        envelope = {
+            "draft_id": draft["id"], "participant_pseudonym": draft["pseudonym"],
+            "option_id": draft["option_id"], "reason_hash": draft["reason_hash"],
+            "topic_codes": json.loads(draft["topic_codes"]),
+            "classified_by": draft["classified_by"],
+        }
+        if draft_hash != content_hash(envelope):
+            raise ImmutableRecordConflict("승인 요청의 draft_hash가 분류 초안과 일치하지 않습니다")
+        if draft["classified_by"] == approved_by:
+            raise ExperimentError("분류 초안 작성자는 자신의 분류를 승인할 수 없습니다")
+        approved_at = datetime.now(timezone.utc).isoformat()
+        record_id = _id("m2c")
+        connection.execute(
+            "INSERT INTO aipol_approval_events(id,experiment_id,object_type,object_id,content_hash,"
+            "approval_id,editor_by,approver_by,approved_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (
+                _id("av"), experiment_id, "m2_reason_classification", record_id, draft_hash,
+                approval_id, draft["classified_by"], approved_by, approved_at, time.time(),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO aipol_m2_reason_classifications("
+            "id,participant_id,option_id,reason_hash,topic_codes,draft_id,draft_hash,classified_by,"
+            "approved_by,approval_id,approved_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                record_id, draft["participant_id"], draft["option_id"], draft["reason_hash"],
+                draft["topic_codes"], draft["id"], draft_hash, draft["classified_by"],
+                approved_by, approval_id, approved_at, approved_at,
+            ),
+        )
+        _queue_experiment_audit(
+            connection, actor=approved_by, action="experiment.m2_reason_classification.approved",
+            experiment_id=experiment_id,
+            payload={"draft_id": draft_id, "draft_hash": draft_hash, "approval_id": approval_id},
+        )
+    return {"id": record_id, **envelope, "draft_hash": draft_hash,
+            "approved_by": approved_by, "approval_id": approval_id, "approved_at": approved_at}
+
+
+def acknowledge_t6_snapshot(
+    experiment_id: str,
+    participant_token: str,
+    *,
+    content_hash_value: str,
+    expected_revision: int,
+    idempotency_key: str,
+) -> dict:
+    payload = {
+        "operation": "t6_ack",
+        "content_hash": content_hash_value,
+    }
+
+    def apply(connection, experiment, participant, session):
+        stage, revision = session.participant_state(participant["pseudonym"])
+        if stage is not ExperimentStage.E2 or revision != expected_revision:
+            raise StateRevisionConflict("E2의 T6 결과 화면에서만 확인할 수 있습니다")
+        if participant["participant_type"] != ParticipantType.REAL.value:
+            raise InvalidTransition("합성 검토는 실제 T6 snapshot 확인 원장에 기록하지 않습니다")
+        if _pending_public_result(connection, experiment, participant) is not None:
+            raise InvalidTransition("먼저 T5 공개 결과를 확인해야 합니다")
+        snapshot = _validated_t6_snapshot(connection, experiment_id, required=True)
+        if content_hash_value != snapshot["content_hash"]:
+            raise ImmutableRecordConflict("표시된 T6 결과 해시와 확인 요청이 다릅니다")
+        connection.execute(
+            "INSERT INTO aipol_t6_acks(id,participant_id,snapshot_id,content_hash,"
+            "acknowledged_at,idempotency_key) VALUES(?,?,?,?,?,?)",
+            (
+                _id("t6a"), participant["id"], snapshot["snapshot_id"], content_hash_value,
+                datetime.now(timezone.utc).isoformat(), idempotency_key,
+            ),
+        )
+        return {
+            "stage": stage.value, "state_revision": revision,
+            "acknowledged_result": "T6",
+        }
+
+    return _write_action(experiment_id, participant_token, idempotency_key, payload, apply)
+
+
+def _build_t6_snapshot(
+    connection, experiment_id: str, finalization: dict, *, selected_candidate=None
+) -> dict:
+    participants = connection.execute(
+        "SELECT p.id,r.age_band_id,r.monthly_personal_income_band_id,"
+        "r.expected_contribution_years_band_id,r.expected_retirement_age_band_id "
+        "FROM aipol_participants p "
+        "JOIN aipol_measurements m ON m.participant_id=p.id AND m.measurement_id='M2' "
+        "JOIN aipol_research_profiles r ON r.participant_id=p.id AND r.decision='accepted' "
+        "WHERE p.experiment_id=? AND p.participant_type='real' ORDER BY p.id",
+        (experiment_id,),
+    ).fetchall()
+    responses = []
+    for participant in participants:
+        assessments = connection.execute(
+            "SELECT option_id,stance FROM aipol_m2_option_assessments "
+            "WHERE participant_id=? ORDER BY option_id",
+            (participant["id"],),
+        ).fetchall()
+        if {row["option_id"] for row in assessments} != {"A", "B", "C"}:
+            raise ImmutableRecordConflict("M2 안별 판단이 완전하지 않아 T6를 생성할 수 없습니다")
+        topics: dict[str, list[str]] = {}
+        classifications = connection.execute(
+            "SELECT option_id,reason_hash,topic_codes FROM aipol_m2_reason_classifications "
+            "WHERE participant_id=? ORDER BY option_id",
+            (participant["id"],),
+        ).fetchall()
+        if {row["option_id"] for row in classifications} != {"A", "B", "C"}:
+            raise CollectionDisabled(
+                "M2 자유서술의 AI 분류와 사람 승인이 완전하지 않아 T6를 공개할 수 없습니다"
+            )
+        reasons = {row["option_id"]: row["reason"] for row in connection.execute(
+            "SELECT option_id,reason FROM aipol_m2_option_assessments WHERE participant_id=?",
+            (participant["id"],),
+        )}
+        for row in classifications:
+            if row["reason_hash"] != content_hash(reasons[row["option_id"]]):
+                raise ImmutableRecordConflict("M2 사유 분류가 원문 해시와 일치하지 않습니다")
+            try:
+                codes = json.loads(row["topic_codes"])
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ImmutableRecordConflict("승인된 M2 사유 분류가 손상되었습니다") from exc
+            if not isinstance(codes, list):
+                raise ImmutableRecordConflict("승인된 M2 사유 분류 형식이 올바르지 않습니다")
+            topics[row["option_id"]] = codes
+        responses.append({
+            "profile": {field: participant[field] for field in PROFILE_FIELDS},
+            "stances": {
+                row["option_id"]: {
+                    "stance": row["stance"],
+                    "reason_topic_codes": topics[row["option_id"]],
+                }
+                for row in assessments
+            },
+        })
+    try:
+        projection = project_research_segments(responses)
+    except ResearchSegmentError as exc:
+        raise ImmutableRecordConflict(str(exc)) from exc
+    candidate = selected_candidate or connection.execute(
+        "SELECT c.* FROM aipol_ai_candidates c JOIN aipol_experiments e "
+        "ON e.e2_selected_candidate_id=c.id WHERE e.id=?",
+        (experiment_id,),
+    ).fetchone()
+    if not candidate:
+        raise CollectionDisabled("T6 AI 설명에 결박할 승인된 D 후보가 없습니다")
+    # T6 is a deterministic projection of the frozen M2 ledger.  Do not reuse
+    # the separately approved D candidate body as though it were an analysis
+    # of the segment table: fallback D can pre-date the event and a primary D
+    # body has a different contract.  We retain the candidate linkage only as
+    # provenance for the following D exposure.
+    analysis_narrative = {
+        "analysis_type": "deterministic-approved-topic-projection",
+        "text": (
+            "마감된 M2 판단과 별도 사람 승인을 거친 주제 코드만 사전 고정 규칙으로 "
+            "집계했습니다. 이 설명은 잠정 의견 D의 본문을 재사용한 AI 해석이 아닙니다."
+        ),
+        "rules_version": RESEARCH_SEGMENT_RULES_VERSION,
+        "m2_aggregate_hash": finalization["aggregate"]["aggregate_hash"],
+    }
+    d_candidate_provenance = {
+        "artifact_id": candidate["artifact_id"],
+        "content_hash": candidate["content_hash"],
+        "model": candidate["model"],
+        "deployment": candidate["deployment"],
+        "prompt_version": candidate["prompt_version"],
+        "generated_at": candidate["generated_at"],
+        "evidence_refs": json.loads(candidate["evidence_refs"]),
+        "approval_id": candidate["approval_id"],
+        "approved_by": candidate["approved_by"],
+        "approved_at": candidate["approved_at"],
+        "fallback_used": candidate["candidate_role"] == "fallback",
+    }
+    envelope = {
+        "snapshot_type": "T6",
+        "measurement_id": "M2",
+        "rules_version": RESEARCH_SEGMENT_RULES_VERSION,
+        "m2_aggregate_hash": finalization["aggregate"]["aggregate_hash"],
+        "cutoff_at": finalization["finalized_at"],
+        "projection": projection,
+        "analysis_narrative": analysis_narrative,
+        "d_candidate_provenance": d_candidate_provenance,
+    }
+    return {**envelope, "content_hash": content_hash(envelope)}
+
+
+def _validated_t6_snapshot(connection, experiment_id: str, *, required: bool = True) -> dict | None:
+    row = connection.execute(
+        "SELECT * FROM aipol_t6_snapshots WHERE experiment_id=?", (experiment_id,)
+    ).fetchone()
+    if not row:
+        if required:
+            raise CollectionDisabled("T6 조건별 분석 결과가 아직 동결되지 않았습니다")
+        return None
+    try:
+        payload = json.loads(row["payload"])
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ImmutableRecordConflict("T6 snapshot payload가 손상되었습니다") from exc
+    if (
+        row["rules_version"] != RESEARCH_SEGMENT_RULES_VERSION
+        or payload.get("rules_version") != RESEARCH_SEGMENT_RULES_VERSION
+        or row["content_hash"] != content_hash({k: v for k, v in payload.items() if k != "content_hash"})
+        or payload.get("content_hash") != row["content_hash"]
+    ):
+        raise ImmutableRecordConflict("T6 snapshot 해시 또는 규칙 버전이 일치하지 않습니다")
+    finalization = _validated_m2_finalization(connection, experiment_id, required=True)
+    rebuilt = _build_t6_snapshot(connection, experiment_id, finalization)
+    if rebuilt != payload:
+        raise ImmutableRecordConflict("T6 snapshot이 append-only 원장과 일치하지 않습니다")
+    return {"snapshot_id": row["id"], **payload, "frozen_at": row["frozen_at"]}
+
+
+def _freeze_t6_snapshot(
+    connection, experiment_id: str, *, frozen_by: str, finalization: dict, selected_candidate
+) -> dict:
+    existing = _validated_t6_snapshot(connection, experiment_id, required=False)
+    if existing:
+        return existing
+    payload = _build_t6_snapshot(
+        connection, experiment_id, finalization, selected_candidate=selected_candidate
+    )
+    snapshot_id = _id("t6")
+    frozen_at = datetime.now(timezone.utc).isoformat()
+    connection.execute(
+        "INSERT INTO aipol_t6_snapshots(id,experiment_id,rules_version,payload,content_hash,frozen_at,frozen_by) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (
+            snapshot_id, experiment_id, RESEARCH_SEGMENT_RULES_VERSION, _json(payload),
+            payload["content_hash"], frozen_at, frozen_by,
+        ),
+    )
+    _queue_experiment_audit(
+        connection, actor=frozen_by, action="experiment.t6.frozen",
+        experiment_id=experiment_id,
+        payload={"snapshot_id": snapshot_id, "content_hash": payload["content_hash"]},
+    )
+    return {"snapshot_id": snapshot_id, **payload, "frozen_at": frozen_at}
+
+
 def release_e2(
     experiment_id: str,
     *,
@@ -2659,6 +3317,12 @@ def release_e2(
             )
             if generated <= finalized_at:
                 raise ExperimentError("primary AI 후보는 M2 cohort-finalized barrier 뒤 생성되어야 합니다")
+        t6_snapshot = None
+        if _uses_current_procedure(experiment):
+            t6_snapshot = _freeze_t6_snapshot(
+                connection, experiment_id, frozen_by=selected_by.strip(),
+                finalization=finalization, selected_candidate=candidate,
+            )
         selected_at = datetime.now(timezone.utc).isoformat()
         connection.execute(
             "INSERT INTO aipol_e2_selections(id,experiment_id,candidate_id,candidate_role,"
@@ -2682,6 +3346,7 @@ def release_e2(
                 "candidate_role": candidate_role,
                 "aggregate_hash": aggregate["aggregate_hash"],
                 "candidate_approval_hash": candidate_approval_hash,
+                "t6_snapshot_hash": t6_snapshot["content_hash"] if t6_snapshot else None,
             },
         )
     return get_experiment(experiment_id)
@@ -2733,8 +3398,31 @@ def set_artifact(
         if experiment["freeze_manifest"] and artifact_kind is not ArtifactKind.FINAL_AI_OPINION:
             raise ExperimentError("동결 뒤에는 필수 E1a/E1b 콘텐츠를 추가할 수 없습니다")
         if artifact_kind is ArtifactKind.FINAL_AI_OPINION:
-            if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
-                raise ExperimentError("D′ 자료는 v2 절차에서만 등록할 수 있습니다")
+            if not _uses_deliberation_procedure(experiment):
+                raise ExperimentError("D′ 자료는 v2/v3 절차에서만 등록할 수 있습니다")
+            if _uses_current_procedure(experiment):
+                _validate_policy_lever_values(
+                    experiment, content.get("lever_values"), label="D′"
+                )
+                if _synthetic_review_experiment(experiment):
+                    d_candidate = connection.execute(
+                        "SELECT artifact_id,content_hash FROM aipol_ai_candidates "
+                        "WHERE experiment_id=? AND candidate_role='fallback'",
+                        (experiment_id,),
+                    ).fetchone()
+                else:
+                    d_candidate = connection.execute(
+                        "SELECT c.artifact_id,c.content_hash FROM aipol_ai_candidates c "
+                        "JOIN aipol_experiments e ON e.e2_selected_candidate_id=c.id "
+                        "WHERE e.id=?",
+                        (experiment_id,),
+                    ).fetchone()
+                if (
+                    not d_candidate
+                    or content.get("d_artifact_id") != d_candidate["artifact_id"]
+                    or content.get("d_content_hash") != d_candidate["content_hash"]
+                ):
+                    raise ExperimentError("D′는 직전에 공개된 D의 artifact ID와 콘텐츠 해시를 근거로 포함해야 합니다")
             synthetic_review = _synthetic_review_experiment(experiment)
             if synthetic_review:
                 if content.get("synthetic_review") is not True:
@@ -2768,6 +3456,33 @@ def set_artifact(
                 raise ExperimentError("D′ generated_at은 ISO 8601 형식이어야 합니다") from exc
             if generated_at.tzinfo is None or generated_at.utcoffset() is None:
                 raise ExperimentError("D′ generated_at에는 시간대가 포함되어야 합니다")
+            generated_at = generated_at.astimezone(timezone.utc)
+            if generated_at > datetime.now(timezone.utc) + timedelta(seconds=5):
+                raise ExperimentError("D′ generated_at은 현재 시각보다 미래일 수 없습니다")
+            if _uses_current_procedure(experiment) and not _synthetic_review_experiment(experiment):
+                barrier_rows = connection.execute(
+                    "SELECT e.completed_at AS barrier_at FROM aipol_exposures e "
+                    "JOIN aipol_participants p ON p.id=e.participant_id "
+                    "WHERE p.experiment_id=? AND p.participant_type='real' AND e.stage='E1b' "
+                    "UNION ALL "
+                    "SELECT a.acknowledged_at FROM aipol_audience_discussion_acks a "
+                    "JOIN aipol_participants p ON p.id=a.participant_id "
+                    "WHERE p.experiment_id=? AND p.participant_type='real' "
+                    "UNION ALL "
+                    "SELECT selected_at FROM aipol_public_audience_inputs WHERE experiment_id=?",
+                    (experiment_id, experiment_id, experiment_id),
+                ).fetchall()
+                latest_barrier = max(
+                    datetime.fromisoformat(row["barrier_at"].replace("Z", "+00:00"))
+                    .astimezone(timezone.utc)
+                    for row in barrier_rows
+                    if row["barrier_at"]
+                )
+                if generated_at <= latest_barrier:
+                    raise ExperimentError(
+                        "D′는 모든 실제 참가자의 전문가 설명 확인·청중 절차 확인과 "
+                        "최종 공개 입력 뒤에 생성되어야 합니다"
+                    )
             evidence_refs = content.get("evidence_refs")
             if (
                 not isinstance(evidence_refs, list)
@@ -2842,8 +3557,8 @@ def _public_audience_input_snapshot(
     require_complete: bool,
 ) -> dict:
     experiment = get_experiment(experiment_id, connection)
-    if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
-        raise ExperimentError("공개 청중 의견 입력은 v2 절차에서만 사용할 수 있습니다")
+    if not _uses_deliberation_procedure(experiment):
+        raise ExperimentError("공개 청중 의견 입력은 v2/v3 절차에서만 사용할 수 있습니다")
     pending = connection.execute(
         "SELECT COUNT(*) FROM aipol_participants WHERE experiment_id=? "
         "AND participant_type='real' AND stage NOT IN ('E3','M3','complete','withdrawn')",
@@ -2900,8 +3615,8 @@ def register_public_audience_input(
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
         experiment = get_experiment(experiment_id, connection)
-        if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
-            raise ExperimentError("공개 청중 의견 입력은 v2 절차에서만 사용할 수 있습니다")
+        if not _uses_deliberation_procedure(experiment):
+            raise ExperimentError("공개 청중 의견 입력은 v2/v3 절차에서만 사용할 수 있습니다")
         existing = connection.execute(
             "SELECT * FROM aipol_public_audience_inputs WHERE experiment_id=? AND idempotency_key=?",
             (experiment_id, idempotency_key),
@@ -3041,7 +3756,7 @@ def set_ai_candidate(
         raise ExperimentError("AI candidate_role은 primary 또는 fallback이어야 합니다")
     if (
         not isinstance(content, dict)
-        or set(content) != {"title", "body"}
+        or set(content) not in ({"title", "body"}, {"title", "body", "lever_values"})
         or not str(content.get("title") or "").strip()
         or not str(content.get("body") or "").strip()
     ):
@@ -3101,6 +3816,10 @@ def set_ai_candidate(
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
         experiment = get_experiment(experiment_id, connection)
+        if _uses_current_procedure(experiment):
+            _validate_policy_lever_values(experiment, content.get("lever_values"), label="D")
+        elif set(content) != {"title", "body"}:
+            raise ExperimentError("v1/v2 AI 후보는 기존 title/body 계약을 유지합니다")
         if approved_by != registered_by:
             raise ExperimentError("approved_by는 서명된 승인자 계정과 일치해야 합니다")
         if candidate_role == "fallback" and experiment["freeze_manifest"]:
@@ -3222,6 +3941,38 @@ def _synthetic_review_experiment(experiment: dict) -> bool:
         and manifest.get("status") == "frozen"
         and manifest.get("collection_enabled") is False
     )
+
+
+def _procedure_version(experiment: dict) -> str:
+    return str((experiment.get("procedure_config") or {}).get("version") or "")
+
+
+def _uses_deliberation_procedure(experiment: dict) -> bool:
+    """Return true for the preserved v2 flow and the current v3 flow."""
+    return _procedure_version(experiment) in {
+        V2_PROCEDURE_CONFIG["version"],
+        PROCEDURE_CONFIG["version"],
+    }
+
+
+def _uses_current_procedure(experiment: dict) -> bool:
+    """Return true only for newly created v3 experiments."""
+    return _procedure_version(experiment) == PROCEDURE_CONFIG["version"]
+
+
+def _validate_policy_lever_values(experiment: dict, lever_values: object, *, label: str) -> None:
+    expected = {
+        key
+        for option in experiment["policy_options"]
+        for key in (option.get("lever_values") or {})
+    }
+    if not isinstance(lever_values, dict) or not expected or set(lever_values) != expected:
+        raise ExperimentError(f"{label}는 A/B/C 비교표와 동일한 정책 항목을 모두 포함해야 합니다")
+    for key, value in lever_values.items():
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise ExperimentError(f"{label} 정책 항목 {key}의 값 형식이 유효하지 않습니다")
+        if isinstance(value, str) and not value.strip():
+            raise ExperimentError(f"{label} 정책 항목 {key}의 값이 비어 있습니다")
 
 
 def _synthetic_review_mode(experiment: dict, participant: dict) -> bool:
@@ -3535,6 +4286,499 @@ def recover_participant(experiment_id: str, recovery_code: str) -> dict:
         }
 
 
+_RESULT_AFTER_MEASUREMENT = {"M1": "T3", "M2": "T5", "M3": "T10"}
+_RESULT_NEXT_STAGE = {"T3": "E1a", "T5": "E2", "T10": "complete"}
+_PUBLIC_RESULT_RULES_VERSION = "aipol-public-results-v1"
+_PUBLIC_RESULT_K = 5
+_PUBLIC_RESULT_MIN_COHORT = 10
+
+
+def _public_result_min_cohort() -> int:
+    if (
+        os.environ.get("EVENT_ENV", "production").strip().lower() == "development"
+        and os.environ.get("AIPOL_TEST_ALLOW_SMALL_PUBLIC_COHORT", "false").strip().lower() == "true"
+    ):
+        return 1
+    return _PUBLIC_RESULT_MIN_COHORT
+
+
+def _suppress_public_counts(values: list[int], *, k: int = _PUBLIC_RESULT_K) -> list[int | None]:
+    released: list[int | None] = [value if value >= k else None for value in values]
+    suppressed = [index for index, value in enumerate(released) if value is None]
+    visible = [index for index, value in enumerate(released) if value is not None]
+    if len(suppressed) == 1 and visible:
+        secondary = min(visible, key=lambda index: (released[index], index))
+        released[secondary] = None
+    return released
+
+
+def _privacy_protect_public_result(snapshot: dict, *, cohort_size: int) -> dict:
+    """Suppress real-cohort cells before the immutable public hash is created."""
+    minimum_cohort = _public_result_min_cohort()
+    if cohort_size < minimum_cohort:
+        raise PublicResultError(
+            f"public result cohort must contain at least {minimum_cohort} participants"
+        )
+    protected = json.loads(json.dumps(snapshot))
+
+    # All T5/T10 tables describe the same people.  Per-table suppression is
+    # unsafe because visible choice, stance and transition margins can be
+    # subtracted from one another to recover a rare cell.  If any positive
+    # cell in the release unit is below k, suppress every quantitative cell in
+    # that snapshot as a single unit.
+    def has_rare_positive(value, key="") -> bool:
+        if isinstance(value, dict):
+            return any(has_rare_positive(item, child_key) for child_key, item in value.items())
+        if isinstance(value, list):
+            if key == "cells":
+                return any(
+                    isinstance(cell, int) and not isinstance(cell, bool) and 0 < cell < _PUBLIC_RESULT_K
+                    for row in value for cell in row
+                )
+            return any(has_rare_positive(item, key) for item in value)
+        return (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and (key == "count" or key.endswith("_count"))
+            and 0 < value < _PUBLIC_RESULT_K
+        )
+
+    release_suppressed = has_rare_positive(protected)
+
+    def suppress_release_unit(value, key=""):
+        if isinstance(value, dict):
+            return {
+                child_key: suppress_release_unit(item, child_key)
+                for child_key, item in value.items()
+            }
+        if isinstance(value, list):
+            if key == "cells":
+                return [[None for _ in row] for row in value]
+            return [suppress_release_unit(item, key) for item in value]
+        if key == "rate" or key == "denominator" or key == "count" or key.endswith("_count"):
+            return None
+        return value
+
+    if release_suppressed:
+        protected = suppress_release_unit(protected)
+        protected["privacy_rules"] = {
+            "k": _PUBLIC_RESULT_K,
+            "minimum_cohort": minimum_cohort,
+            "suppressed_value": None,
+            "secondary_suppression": True,
+            "shared_release_unit": True,
+            "release_suppressed": True,
+        }
+        unhashed = {key: value for key, value in protected.items() if key != "content_hash"}
+        protected["content_hash"] = canonical_content_hash(unhashed)
+        return protected
+
+    # With no rare positive cell, retain the normal primary/secondary masking
+    # for structural zeroes and a lone hidden cell.
+    for key in ("m1", "m2", "m3"):
+        distribution = protected.get(key)
+        if not isinstance(distribution, dict):
+            continue
+        options = distribution.get("options") or []
+        counts = _suppress_public_counts([int(item["count"]) for item in options])
+        for item, count in zip(options, counts, strict=True):
+            item["count"] = count
+            item["rate"] = None if count is None else item["rate"]
+        for field in ("abstention_count", "attrition_count"):
+            if isinstance(distribution.get(field), int) and distribution[field] < _PUBLIC_RESULT_K:
+                distribution[field] = None
+    for key in ("m2_stances", "m3_stances"):
+        for distribution in protected.get(key) or []:
+            stances = distribution.get("stances") or []
+            counts = _suppress_public_counts([int(item["count"]) for item in stances])
+            for item, count in zip(stances, counts, strict=True):
+                item["count"] = count
+                item["rate"] = None if count is None else item["rate"]
+            for field in ("abstention_count", "attrition_count"):
+                if isinstance(distribution.get(field), int) and distribution[field] < _PUBLIC_RESULT_K:
+                    distribution[field] = None
+    for key in ("m1_to_m2", "m2_to_m3", "m1_to_m3"):
+        matrix = protected.get(key)
+        if not isinstance(matrix, dict):
+            continue
+        cells = matrix.get("cells") or []
+        flat = [int(value) for row in cells for value in row]
+        suppressed = _suppress_public_counts(flat)
+        width = len(cells[0]) if cells else 0
+        matrix["cells"] = [
+            suppressed[index:index + width]
+            for index in range(0, len(suppressed), width)
+        ] if width else []
+        for field in ("paired_abstention_count", "paired_attrition_count"):
+            if isinstance(matrix.get(field), int) and matrix[field] < _PUBLIC_RESULT_K:
+                matrix[field] = None
+    protected["privacy_rules"] = {
+        "k": _PUBLIC_RESULT_K,
+        "minimum_cohort": minimum_cohort,
+        "suppressed_value": None,
+        "secondary_suppression": True,
+        "shared_release_unit": True,
+        "release_suppressed": release_suppressed,
+    }
+    unhashed = {key: value for key, value in protected.items() if key != "content_hash"}
+    protected["content_hash"] = canonical_content_hash(unhashed)
+    return protected
+
+
+def _parse_result_cutoff(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ExperimentError("결과 cutoff는 시간대가 포함된 ISO-8601이어야 합니다") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ExperimentError("결과 cutoff에는 시간대가 필요합니다")
+    parsed = parsed.astimezone(timezone.utc)
+    if parsed > datetime.now(timezone.utc):
+        raise ExperimentError("미래 cutoff로 결과를 공개할 수 없습니다")
+    return parsed
+
+
+def _result_scope(participant: dict) -> str:
+    return "real-cohort" if participant["participant_type"] == "real" else participant["id"]
+
+
+def _result_snapshot_row(
+    connection: sqlite3.Connection,
+    experiment_id: str,
+    result_stage: str,
+    participant: dict,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        "SELECT * FROM aipol_public_result_snapshots WHERE experiment_id=? "
+        "AND result_stage=? AND participant_type=? AND scope_key=?",
+        (experiment_id, result_stage, participant["participant_type"], _result_scope(participant)),
+    ).fetchone()
+
+
+def _validated_public_result(row: sqlite3.Row) -> dict:
+    snapshot = json.loads(row["snapshot_json"])
+    if not isinstance(snapshot, dict):
+        raise ImmutableRecordConflict("공개 결과 snapshot 형식이 손상되었습니다")
+    claimed = snapshot.get("content_hash")
+    unhashed = {key: value for key, value in snapshot.items() if key != "content_hash"}
+    calculated = canonical_content_hash(unhashed)
+    if (
+        claimed != row["content_hash"]
+        or calculated != row["content_hash"]
+        or snapshot.get("stage") != row["result_stage"]
+        or snapshot.get("cutoff") != row["cutoff_at"]
+        or snapshot.get("rules_version") != row["rules_version"]
+    ):
+        raise ImmutableRecordConflict("공개 결과 snapshot과 동결 해시가 일치하지 않습니다")
+    rendered = json.dumps(snapshot, ensure_ascii=False).lower()
+    if "participant_key" in rendered or '"reason"' in rendered:
+        raise ImmutableRecordConflict("공개 결과에 비공개 원문 필드가 포함되었습니다")
+    return snapshot
+
+
+def _build_public_result(
+    connection: sqlite3.Connection,
+    experiment_id: str,
+    result_stage: str,
+    participant_type: str,
+    scope_key: str,
+    cutoff: datetime,
+    rules_version: str,
+) -> dict:
+    participant_sql = (
+        "SELECT id FROM aipol_participants WHERE experiment_id=? AND participant_type=? "
+        "AND created_at<=?" + (" AND id=?" if participant_type == "synthetic" else "")
+    )
+    params: tuple[object, ...] = (experiment_id, participant_type, cutoff.timestamp())
+    if participant_type == "synthetic":
+        params += (scope_key,)
+    participant_rows = connection.execute(participant_sql, params).fetchall()
+    eligible = tuple(row["id"] for row in participant_rows)
+    if not eligible:
+        raise ExperimentError("cutoff 안에 공개할 참가자 cohort가 없습니다")
+    placeholders = ",".join("?" for _ in eligible)
+    measurements = [
+        DeidentifiedMeasurement(
+            row["participant_id"], row["measurement_id"], row["choice"],
+            datetime.fromisoformat(row["submitted_at"]),
+        )
+        for row in connection.execute(
+            f"SELECT participant_id,measurement_id,choice,submitted_at FROM aipol_measurements "
+            f"WHERE participant_id IN ({placeholders})",
+            eligible,
+        ).fetchall()
+    ]
+    assessments: list[DeidentifiedOptionAssessment] = []
+    if result_stage in ("T5", "T10"):
+        measurement_id = "M2" if result_stage == "T5" else "M3"
+        table = "aipol_m2_option_assessments" if result_stage == "T5" else "aipol_m3_option_assessments"
+        assessments = [
+            DeidentifiedOptionAssessment(
+                row["participant_id"], measurement_id, row["option_id"], row["stance"],
+                datetime.fromisoformat(row["created_at"]),
+            )
+            for row in connection.execute(
+                f"SELECT participant_id,option_id,stance,created_at FROM {table} "
+                f"WHERE participant_id IN ({placeholders})",
+                eligible,
+            ).fetchall()
+        ]
+    try:
+        if result_stage == "T3":
+            snapshot = build_t3_m1_results(
+                measurements, eligible_participants=eligible, cutoff=cutoff,
+                rules_version=rules_version,
+            ).to_dict()
+        elif result_stage == "T5":
+            snapshot = build_t5_results(
+                measurements, assessments, eligible_participants=eligible, cutoff=cutoff,
+                rules_version=rules_version,
+            ).to_dict()
+        elif result_stage == "T10":
+            snapshot = build_t10_results(
+                measurements, assessments, eligible_participants=eligible, cutoff=cutoff,
+                rules_version=rules_version,
+            ).to_dict()
+        else:
+            raise ExperimentError("공개 결과 단계는 T3, T5, T10 중 하나여야 합니다")
+        return (
+            snapshot
+            if participant_type == ParticipantType.SYNTHETIC.value
+            else _privacy_protect_public_result(snapshot, cohort_size=len(eligible))
+        )
+    except PublicResultError as exc:
+        raise ExperimentError(str(exc)) from exc
+
+
+def _insert_public_result_snapshot(
+    connection: sqlite3.Connection,
+    experiment: dict,
+    *,
+    result_stage: str,
+    participant_type: str,
+    scope_key: str,
+    cutoff: datetime,
+    rules_version: str,
+    released_by: str,
+) -> sqlite3.Row:
+    cutoff_text = cutoff.isoformat().replace("+00:00", "Z")
+    snapshot = _build_public_result(
+        connection, experiment["id"], result_stage, participant_type, scope_key,
+        cutoff, rules_version,
+    )
+    if snapshot["cutoff"] != cutoff_text:
+        raise ImmutableRecordConflict("공개 결과 cutoff 직렬화가 일치하지 않습니다")
+    try:
+        connection.execute(
+            "INSERT INTO aipol_public_result_snapshots VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                _id("prs"), experiment["id"], result_stage, participant_type, scope_key,
+                cutoff_text, rules_version, _json(snapshot), snapshot["content_hash"],
+                released_by, datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+    except sqlite3.IntegrityError as exc:
+        raced = _result_snapshot_row(
+            connection, experiment["id"], result_stage,
+            {"participant_type": participant_type, "id": scope_key},
+        )
+        if raced is None:
+            raise
+        if _validated_public_result(raced) != snapshot:
+            raise ImmutableRecordConflict("동시에 다른 공개 결과 snapshot이 동결되었습니다") from exc
+    row = _result_snapshot_row(
+        connection, experiment["id"], result_stage,
+        {"participant_type": participant_type, "id": scope_key},
+    )
+    assert row is not None
+    return row
+
+
+def release_public_result(
+    experiment_id: str,
+    result_stage: str,
+    *,
+    cutoff_at: str,
+    rules_version: str,
+    released_by: str,
+) -> dict:
+    """Freeze one real-cohort result. A release is immutable and never inferred."""
+    if result_stage not in _RESULT_NEXT_STAGE:
+        raise ExperimentError("공개 결과 단계는 T3, T5, T10 중 하나여야 합니다")
+    if not released_by.strip():
+        raise ExperimentError("결과 공개자가 필요합니다")
+    if rules_version != _PUBLIC_RESULT_RULES_VERSION:
+        raise ExperimentError(
+            f"rules_version은 서버 정본 {_PUBLIC_RESULT_RULES_VERSION}과 일치해야 합니다"
+        )
+    cutoff = _parse_result_cutoff(cutoff_at)
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
+        if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
+            raise ExperimentError("공개 결과 단계는 v2 절차에서만 지원합니다")
+        if experiment["registration_open"]:
+            raise ExperimentError("실제 cohort 등록 마감 뒤에만 결과를 공개할 수 있습니다")
+        existing = connection.execute(
+            "SELECT * FROM aipol_public_result_snapshots WHERE experiment_id=? "
+            "AND result_stage=? AND participant_type='real' AND scope_key='real-cohort'",
+            (experiment_id, result_stage),
+        ).fetchone()
+        if existing:
+            snapshot = _validated_public_result(existing)
+            if (
+                existing["cutoff_at"] != cutoff.isoformat().replace("+00:00", "Z")
+                or existing["rules_version"] != rules_version
+            ):
+                raise ImmutableRecordConflict("이미 다른 계약으로 공개 결과가 동결되었습니다")
+            return snapshot
+        required_measurement = {"T3": "M1", "T5": "M2", "T10": "M3"}[result_stage]
+        cohort = connection.execute(
+            "SELECT p.id,p.created_at,p.stage,m.submitted_at FROM aipol_participants p "
+            "LEFT JOIN aipol_measurements m ON m.participant_id=p.id AND m.measurement_id=? "
+            "WHERE p.experiment_id=? AND p.participant_type='real'",
+            (required_measurement, experiment_id),
+        ).fetchall()
+        if not cohort:
+            raise ExperimentError("공개할 실제 참가자 cohort가 없습니다")
+        if any(float(row["created_at"]) > cutoff.timestamp() for row in cohort):
+            raise ExperimentError("cutoff가 등록 마감 cohort 전체를 포함하지 않습니다")
+        pending = [
+            row for row in cohort
+            if row["stage"] != "withdrawn" and row["submitted_at"] is None
+        ]
+        if pending:
+            raise ExperimentError(
+                f"{required_measurement}가 고정되지 않은 실제 참가자가 {len(pending)}명 있습니다"
+            )
+        after_cutoff = [
+            row for row in cohort
+            if row["submitted_at"] is not None
+            and datetime.fromisoformat(row["submitted_at"]).astimezone(timezone.utc) > cutoff
+        ]
+        if after_cutoff:
+            raise ExperimentError(
+                f"cutoff 이후의 {required_measurement} 응답이 {len(after_cutoff)}명 있어 결과를 공개할 수 없습니다"
+            )
+        if result_stage in ("T5", "T10"):
+            barrier = connection.execute(
+                "SELECT finalized_at FROM aipol_m2_finalizations WHERE experiment_id=?",
+                (experiment_id,),
+            ).fetchone()
+            if not barrier:
+                raise ExperimentError("M2 cohort-finalized barrier 뒤에만 T5/T10을 공개할 수 있습니다")
+            if datetime.fromisoformat(barrier["finalized_at"]).astimezone(timezone.utc) > cutoff:
+                raise ExperimentError("cutoff가 M2 cohort-finalized barrier보다 빠릅니다")
+        row = _insert_public_result_snapshot(
+            connection, experiment, result_stage=result_stage, participant_type="real",
+            scope_key="real-cohort", cutoff=cutoff, rules_version=rules_version,
+            released_by=released_by,
+        )
+        return _validated_public_result(row)
+
+
+def _pending_public_result(
+    connection: sqlite3.Connection,
+    experiment: dict,
+    participant: dict,
+) -> tuple[str, sqlite3.Row | None] | None:
+    if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
+        return None
+    if participant["stage"] == ExperimentStage.WITHDRAWN.value:
+        return None
+    latest = connection.execute(
+        "SELECT measurement_id FROM aipol_measurements WHERE participant_id=? "
+        "ORDER BY state_revision DESC LIMIT 1",
+        (participant["id"],),
+    ).fetchone()
+    if not latest:
+        return None
+    result_stage = _RESULT_AFTER_MEASUREMENT[latest["measurement_id"]]
+    row = _result_snapshot_row(connection, experiment["id"], result_stage, participant)
+    if row is None and _synthetic_review_mode(experiment, participant):
+        row = _insert_public_result_snapshot(
+            connection, experiment, result_stage=result_stage, participant_type="synthetic",
+            scope_key=participant["id"], cutoff=datetime.now(timezone.utc),
+            rules_version=_PUBLIC_RESULT_RULES_VERSION, released_by="system:synthetic-review",
+        )
+    if row is not None:
+        acknowledged = connection.execute(
+            "SELECT 1 FROM aipol_public_result_acks WHERE participant_id=? AND snapshot_id=?",
+            (participant["id"], row["id"]),
+        ).fetchone()
+        if acknowledged:
+            return None
+    return result_stage, row
+
+
+def _require_public_result_ack(
+    connection: sqlite3.Connection,
+    experiment: dict,
+    participant: dict,
+) -> None:
+    pending = _pending_public_result(connection, experiment, participant)
+    if pending is None:
+        return
+    if pending[1] is None:
+        raise CollectionDisabled(f"{pending[0]} 공개 결과가 아직 동결·공개되지 않았습니다")
+    raise InvalidTransition(f"{pending[0]} 공개 결과를 확인한 뒤 다음 단계로 진행해야 합니다")
+
+
+def acknowledge_public_result(
+    experiment_id: str,
+    participant_token: str,
+    result_stage: str,
+    *,
+    content_hash_value: str,
+    expected_revision: int,
+    idempotency_key: str,
+) -> dict:
+    if result_stage not in _RESULT_NEXT_STAGE or not idempotency_key:
+        raise ExperimentError("유효한 공개 결과 단계와 멱등 키가 필요합니다")
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment, participant = _load_participant(connection, experiment_id, participant_token)
+        existing = connection.execute(
+            "SELECT a.*,s.result_stage FROM aipol_public_result_acks a "
+            "JOIN aipol_public_result_snapshots s ON s.id=a.snapshot_id "
+            "WHERE a.participant_id=? AND a.idempotency_key=?",
+            (participant["id"], idempotency_key),
+        ).fetchone()
+        if existing:
+            if (
+                existing["result_stage"] != result_stage
+                or existing["content_hash"] != content_hash_value
+                or existing["state_revision"] != expected_revision
+            ):
+                raise IdempotencyConflict("같은 idempotency_key에 다른 결과 확인이 제출되었습니다")
+            return {
+                "stage": _RESULT_NEXT_STAGE[result_stage],
+                "state_revision": expected_revision,
+                "acknowledged_result": result_stage,
+            }
+        if participant["state_revision"] != expected_revision:
+            raise StateRevisionConflict("현재 state_revision과 결과 확인 요청이 다릅니다")
+        pending = _pending_public_result(connection, experiment, participant)
+        if pending is None or pending[0] != result_stage or pending[1] is None:
+            raise InvalidTransition("현재 확인할 수 있는 공개 결과가 없습니다")
+        row = pending[1]
+        snapshot = _validated_public_result(row)
+        if content_hash_value != snapshot["content_hash"]:
+            raise ImmutableRecordConflict("표시된 공개 결과 해시와 확인 요청이 다릅니다")
+        connection.execute(
+            "INSERT INTO aipol_public_result_acks VALUES(?,?,?,?,?,?,?)",
+            (
+                _id("pra"), participant["id"], row["id"], content_hash_value,
+                datetime.now(timezone.utc).isoformat(), expected_revision, idempotency_key,
+            ),
+        )
+        return {
+            "stage": _RESULT_NEXT_STAGE[result_stage],
+            "state_revision": expected_revision,
+            "acknowledged_result": result_stage,
+        }
+
+
 def participant_current(experiment_id: str, participant_token: str) -> dict:
     with db._conn() as connection:
         experiment, participant = _load_participant(connection, experiment_id, participant_token)
@@ -3552,10 +4796,42 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
         synthetic_review = _synthetic_review_mode(experiment, participant)
         if synthetic_review:
             result["synthetic_review"] = True
+        pending_result = _pending_public_result(connection, experiment, participant)
+        if pending_result is not None:
+            result_stage, snapshot_row = pending_result
+            result["stage"] = result_stage
+            result["title"] = {
+                "T3": "1차 선택 결과",
+                "T5": "1·2차 선택 비교 결과",
+                "T10": "최종 선택과 변화 결과",
+            }[result_stage]
+            result["acknowledgement_required"] = True
+            if snapshot_row is None:
+                result["waiting_for_result_release"] = True
+            else:
+                result["public_result"] = _validated_public_result(snapshot_row)
+            return result
         if stage is ExperimentStage.CONSENT:
             result["consent_version"] = experiment["consent_version"]
             result["consent_text"] = experiment["consent_text"]
+        elif stage is ExperimentStage.E0:
+            result["policy_options"] = experiment["policy_options"]
+            result["content_hash"] = content_hash(experiment["policy_options"])
+            result["title"] = "정책전문가 A·B·C안 비교"
+            result["acknowledgement_required"] = True
         elif stage is ExperimentStage.E1A:
+            if (
+                not synthetic_review
+                and experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
+            ):
+                research_profile = connection.execute(
+                    "SELECT 1 FROM aipol_research_profiles WHERE participant_id=?",
+                    (participant["id"],),
+                ).fetchone()
+                if not research_profile:
+                    result["research_profile_required"] = True
+                    result["research_profile_contract"] = _research_profile_public_contract()
+                    return result
             result["artifact"] = (
                 _synthetic_review_artifact_public(
                     connection, experiment, participant, "E1a"
@@ -3621,12 +4897,13 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
             result["question_text"] = experiment["question_text"]
             options = {option["policy_option_id"]: option for option in experiment["policy_options"]}
             result["policy_options"] = [options[key] for key in result["option_order"]]
+            if (
+                stage is ExperimentStage.M2
+                and experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
+            ):
+                result["structured_option_assessment"] = True
             if stage is ExperimentStage.M3:
-                artifact_stage = (
-                    "E3"
-                    if experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
-                    else "E2"
-                )
+                artifact_stage = "E3" if _uses_deliberation_procedure(experiment) else "E2"
                 ai = (
                     _synthetic_review_artifact_public(
                         connection, experiment, participant, artifact_stage
@@ -3639,15 +4916,32 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
                             if artifact_stage == "E3"
                             else ArtifactKind.AI_OPINION.value
                         ),
-                        include_content=False,
+                        include_content=(artifact_stage == "E3"),
                     )
                 )
                 if ai:
-                    result["secondary_evaluation"] = {
-                        "artifact_id": ai["artifact_id"],
-                        "separate_from_main_choice": True,
-                        "scale": {"min": 1, "max": 5},
-                    }
+                    if experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]:
+                        final_content = ai.get("content") or {}
+                        final_levers = final_content.get("lever_values")
+                        if not isinstance(final_levers, dict) or not final_levers:
+                            raise ImmutableRecordConflict("승인된 D′ 비교 항목이 비어 있습니다")
+                        result["policy_options"].append({
+                            "policy_option_id": "D_PRIME",
+                            "label": final_content.get("title") or "수정 의견 D′",
+                            "policy_version": ai["artifact_version"],
+                            "lever_values": final_levers,
+                            "artifact_id": ai["artifact_id"],
+                            "artifact_version": ai["artifact_version"],
+                            "content_hash": ai["content_hash"],
+                        })
+                        result["option_order"] = [*result["option_order"], "D_PRIME"]
+                        result["structured_final_assessment"] = True
+                    else:
+                        result["secondary_evaluation"] = {
+                            "artifact_id": ai["artifact_id"],
+                            "separate_from_main_choice": True,
+                            "scale": {"min": 1, "max": 5},
+                        }
         elif stage is ExperimentStage.E1B:
             result["artifact"] = (
                 _synthetic_review_artifact_public(
@@ -3662,6 +4956,20 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
             if participant["participant_type"] == "real" and not experiment["e2_released"]:
                 result["waiting_for_e2_release"] = True
             else:
+                if (
+                    participant["participant_type"] == "real"
+                    and experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
+                ):
+                    snapshot = _validated_t6_snapshot(connection, experiment_id, required=True)
+                    acknowledged = connection.execute(
+                        "SELECT 1 FROM aipol_t6_acks WHERE participant_id=? AND snapshot_id=?",
+                        (participant["id"], snapshot["snapshot_id"]),
+                    ).fetchone()
+                    if not acknowledged:
+                        result["interstitial_stage"] = "T6"
+                        result["result_snapshot"] = snapshot
+                        result["acknowledgement_required"] = True
+                        return result
                 result["artifact"] = (
                     _synthetic_review_artifact_public(
                         connection, experiment, participant, "E2"
@@ -3731,6 +5039,34 @@ def record_consent(
     return _write_action(experiment_id, participant_token, idempotency_key, payload, apply)
 
 
+def acknowledge_policy_options(
+    experiment_id: str,
+    participant_token: str,
+    *,
+    content_hash_value: str,
+    expected_revision: int,
+    idempotency_key: str,
+) -> dict:
+    payload = {"operation": "policy_options_ack", "content_hash": content_hash_value}
+
+    def apply(connection, experiment, participant, session):
+        record = session.acknowledge_policy_options(
+            participant["pseudonym"], content_hash_value=content_hash_value,
+            expected_revision=expected_revision, idempotency_key=idempotency_key,
+        )
+        connection.execute(
+            "INSERT INTO aipol_policy_option_acks VALUES(?,?,?,?,?,?)",
+            (
+                _id("poa"), participant["id"], record.content_hash,
+                record.acknowledged_at.isoformat(), record.state_revision,
+                record.idempotency_key,
+            ),
+        )
+        return {"stage": ExperimentStage.M1.value, "state_revision": record.state_revision}
+
+    return _write_action(experiment_id, participant_token, idempotency_key, payload, apply)
+
+
 def record_exposure_open(
     experiment_id: str,
     participant_token: str,
@@ -3751,6 +5087,7 @@ def record_exposure_open(
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
         experiment, participant = _load_participant(connection, experiment_id, participant_token)
+        _require_public_result_ack(connection, experiment, participant)
         session = _hydrate(connection, experiment, participant)
         current_stage, revision = session.participant_state(participant["pseudonym"])
         if current_stage.value != stage or revision != expected_revision:
@@ -3914,6 +5251,24 @@ def record_exposure(
         ):
             raise ExperimentError("M2 마감과 사람 승인 뒤 진행자가 E2를 공개해야 합니다")
         synthetic_review = _synthetic_review_mode(experiment, participant)
+        is_current_procedure = (
+            experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
+        )
+        if stage == "E1a" and not synthetic_review and is_current_procedure:
+            if not connection.execute(
+                "SELECT 1 FROM aipol_research_profiles WHERE participant_id=?",
+                (participant["id"],),
+            ).fetchone():
+                raise CollectionDisabled(
+                    "연구 구간 저장 여부를 결정한 뒤에만 개인 비교를 완료할 수 있습니다"
+                )
+        if stage == "E2" and not synthetic_review and is_current_procedure:
+            snapshot = _validated_t6_snapshot(connection, experiment_id, required=True)
+            if not connection.execute(
+                "SELECT 1 FROM aipol_t6_acks WHERE participant_id=? AND snapshot_id=?",
+                (participant["id"], snapshot["snapshot_id"]),
+            ).fetchone():
+                raise InvalidTransition("T6 조건별 분석 결과를 확인한 뒤 D를 볼 수 있습니다")
         if synthetic_review:
             _, artifact = _synthetic_review_artifact(
                 connection, experiment, participant, stage
@@ -4015,8 +5370,8 @@ def acknowledge_audience_discussion(
     payload = {"operation": "audience_discussion_ack"}
 
     def apply(connection, experiment, participant, session):
-        if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
-            raise InvalidTransition("공개 청중 의견 확인은 v2 절차에서만 제출할 수 있습니다")
+        if not _uses_deliberation_procedure(experiment):
+            raise InvalidTransition("공개 청중 의견 확인은 v2/v3 절차에서만 제출할 수 있습니다")
         record = session.acknowledge_audience_discussion(
             participant["pseudonym"],
             expected_revision=expected_revision, idempotency_key=idempotency_key,
@@ -4045,22 +5400,26 @@ def submit_measurement(
     idempotency_key: str,
     secondary_evaluation: dict | None = None,
     stance: str | None = None,
+    option_assessments: dict | None = None,
 ) -> dict:
     payload = {
         "operation": "measurement", "measurement_id": measurement_id, "choice": choice,
         "reason": reason, "confidence": confidence, "secondary_evaluation": secondary_evaluation,
         "stance": stance,
+        "option_assessments": option_assessments,
     }
     if confidence is not None and (isinstance(confidence, bool) or not isinstance(confidence, int)):
         raise ExperimentError("confidence는 1~5 정수 또는 null이어야 합니다")
 
     def apply(connection, experiment, participant, session):
-        if secondary_evaluation is not None and measurement_id != "M3":
+        is_current_procedure = _uses_current_procedure(experiment)
+        if secondary_evaluation is not None and (measurement_id != "M3" or is_current_procedure):
             raise ExperimentError("D/D′ 별도 평가는 M3에서만 제출할 수 있습니다")
         record = session.submit_measurement(
             participant["pseudonym"], measurement_id, choice=choice, reason=reason,
             confidence=confidence, expected_revision=expected_revision,
             idempotency_key=idempotency_key, stance=stance,
+            option_assessments=option_assessments,
         )
         connection.execute(
             "INSERT INTO aipol_measurements(id,participant_id,experiment_version,session_id,measurement_id,"
@@ -4075,9 +5434,27 @@ def submit_measurement(
                 record.submitted_at.isoformat(), record.state_revision, record.idempotency_key,
             ),
         )
+        if measurement_id in ("M2", "M3") and is_current_procedure:
+            assert option_assessments is not None
+            assessment_table = (
+                "aipol_m2_option_assessments"
+                if measurement_id == "M2"
+                else "aipol_m3_option_assessments"
+            )
+            assessment_id_prefix = "m2a" if measurement_id == "M2" else "m3a"
+            connection.executemany(
+                f"INSERT INTO {assessment_table} VALUES(?,?,?,?,?,?)",
+                [
+                    (
+                        _id(assessment_id_prefix), participant["id"], option_id,
+                        assessment["stance"], assessment["reason"],
+                        record.submitted_at.isoformat(),
+                    )
+                    for option_id, assessment in option_assessments.items()
+                ],
+            )
         if secondary_evaluation is not None:
-            is_v2 = experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
-            if is_v2:
+            if _uses_deliberation_procedure(experiment):
                 ai = connection.execute(
                     "SELECT artifact_id FROM aipol_artifacts WHERE experiment_id=? AND kind=?",
                     (experiment_id, ArtifactKind.FINAL_AI_OPINION.value),
@@ -4221,6 +5598,7 @@ def _new_session(experiment: dict) -> PensionExperimentSession:
         policy_options=_parse_options(experiment["policy_options"]),
         freeze_manifest=_parse_manifest(experiment["freeze_manifest"]),
         procedure_config=experiment["procedure_config"],
+        policy_options_content_hash=content_hash(experiment["policy_options"]),
     )
 
 
@@ -4304,6 +5682,11 @@ def _hydrate(connection, experiment: dict, participant: dict) -> PensionExperime
     ).fetchone()
     if consent:
         events.append((consent["state_revision"], "consent", dict(consent)))
+    policy_options_ack = connection.execute(
+        "SELECT * FROM aipol_policy_option_acks WHERE participant_id=?", (participant["id"],)
+    ).fetchone()
+    if policy_options_ack:
+        events.append((policy_options_ack["state_revision"], "policy_options_ack", dict(policy_options_ack)))
     for exposure in connection.execute(
         "SELECT * FROM aipol_exposures WHERE participant_id=?", (participant["id"],)
     ):
@@ -4334,6 +5717,11 @@ def _hydrate(connection, experiment: dict, participant: dict) -> PensionExperime
                 affirmed=bool(value["affirmed"]),
                 expected_revision=revision - 1, idempotency_key=value["idempotency_key"],
             )
+        elif event_type == "policy_options_ack":
+            session.acknowledge_policy_options(
+                participant["pseudonym"], content_hash_value=value["content_hash"],
+                expected_revision=revision - 1, idempotency_key=value["idempotency_key"],
+            )
         elif event_type == "exposure":
             if value["stage"] == "E1a":
                 artifact = ExperimentArtifact(
@@ -4352,11 +5740,30 @@ def _hydrate(connection, experiment: dict, participant: dict) -> PensionExperime
                 expected_revision=revision - 1, idempotency_key=value["idempotency_key"],
             )
         elif event_type == "measurement":
+            assessments = None
+            if (
+                value["measurement_id"] in ("M2", "M3")
+                and experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
+            ):
+                assessment_table = (
+                    "aipol_m2_option_assessments"
+                    if value["measurement_id"] == "M2"
+                    else "aipol_m3_option_assessments"
+                )
+                assessment_rows = connection.execute(
+                    f"SELECT option_id,stance,reason FROM {assessment_table} WHERE participant_id=?",
+                    (participant["id"],),
+                ).fetchall()
+                assessments = {
+                    row["option_id"]: {"stance": row["stance"], "reason": row["reason"]}
+                    for row in assessment_rows
+                }
             session.submit_measurement(
                 participant["pseudonym"], value["measurement_id"], choice=value["choice"],
                 reason=value["reason"], confidence=value["confidence"],
                 expected_revision=revision - 1, idempotency_key=value["idempotency_key"],
                 stance=value.get("stance"),
+                option_assessments=assessments,
             )
         elif event_type == "audience_discussion_ack":
             session.acknowledge_audience_discussion(
@@ -4387,6 +5794,8 @@ def _write_action(experiment_id, participant_token, idempotency_key, payload, ap
             if previous["request_hash"] != request_hash:
                 raise IdempotencyConflict("같은 idempotency_key에 다른 payload가 제출되었습니다")
             return json.loads(previous["response"])
+        if payload.get("operation") != "withdraw":
+            _require_public_result_ack(connection, experiment, participant)
         session = _hydrate(connection, experiment, participant)
         result = apply(connection, experiment, participant, session)
         new_stage, new_revision = session.participant_state(participant["pseudonym"])
@@ -4411,7 +5820,7 @@ def _required_artifact_public(experiment_id: str, kind: str) -> dict:
     artifact = artifact_public(experiment_id, kind, include_content=True)
     if not artifact:
         raise ExperimentError("승인된 세션 공통 자료가 아직 없습니다")
-    return {
+    result = {
         "artifact_id": artifact["artifact_id"],
         "artifact_version": artifact["artifact_version"],
         "content_hash": artifact["content_hash"],
@@ -4421,6 +5830,12 @@ def _required_artifact_public(experiment_id: str, kind: str) -> dict:
         "approved_at": artifact["approved_at"],
         "fallback_used": bool(artifact["fallback_used"]),
     }
+    for key in ("model", "deployment", "prompt_version", "generated_at", "evidence_refs"):
+        if key in artifact:
+            result[key] = artifact[key]
+        elif key in artifact["content"]:
+            result[key] = artifact["content"][key]
+    return result
 
 
 init()
