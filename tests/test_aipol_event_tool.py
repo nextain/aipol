@@ -1435,7 +1435,7 @@ def test_v2_starts_with_m1_then_personal_comparison_and_structures_m2(aipol_app)
     assert rows[1][:2] == ("M2", "conditional")
 
 
-def test_v2_persists_private_feedback_and_distinct_d_prime_through_restart(aipol_app):
+def test_v2_uses_facilitator_selected_public_input_and_distinct_d_prime_through_restart(aipol_app):
     _, client, db_path = aipol_app
     headers = _admin_headers(client)
     experiment = _create(client, headers, suffix="-v2-complete", procedure_version="v2")
@@ -1470,36 +1470,112 @@ def test_v2_persists_private_feedback_and_distinct_d_prime_through_restart(aipol
     )
     assert release.status_code == 200
     released = release.json()
+    too_early_public_input = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+        json={
+            "sequence": 1,
+            "statement": "아직 공개 청중 의견 절차 전입니다",
+            "idempotency_key": "v2c-too-early-public-input",
+        },
+    )
+    assert too_early_public_input.status_code == 409
     assert _post(
         client, f"{base}/exposures/E2", token, 4, "v2c-e2", read_ack=True,
     ).json()["stage"] == "E1b"
     assert _post(
         client, f"{base}/exposures/E1b", token, 5, "v2c-e1b", read_ack=True,
     ).json()["stage"] == "A1"
-
-    raw_feedback = "전문가 논평 뒤 재정 조건을 더 명확히 밝혀야 합니다"
-    feedback = _post(
-        client, f"{base}/audience-feedback", token, 6, "v2c-feedback",
-        response=raw_feedback, abstained=False,
-    )
-    assert feedback.status_code == 200 and feedback.json()["stage"] == "E3"
-    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
-    assert current["waiting_for_e3_release"] is True
-    assert raw_feedback not in json.dumps(current, ensure_ascii=False)
-
-    aggregate_response = client.get(
-        f"/api/admin/aipol/experiments/{experiment['id']}/audience-feedback-aggregate",
+    a1_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert a1_current["public_audience_discussion"] == {
+        "participant_text_collection": False,
+        "facilitator_selected_input": True,
+        "acknowledgement_required": True,
+    }
+    empty_public_inputs = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
         headers=headers,
-    )
-    assert aggregate_response.status_code == 200
-    aggregate = aggregate_response.json()
-    assert aggregate["participant_count"] == 1 and aggregate["abstained_count"] == 0
-    assert raw_feedback not in json.dumps(aggregate, ensure_ascii=False)
+    ).json()
+    assert empty_public_inputs["input_count"] == 0
+    assert empty_public_inputs["pending_count"] == 1
     with sqlite3.connect(db_path) as connection:
         expert_hash = connection.execute(
             "SELECT content_hash FROM aipol_artifacts WHERE experiment_id=? AND kind='expert_explanation'",
             (experiment["id"],),
         ).fetchone()[0]
+    premature_d_prime = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "final_ai_opinion",
+            "artifact_id": "premature-d-prime-v2",
+            "artifact_version": "v1",
+            "content": {
+                "title": "조기 D′",
+                "body": "공개 청중 의견 절차 완료 전에는 차단되어야 합니다.",
+                "m2_aggregate_hash": released["e2_m2_aggregate_hash"],
+                "expert_artifact_hash": expert_hash,
+                "public_audience_input_hash": empty_public_inputs["aggregate_hash"],
+                "model": "fixture-revision-model",
+                "deployment": "fixture-revision-deployment",
+                "prompt_version": "fixture-d-prime-v1",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "evidence_refs": ["premature"],
+            },
+            "approval_id": f"approval-{experiment['id']}-premature-d-prime",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert premature_d_prime.status_code == 400
+    assert client.post(
+        f"{base}/audience-discussion-ack",
+        headers=_participant_headers(token),
+        json={
+            "response": "참가자 개인 텍스트는 받으면 안 됨",
+            "expected_revision": 6,
+            "idempotency_key": "v2c-invalid-private-text",
+        },
+    ).status_code == 400
+    removed_private_endpoint = client.post(
+        f"{base}/audience-feedback",
+        headers=_participant_headers(token),
+        json={
+            "response": "예전 비공개 입력 경로",
+            "abstained": False,
+            "expected_revision": 6,
+            "idempotency_key": "v2c-removed-private-endpoint",
+        },
+    )
+    assert removed_private_endpoint.status_code in {404, 405}
+
+    public_statement = "재정 조건을 더 명확히 밝혀야 합니다"
+    selected = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+        json={
+            "sequence": 1,
+            "statement": public_statement,
+            "idempotency_key": "v2c-public-input-1",
+        },
+    )
+    assert selected.status_code == 200, selected.text
+    discussion_ack = _post(
+        client, f"{base}/audience-discussion-ack", token, 6, "v2c-discussion-ack",
+    )
+    assert discussion_ack.status_code == 200 and discussion_ack.json()["stage"] == "E3"
+    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert current["waiting_for_e3_release"] is True
+    assert public_statement not in json.dumps(current, ensure_ascii=False)
+
+    aggregate_response = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+    )
+    assert aggregate_response.status_code == 200
+    aggregate = aggregate_response.json()
+    assert aggregate["input_count"] == 1
+    assert aggregate["inputs"][0]["statement"] == public_statement
     final = client.post(
         f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
         headers=headers,
@@ -1512,7 +1588,7 @@ def test_v2_persists_private_feedback_and_distinct_d_prime_through_restart(aipol
                 "body": "M2, 전문가 논평, 청중 의견을 반영한 수정 의견입니다.",
                 "m2_aggregate_hash": released["e2_m2_aggregate_hash"],
                 "expert_artifact_hash": expert_hash,
-                "audience_feedback_aggregate_hash": aggregate["aggregate_hash"],
+                "public_audience_input_hash": aggregate["aggregate_hash"],
                 "model": "fixture-revision-model",
                 "deployment": "fixture-revision-deployment",
                 "prompt_version": "fixture-d-prime-v1",
@@ -1544,8 +1620,11 @@ def test_v2_persists_private_feedback_and_distinct_d_prime_through_restart(aipol
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
-            "SELECT response FROM aipol_audience_feedback"
-        ).fetchone()[0] == raw_feedback
+            "SELECT COUNT(*) FROM aipol_audience_discussion_acks"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT statement FROM aipol_public_audience_inputs"
+        ).fetchone()[0] == public_statement
         assert connection.execute("SELECT COUNT(*) FROM aipol_v2_exposures").fetchone()[0] == 1
         assert connection.execute(
             "SELECT COUNT(DISTINCT artifact_id) FROM aipol_artifacts "

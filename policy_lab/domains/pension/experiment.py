@@ -73,7 +73,7 @@ PROCEDURE_CONFIG = {
     "version": "aipol-pension-3-measurements-v2",
     "stages": ["consent", "M1", "E1a", "M2", "E2", "E1b", "A1", "E3", "M3", "complete"],
     "exposures": {"E1a": "calculator", "E2": "d", "E1b": "expert", "E3": "d_prime"},
-    "feedback": {"A1": "audience"},
+    "public_audience_discussion": {"A1": "facilitator-selected"},
     "measurements": ["M1", "M2", "M3"],
     "option_order": "stable-per-participant",
     "e2_release": "registration-closed-and-m2-barrier",
@@ -334,13 +334,11 @@ class WithdrawalRecord:
 
 
 @dataclass(frozen=True)
-class AudienceFeedbackRecord:
+class AudienceDiscussionAckRecord:
     experiment_version: str
     session_id: str
     participant_pseudonym: str
-    response: str | None
-    abstained: bool
-    submitted_at: datetime
+    acknowledged_at: datetime
     state_revision: int
     idempotency_key: str
 
@@ -404,7 +402,7 @@ class PensionExperimentSession:
         self._exposures: list[ExposureRecord] = []
         self._measurements: list[MeasurementRecord] = []
         self._withdrawals: list[WithdrawalRecord] = []
-        self._audience_feedback: list[AudienceFeedbackRecord] = []
+        self._audience_discussion_acks: list[AudienceDiscussionAckRecord] = []
         self._expert_artifact: ExperimentArtifact | None = None
         self._ai_artifact: ExperimentArtifact | None = None
         self._final_ai_artifact: ExperimentArtifact | None = None
@@ -434,8 +432,8 @@ class PensionExperimentSession:
         return tuple(self._withdrawals)
 
     @property
-    def audience_feedback_records(self) -> tuple[AudienceFeedbackRecord, ...]:
-        return tuple(self._audience_feedback)
+    def audience_discussion_ack_records(self) -> tuple[AudienceDiscussionAckRecord, ...]:
+        return tuple(self._audience_discussion_acks)
 
     def register_participant(
         self,
@@ -590,40 +588,29 @@ class PensionExperimentSession:
 
         return self._execute(participant, expected_revision, idempotency_key, payload, action)
 
-    def submit_audience_feedback(
+    def acknowledge_audience_discussion(
         self,
         participant_pseudonym: str,
         *,
-        response: str | None,
-        abstained: bool,
         expected_revision: int,
         idempotency_key: str,
-    ) -> AudienceFeedbackRecord:
+    ) -> AudienceDiscussionAckRecord:
         participant = self._participant(participant_pseudonym)
-        cleaned = response.strip() if isinstance(response, str) else None
-        payload = {"op": "audience_feedback", "response": cleaned, "abstained": abstained}
+        payload = {"op": "audience_discussion_ack"}
 
-        def action() -> AudienceFeedbackRecord:
+        def action() -> AudienceDiscussionAckRecord:
             self._require_stage(participant, ExperimentStage.A1)
-            if not self._legacy_procedure and abstained is not True and not cleaned:
-                raise ExperimentError("청중 의견을 입력하거나 의견 보류를 선택해야 합니다")
-            if cleaned and len(cleaned) > 2_000:
-                raise ExperimentError("청중 의견은 2,000자 이하여야 합니다")
-            if abstained is True and cleaned:
-                raise ExperimentError("의견 보류와 청중 의견을 함께 제출할 수 없습니다")
             participant.state_revision += 1
             participant.stage = ExperimentStage.E3
-            record = AudienceFeedbackRecord(
+            record = AudienceDiscussionAckRecord(
                 self.experiment_version,
                 self.session_id,
                 participant.pseudonym,
-                cleaned,
-                abstained,
                 self._now(),
                 participant.state_revision,
                 idempotency_key,
             )
-            self._audience_feedback.append(record)
+            self._audience_discussion_acks.append(record)
             return record
 
         return self._execute(participant, expected_revision, idempotency_key, payload, action)
@@ -799,7 +786,7 @@ class PensionExperimentSession:
         if not self._legacy_procedure:
             result["A1"] = sum(
                 record.participant_pseudonym in participants
-                for record in self._audience_feedback
+                for record in self._audience_discussion_acks
             )
             result["E3"] = len(exposure_sets[8])
         return result

@@ -45,7 +45,7 @@ def _validate_procedure(procedure_config: dict) -> None:
         "E1a": "calculator", "E2": "d", "E1b": "expert", "E3": "d_prime"
     }:
         raise RehearsalFailure("procedure exposure drift")
-    if procedure_config.get("feedback") != {"A1": "audience"}:
+    if procedure_config.get("public_audience_discussion") != {"A1": "facilitator-selected"}:
         raise RehearsalFailure("procedure feedback drift")
 
 
@@ -139,9 +139,9 @@ def run_virtual_rehearsal(
     session.record_exposure(
         participant, expert, read_ack=True, expected_revision=5, idempotency_key="E1b"
     )
-    advance(70, "청중 의견 수렴 완료")
-    session.submit_audience_feedback(
-        participant, response="재정 조건을 더 설명해 주세요", abstained=False,
+    advance(70, "공개 청중 의견 진행·선별 완료")
+    session.acknowledge_audience_discussion(
+        participant,
         expected_revision=6, idempotency_key="A1",
     )
 

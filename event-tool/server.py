@@ -1064,12 +1064,36 @@ def aipol_admin_m2_aggregate(
     return _aipol_call(aipol_store.m2_aggregate_snapshot, experiment_id)
 
 
-@app.get("/api/admin/aipol/experiments/{experiment_id}/audience-feedback-aggregate")
-def aipol_admin_audience_feedback_aggregate(
+@app.get("/api/admin/aipol/experiments/{experiment_id}/public-audience-inputs")
+def aipol_admin_public_audience_inputs(
     experiment_id: str, x_admin_token: str = Header(default="")
 ):
     require_aipol_admin(x_admin_token, Action.READ)
-    return _aipol_call(aipol_store.audience_feedback_aggregate_snapshot, experiment_id)
+    return _aipol_call(aipol_store.public_audience_input_snapshot, experiment_id)
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/public-audience-inputs")
+def aipol_admin_register_public_audience_input(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    selected_by = require_aipol_mutation(x_admin_token, Action.RUN_BATCH)
+    _require_exact_contract(
+        body,
+        {"sequence", "statement", "idempotency_key"},
+        set(),
+        "public audience input",
+    )
+    result = _aipol_call(
+        aipol_store.register_public_audience_input,
+        experiment_id,
+        sequence=body.get("sequence"),
+        statement=body.get("statement"),
+        selected_by=selected_by,
+        idempotency_key=str(body.get("idempotency_key") or ""),
+    )
+    return _audit_experiment_mutation(
+        selected_by, "experiment.public_audience_input.selected", experiment_id, result
+    )
 
 
 @app.post("/api/admin/aipol/experiments/{experiment_id}/mark-pending-attrition")
@@ -1607,31 +1631,22 @@ def aipol_measurement(
     )
 
 
-@app.post("/api/aipol/experiments/{experiment_id}/audience-feedback")
-def aipol_audience_feedback(
+@app.post("/api/aipol/experiments/{experiment_id}/audience-discussion-ack")
+def aipol_audience_discussion_ack(
     experiment_id: str,
     body: dict,
     x_participant_token: str = Header(default=""),
 ):
     _require_exact_contract(
         body,
-        {"response", "abstained", "expected_revision", "idempotency_key"},
+        {"expected_revision", "idempotency_key"},
         set(),
-        "audience feedback",
+        "audience discussion acknowledgement",
     )
-    response = body.get("response")
-    if response is not None and not isinstance(response, str):
-        raise HTTPException(400, "response는 문자열 또는 null이어야 합니다")
-    if isinstance(response, str) and len(response) > 2_000:
-        raise HTTPException(400, "청중 의견은 2,000자 이하여야 합니다")
-    if not isinstance(body.get("abstained"), bool):
-        raise HTTPException(400, "abstained는 boolean이어야 합니다")
     return _aipol_call(
-        aipol_store.submit_audience_feedback,
+        aipol_store.acknowledge_audience_discussion,
         experiment_id,
         x_participant_token,
-        response=response,
-        abstained=body["abstained"],
         expected_revision=_expected_revision(body),
         idempotency_key=str(body.get("idempotency_key") or ""),
     )
