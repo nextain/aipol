@@ -5,7 +5,7 @@
   const experimentId = query.get("experiment") || "";
   const planningMode = query.get("mode") === "planning";
   const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
-  let pendingReviewToken = fragment.get("review_token") || "";
+  let pendingReviewToken = planningMode ? "" : (fragment.get("review_token") || "");
   let exchangeNonce = "";
   if (pendingReviewToken) {
     const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -307,6 +307,8 @@
 
   if (!experimentId && !planningMode) {
     showError(new Error("검토 대상 식별자가 없습니다."));
+  } else if (planningMode) {
+    load(initialStage).catch(showError);
   } else {
     exchange().then(() => load(initialStage)).catch(showError);
   }

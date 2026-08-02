@@ -122,6 +122,58 @@ def test_professor_review_scrubs_token_navigates_resets_and_never_mutates():
     assert sum(1 for method, url in requests if method == "POST" and url.endswith("/review/exchange")) == 3 * len(engines)
 
 
+def test_planning_review_ignores_stale_seat_token_and_never_exchanges():
+    catalog = _catalog()
+    requests: list[tuple[str, str]] = []
+
+    def route_request(route: Route) -> None:
+        request = route.request
+        requests.append((request.method, request.url))
+        path = request.url.split("https://aipol.example", 1)[-1].split("?", 1)[0]
+        if path == "/api/aipol/review/planning/catalog":
+            stage = request.url.split("stage=", 1)[-1] if "stage=" in request.url else "intro"
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({
+                    "catalog": {key: value for key, value in catalog.items() if key != "source_contract"},
+                    "current_stage_id": stage,
+                    "snapshot_hash": "f" * 64,
+                    "expires_at": None,
+                    "scope": "national-pension-only",
+                }),
+            )
+            return
+        asset = {
+            "/aipol-review.html": ("text/html", WEB / "aipol-review.html"),
+            "/aipol-review.js": ("text/javascript", WEB / "aipol-review.js"),
+            "/aipol-review.css": ("text/css", WEB / "aipol-review.css"),
+        }.get(path)
+        if asset:
+            content_type, filename = asset
+            route.fulfill(status=200, content_type=content_type, body=filename.read_text("utf-8"))
+            return
+        route.fulfill(status=404, body="not found")
+
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(headless=True)
+        context = browser.new_context(viewport={"width": 390, "height": 844})
+        context.route("https://aipol.example/**", route_request)
+        page = context.new_page()
+        page.goto(
+            f"https://aipol.example/aipol-review.html?mode=planning&experiment={EXPERIMENT_ID}"
+            "#review_token=stale-seat." + "x" * 43
+        )
+        page.locator("#review-content").filter(has_text="실험 안내").wait_for()
+        assert page.evaluate("location.hash") == ""
+        context.close()
+        browser.close()
+
+    assert requests
+    assert all(method == "GET" for method, _url in requests)
+    assert not [url for _method, url in requests if url.endswith("/review/exchange")]
+
+
 def test_professor_review_retries_transient_exchange_and_catalog_once():
     catalog = _catalog()
     attempts = {"exchange": 0, "expert-options": 0}

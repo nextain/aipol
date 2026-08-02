@@ -76,8 +76,6 @@ def test_stateful_sqlite_contract_is_single_replica_and_persistent() -> None:
     assert "{ name: 'EVENT_DB_PATH', value: '/data/event.db' }" in bicep
     assert "{ name: 'EVENT_ROSTER_PATH', value: '/data/roster.json' }" in bicep
     assert "{ name: 'EVENT_SQLITE_NOLOCK', value: 'true' }" in bicep
-    assert "EVENT_ADMIN_TOTP_OPTIONAL_USERS_JSON" in bicep
-    assert "adminTotpOptionalUsersJson" in bicep
     assert re.search(r"minReplicas:\s*1\b", bicep)
     assert re.search(r"maxReplicas:\s*1\b", bicep)
     assert '"--workers", "1"' in dockerfile

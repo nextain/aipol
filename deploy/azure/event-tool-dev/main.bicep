@@ -44,9 +44,6 @@ param eventAdminRolesSecretVersion string = ''
 @description('Pinned Key Vault version for event-admin-totp-secrets-json. Required only when deployApp=true.')
 param eventAdminTotpSecretVersion string = ''
 
-@description('Dev-only administrators allowed to omit TOTP during internal planning review.')
-param adminTotpOptionalUsersJson string = '[]'
-
 @description('Pinned Key Vault version for event-credential-secrets-json. Required when deployApp=true.')
 param eventCredentialKeysetVersion string = ''
 
@@ -477,7 +474,6 @@ var baseRuntimeEnvironment = [
   { name: 'EVENT_ADMIN_USERS_JSON', secretRef: 'event-admin-users-json' }
   { name: 'EVENT_ADMIN_ROLES_JSON', secretRef: 'event-admin-roles-json' }
   { name: 'EVENT_ADMIN_TOTP_SECRETS_JSON', secretRef: 'event-admin-totp-secrets-json' }
-  { name: 'EVENT_ADMIN_TOTP_OPTIONAL_USERS_JSON', value: adminTotpOptionalUsersJson }
   { name: 'EVENT_CREDENTIAL_SECRETS_JSON', secretRef: 'event-credential-secrets-json' }
   { name: 'EVENT_CREDENTIAL_ACTIVE_KEY_ID', value: eventCredentialActiveKeyId }
   { name: 'AIPOL_AUDIT_CHECKPOINT_MODE', value: 'azure_blob' }
