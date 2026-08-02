@@ -4,6 +4,8 @@
 !event-tool/requirements.txt
 !event-tool/web/
 !event-tool/web/**
+!event-tool/review-catalogs/
+!event-tool/review-catalogs/**
 !event-tool/instances/
 !event-tool/instances/**
 !policy_lab/

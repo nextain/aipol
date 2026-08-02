@@ -20,6 +20,10 @@
     "eventCredentialKeysetVersion": { "value": "" },
     "eventAuditCheckpointKeysetVersion": { "value": "" },
     "eventCredentialActiveKeyId": { "value": "" },
-    "eventAuditCheckpointActiveKeyId": { "value": "" }
+    "eventAuditCheckpointActiveKeyId": { "value": "" },
+    "reviewBuildCommit": { "value": "REPLACE_WITH_40_LOWERCASE_GIT_COMMIT" },
+    "reviewDbSeedHash": { "value": "REPLACE_WITH_64_LOWERCASE_DB_SEED_SHA256" },
+    "reviewDeploymentRevision": { "value": "aipol-session-prod--replace-release-id" },
+    "reviewPublicOrigin": { "value": "https://session.aipol.kaps.or.kr" }
   }
 }

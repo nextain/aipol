@@ -5,9 +5,11 @@ import base64
 import ipaddress
 import importlib
 import json
+import socket
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -49,10 +51,17 @@ ADMISSION_CREDENTIALS: dict[str, list[str]] = {}
 def aipol_app(tmp_path, monkeypatch):
     monkeypatch.setenv("EVENT_ENV", "development")
     monkeypatch.setenv("EVENT_DEMO_ENABLED", "false")
+    monkeypatch.setenv("AIPOL_TEST_ALLOW_SMALL_PUBLIC_COHORT", "true")
     monkeypatch.setenv("EVENT_DB_PATH", str(tmp_path / "event.db"))
     monkeypatch.setenv("EVENT_ROSTER_PATH", str(tmp_path / "roster.json"))
     monkeypatch.setenv("EVENT_SQLITE_NOLOCK", "false")
     monkeypatch.setenv("EVENT_SESSION_SECRET", "s" * 48)
+    monkeypatch.setenv("AIPOL_BUILD_COMMIT", "1" * 40)
+    monkeypatch.setenv("AIPOL_IMAGE_DIGEST", "sha256:" + "2" * 64)
+    monkeypatch.setenv("AIPOL_DB_INSTANCE_ID", "pytest-review-db")
+    monkeypatch.setenv("AIPOL_DB_SEED_HASH", "3" * 64)
+    monkeypatch.setenv("AIPOL_DEPLOYMENT_REVISION", "pytest-review-r1")
+    monkeypatch.setenv("AIPOL_PUBLIC_ORIGIN", "https://testserver")
     monkeypatch.setenv(
         "EVENT_ADMIN_USERS_JSON",
         json.dumps({"hong": PASSWORD, "editor": EDITOR_PASSWORD}),
@@ -91,7 +100,14 @@ def _admin_headers(client: TestClient, username: str = "hong") -> dict:
     return {"X-Admin-Token": response.json()["token"]}
 
 
-def _create(client: TestClient, headers: dict, *, capacity: int = 20, suffix: str = "") -> dict:
+def _create(
+    client: TestClient,
+    headers: dict,
+    *,
+    capacity: int = 20,
+    suffix: str = "",
+    procedure_version: str = "v1",
+) -> dict:
     editor_headers = _admin_headers(client, "editor")
     response = client.post(
         "/api/admin/aipol/experiments",
@@ -106,6 +122,7 @@ def _create(client: TestClient, headers: dict, *, capacity: int = 20, suffix: st
             "question_text": "세 정책안 중 현재 가장 선호하는 안을 선택해 주세요.",
             "option_set_version": "approved-options-v1",
             "capacity": capacity,
+            "procedure_version": procedure_version,
             "policy_options": [
                 {"policy_option_id": "A", "label": "검증용 A안", "policy_version": "approved-options-v1",
                  "source": "test-fixture", "approved_by": "test-reviewer", "lever_values": {"fixture": "A"}},
@@ -422,6 +439,13 @@ def _freeze(client: TestClient, headers: dict, experiment: dict, *, mismatch=Fal
 
 def _artifact(client, headers, experiment_id, kind, marker, *, fallback=False):
     if kind == "ai_opinion":
+        experiment = next(
+            row for row in client.get("/api/admin/aipol/experiments", headers=headers).json()
+            if row["id"] == experiment_id
+        )
+        content = {"title": marker, "body": "운영 승인된 AI 자료"}
+        if experiment["procedure_config"].get("version") == "aipol-pension-3-measurements-v3":
+            content["lever_values"] = {"fixture": "D"}
         response = client.post(
             f"/api/admin/aipol/experiments/{experiment_id}/ai-candidates",
             headers=headers,
@@ -429,7 +453,7 @@ def _artifact(client, headers, experiment_id, kind, marker, *, fallback=False):
                 "candidate_role": "fallback" if fallback else "primary",
                 "artifact_id": marker,
                 "artifact_version": "v1",
-                "content": {"title": marker, "body": "운영 승인된 AI 자료"},
+                "content": content,
                 "model": "fixture-model",
                 "deployment": "fixture-deployment",
                 "prompt_version": "fixture-prompt-v1",
@@ -515,6 +539,114 @@ def _post(client, path, token, revision, key, **extra):
     )
 
 
+def _release_result(client, headers, experiment_id, result_stage):
+    return client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/public-results/{result_stage}/release",
+        headers=headers,
+        json={
+            "cutoff_at": datetime.now(timezone.utc).isoformat(),
+            "rules_version": "aipol-public-results-v1",
+        },
+    )
+
+
+def _ack_result(client, experiment_id, token, result_stage, revision, key):
+    base = f"/api/aipol/experiments/{experiment_id}"
+    current = client.get(f"{base}/current", headers=_participant_headers(token))
+    assert current.status_code == 200, current.text
+    payload = current.json()
+    assert payload["stage"] == result_stage
+    assert payload.get("waiting_for_result_release") is not True
+    response = client.post(
+        f"{base}/public-results/{result_stage}/ack",
+        headers=_participant_headers(token),
+        json={
+            "content_hash": payload["public_result"]["content_hash"],
+            "expected_revision": revision,
+            "idempotency_key": key,
+        },
+    )
+    assert response.status_code == 200, response.text
+    replay = client.post(
+        f"{base}/public-results/{result_stage}/ack",
+        headers=_participant_headers(token),
+        json={
+            "content_hash": payload["public_result"]["content_hash"],
+            "expected_revision": revision,
+            "idempotency_key": key,
+        },
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == response.json()
+    return payload
+
+
+def _submit_research_profile(client, experiment_id, token, revision, key):
+    current = client.get(
+        f"/api/aipol/experiments/{experiment_id}/current",
+        headers=_participant_headers(token),
+    ).json()
+    contract = current["research_profile_contract"]
+    profile = {field: values[0] for field, values in contract["fields"].items()}
+    return client.post(
+        f"/api/aipol/experiments/{experiment_id}/research-profile",
+        headers=_participant_headers(token),
+        json={
+            "profile": profile,
+            "consented": True,
+            "consent_version": contract["rules_version"],
+            "expected_revision": revision,
+            "idempotency_key": key,
+        },
+    )
+
+
+def _approve_all_m2_reason_classifications(client, experiment_id):
+    editor_headers = _admin_headers(client, "editor")
+    approver_headers = _admin_headers(client)
+    pending = client.get(
+        f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-pending",
+        headers=editor_headers,
+    )
+    assert pending.status_code == 200, pending.text
+    approved = []
+    for index, item in enumerate(pending.json()):
+        draft = client.post(
+            f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-drafts",
+            headers=editor_headers,
+            json={
+                "participant_pseudonym": item["participant_pseudonym"],
+                "option_id": item["option_id"],
+                "reason_hash": item["reason_hash"],
+                "topic_codes": ["fiscal_sustainability"],
+            },
+        )
+        assert draft.status_code == 200, draft.text
+        if index == 0:
+            self_approval = client.post(
+                f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classifications",
+                headers=editor_headers,
+                json={
+                    "draft_id": draft.json()["draft_id"],
+                    "draft_hash": draft.json()["draft_hash"],
+                    "approval_id": f"self-classification-{experiment_id}",
+                },
+            )
+            assert self_approval.status_code == 403
+        approval = client.post(
+            f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classifications",
+            headers=approver_headers,
+            json={
+                "draft_id": draft.json()["draft_id"],
+                "draft_hash": draft.json()["draft_hash"],
+                "approval_id": f"classification-{experiment_id}-{index}",
+            },
+        )
+        assert approval.status_code == 200, approval.text
+        approved.append(approval.json())
+    return approved
+
+
 def _full_flow(client, experiment_id, token, *, choices=("A", "B", "C"), release=True):
     base = f"/api/aipol/experiments/{experiment_id}"
     assert _post(client, f"{base}/consent", token, 0, "consent", consent_version="consent-v1", affirmed=True).status_code == 200
@@ -561,6 +693,168 @@ def test_collection_is_closed_until_matching_freeze_manifest(aipol_app):
     mismatch = _freeze(client, headers, experiment, mismatch=True)
     assert mismatch.status_code == 423
     assert _register(client, experiment["id"]).status_code == 423
+
+
+def test_saved_v2_hydrates_without_v3_interstitials_or_structured_assessments(aipol_app):
+    _, client, _ = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(
+        client, headers, suffix="-saved-v2", procedure_version="v2"
+    )
+    _artifact(client, headers, experiment["id"], "personal_comparison", "saved-v2-personal")
+    assert _freeze(client, headers, experiment).status_code == 200
+    token = _register(client, experiment["id"]).json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+
+    consent = _post(
+        client, f"{base}/consent", token, 0, "saved-v2-consent",
+        consent_version="consent-v1", affirmed=True,
+    )
+    assert consent.json() == {"stage": "M1", "state_revision": 1}
+    assert _post(
+        client, f"{base}/measurements/M1", token, 1, "saved-v2-m1",
+        choice="A", reason="", confidence=3,
+    ).json()["stage"] == "E1a"
+    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert current["stage"] == "E1a"
+    assert "research_profile_required" not in current
+    assert _post(
+        client, f"{base}/exposures/E1a", token, 2, "saved-v2-e1a", read_ack=True,
+    ).json()["stage"] == "M2"
+    structured = _post(
+        client, f"{base}/measurements/M2", token, 3, "saved-v2-structured",
+        choice="B", stance="conditional", reason="조건 확인", confidence=3,
+        option_assessments={"A": {}, "B": {}, "C": {}},
+    )
+    assert structured.status_code == 400
+    submitted = _post(
+        client, f"{base}/measurements/M2", token, 3, "saved-v2-m2",
+        choice="B", stance="conditional", reason="조건 확인", confidence=3,
+    )
+    assert submitted.json() == {"stage": "E2", "state_revision": 4}
+    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert current["stage"] == "E2"
+    assert current.get("interstitial_stage") != "T6"
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    aggregate = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/m2-aggregate",
+        headers=headers,
+    )
+    assert aggregate.status_code == 200, aggregate.text
+    assert aggregate.json()["stance_counts"] == {
+        "accept": 0, "conditional": 1, "reject": 0,
+    }
+    released = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/release-e2",
+        headers=headers,
+        json={"candidate_role": "fallback", "selection_reason": "v2 재개 검증"},
+    )
+    assert released.status_code == 200, released.text
+    assert _post(
+        client, f"{base}/exposures/E2", token, 4, "saved-v2-e2", read_ack=True,
+    ).json()["stage"] == "E1b"
+    assert _post(
+        client, f"{base}/exposures/E1b", token, 5, "saved-v2-e1b", read_ack=True,
+    ).json()["stage"] == "A1"
+    selected = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+        json={
+            "sequence": 1, "statement": "v2 공개 의견",
+            "idempotency_key": "saved-v2-public-input",
+        },
+    )
+    assert selected.status_code == 200, selected.text
+    assert _post(
+        client, f"{base}/audience-discussion-ack", token, 6, "saved-v2-a1",
+    ).json()["stage"] == "E3"
+    audience = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+    ).json()
+    with sqlite3.connect(aipol_app[2]) as connection:
+        expert_hash = connection.execute(
+            "SELECT content_hash FROM aipol_artifacts WHERE experiment_id=? "
+            "AND kind='expert_explanation'", (experiment["id"],),
+        ).fetchone()[0]
+    final = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "final_ai_opinion", "artifact_id": "saved-v2-d-prime",
+            "artifact_version": "v2", "approval_id": "saved-v2-d-prime-approval",
+            "approved_by": "hong", "fallback_used": False,
+            "content": {
+                "title": "v2 D′", "body": "v2 기존 payload 재개",
+                "m2_aggregate_hash": released.json()["e2_m2_aggregate_hash"],
+                "expert_artifact_hash": expert_hash,
+                "public_audience_input_hash": audience["aggregate_hash"],
+                "model": "v2-model", "deployment": "v2-deployment",
+                "prompt_version": "v2-prompt",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "evidence_refs": ["v2-preserved"],
+            },
+        },
+    )
+    assert final.status_code == 200, final.text
+    assert _post(
+        client, f"{base}/exposures/E3", token, 7, "saved-v2-e3", read_ack=True,
+    ).json()["stage"] == "M3"
+    m3_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert [item["policy_option_id"] for item in m3_current["policy_options"]] == ["A", "B", "C"]
+    assert m3_current["secondary_evaluation"]["artifact_id"] == "saved-v2-d-prime"
+    completed = _post(
+        client, f"{base}/measurements/M3", token, 8, "saved-v2-m3",
+        choice="C", reason="v2 최종 선택", confidence=3,
+        secondary_evaluation={
+            "artifact_id": "saved-v2-d-prime", "acceptance": 4, "reason": "별도 평가",
+        },
+    )
+    assert completed.json()["stage"] == "complete"
+
+
+def test_real_public_result_privacy_blocks_small_cohort_and_suppresses_rare_cells(
+    aipol_app, monkeypatch,
+):
+    server, _, _ = aipol_app
+    snapshot = {
+        "stage": "T5", "cutoff": "2026-08-12T00:00:00Z", "rules_version": "v1",
+        "m1": {
+            "eligible_count": 10, "submitted_count": 10, "denominator": 10,
+            "abstention_count": 0, "attrition_count": 0,
+            "options": [
+                {"key": "A", "count": 8, "denominator": 10, "rate": 0.8},
+                {"key": "B", "count": 1, "denominator": 10, "rate": 0.1},
+                {"key": "C", "count": 1, "denominator": 10, "rate": 0.1},
+            ],
+        },
+        "m2_stances": [
+            {
+                "option_id": "C", "denominator": 10,
+                "abstention_count": 0, "attrition_count": 0,
+                "stances": [
+                    {"key": "accept", "count": 0, "rate": 0.0},
+                    {"key": "conditional", "count": 0, "rate": 0.0},
+                    {"key": "reject", "count": 10, "rate": 1.0},
+                ],
+            },
+        ],
+        "content_hash": "0" * 64,
+    }
+    monkeypatch.delenv("AIPOL_TEST_ALLOW_SMALL_PUBLIC_COHORT", raising=False)
+    with pytest.raises(server.aipol_store.PublicResultError, match="at least 10"):
+        server.aipol_store._privacy_protect_public_result(snapshot, cohort_size=1)
+    protected = server.aipol_store._privacy_protect_public_result(snapshot, cohort_size=10)
+    assert [row["count"] for row in protected["m1"]["options"]] == [None, None, None]
+    assert [row["count"] for row in protected["m2_stances"][0]["stances"]] == [None, None, None]
+    assert protected["m1"]["denominator"] is None
+    assert protected["m1"]["abstention_count"] is None
+    assert protected["privacy_rules"]["shared_release_unit"] is True
+    assert protected["privacy_rules"]["release_suppressed"] is True
+    assert protected["content_hash"] != snapshot["content_hash"]
 
 
 def test_registration_code_nonce_idempotency_capacity_and_concurrency(aipol_app):
@@ -1366,6 +1660,695 @@ def test_three_measurement_api_and_sqlite_ledger_are_append_only(aipol_app):
         assert restored.json()["stage"] == "complete"
 
 
+def test_v3_starts_with_policy_options_then_personal_comparison_and_structures_m2(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(client, headers, suffix="-v3-order", procedure_version="v3")
+    _artifact(client, headers, experiment["id"], "personal_comparison", "personal-v2-order")
+    assert _freeze(client, headers, experiment).status_code == 200
+    token = _register(client, experiment["id"]).json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+
+    consented = _post(
+        client, f"{base}/consent", token, 0, "v2-consent",
+        consent_version="consent-v1", affirmed=True,
+    )
+    assert consented.status_code == 200 and consented.json()["stage"] == "E0"
+    first = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert first["stage"] == "E0" and len(first["policy_options"]) == 3
+    assert _post(
+        client, f"{base}/policy-options-ack", token, 1, "v2-options",
+        content_hash=first["content_hash"],
+    ).json()["stage"] == "M1"
+
+    m1 = _post(
+        client, f"{base}/measurements/M1", token, 2, "v2-m1",
+        choice="A", reason="최초 선택", confidence=3,
+    )
+    assert m1.status_code == 200 and m1.json()["stage"] == "E1a"
+    waiting = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert waiting["stage"] == "T3" and waiting["waiting_for_result_release"] is True
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    injected = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-results/T3/release",
+        headers=headers,
+        json={
+            "cutoff_at": datetime.now(timezone.utc).isoformat(),
+            "rules_version": "aipol-public-results-v1",
+            "snapshot": {"m1": {"options": [{"key": "A", "count": 999}]}},
+        },
+    )
+    assert injected.status_code == 400
+    wrong_rules = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-results/T3/release",
+        headers=headers,
+        json={
+            "cutoff_at": datetime.now(timezone.utc).isoformat(),
+            "rules_version": "operator-invented-v99",
+        },
+    )
+    assert wrong_rules.status_code == 400
+    manipulated_cutoff = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-results/T3/release",
+        headers=headers,
+        json={
+            "cutoff_at": "2020-01-01T00:00:00Z",
+            "rules_version": "aipol-public-results-v1",
+        },
+    )
+    assert manipulated_cutoff.status_code == 400
+    assert _release_result(client, headers, experiment["id"], "T3").status_code == 200
+    t3 = _ack_result(client, experiment["id"], token, "T3", 3, "v2-t3-ack")
+    assert t3["public_result"]["m1"]["options"][0]["count"] is None
+    assert t3["public_result"]["privacy_rules"]["k"] == 5
+    assert _submit_research_profile(
+        client, experiment["id"], token, 3, "v2-profile"
+    ).status_code == 200
+    e1a_after_t3 = _post(
+        client, f"{base}/exposures/E1a", token, 3, "v2-e1a", read_ack=True,
+    )
+    assert e1a_after_t3.status_code == 200, e1a_after_t3.text
+    assert e1a_after_t3.json()["stage"] == "M2"
+    m2_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert m2_current["structured_option_assessment"] is True
+
+    missing = _post(
+        client, f"{base}/measurements/M2", token, 4, "v2-m2-missing",
+        choice="B", reason="", confidence=3,
+    )
+    assert missing.status_code == 400
+    conditional_without_reason = _post(
+        client, f"{base}/measurements/M2", token, 4, "v2-m2-empty",
+        choice="B", reason="", confidence=3,
+        option_assessments={
+            "A": {"stance": "reject", "reason": "국고 부담"},
+            "B": {"stance": "conditional", "reason": ""},
+            "C": {"stance": "reject", "reason": "운용 위험"},
+        },
+    )
+    assert conditional_without_reason.status_code == 400
+    assessments = {
+        "A": {"stance": "reject", "reason": "국고 부담"},
+        "B": {"stance": "conditional", "reason": "재정 조건 확인 필요"},
+        "C": {"stance": "reject", "reason": "운용 위험"},
+    }
+    oversized = _post(
+        client, f"{base}/measurements/M2", token, 4, "v2-m2-oversized",
+        choice="B", reason="", confidence=3,
+        option_assessments={**assessments, "C": {"stance": "reject", "reason": "x" * 2_001}},
+    )
+    assert oversized.status_code == 400
+    accepted = _post(
+        client, f"{base}/measurements/M2", token, 4, "v2-m2",
+        choice="B", reason="", confidence=3, option_assessments=assessments,
+    )
+    assert accepted.status_code == 200 and accepted.json()["stage"] == "E2"
+    assert _release_result(client, headers, experiment["id"], "T5").status_code == 200
+    _ack_result(client, experiment["id"], token, "T5", 5, "v2-t5-ack")
+    assert client.get(
+        f"{base}/current", headers=_participant_headers(token)
+    ).json()["stage"] == "E2"
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    aggregate = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/m2-aggregate",
+        headers=headers,
+    ).json()
+    assert aggregate["stance_counts"] == {"accept": 0, "conditional": 1, "reject": 0}
+    aggregate_json = json.dumps(aggregate, ensure_ascii=False)
+    assert all(value["reason"] not in aggregate_json for value in assessments.values())
+
+    with sqlite3.connect(db_path) as connection:
+        pseudonym = connection.execute(
+            "SELECT pseudonym FROM aipol_participants WHERE experiment_id=?",
+            (experiment["id"],),
+        ).fetchone()[0]
+        rows = connection.execute(
+            "SELECT measurement_id,stance,preceding_exposure_hash "
+            "FROM aipol_measurements ORDER BY state_revision"
+        ).fetchall()
+        assessment_rows = connection.execute(
+            "SELECT option_id,stance,reason FROM aipol_m2_option_assessments ORDER BY option_id"
+        ).fetchall()
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute("UPDATE aipol_m2_option_assessments SET reason='changed'")
+    assert rows[0][0] == "M1" and rows[0][1] is None and len(rows[0][2]) == 64
+    assert rows[1][:2] == ("M2", "conditional")
+    assert assessment_rows == [
+        (option_id, value["stance"], value["reason"])
+        for option_id, value in assessments.items()
+    ]
+    assert aggregate["response_fingerprints"] == [content_hash({
+        "participant": pseudonym,
+        "choice": "B",
+        "option_assessments": [
+            {
+                "option_id": option_id,
+                "stance": value["stance"],
+                "reason_hash": content_hash(value["reason"]),
+            }
+            for option_id, value in assessments.items()
+        ],
+    })]
+
+
+def test_v3_profile_decline_keeps_participation_and_excludes_reason_classification(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(client, headers, suffix="-v3-decline", procedure_version="v3")
+    _artifact(client, headers, experiment["id"], "personal_comparison", "personal-v2-decline")
+    assert _freeze(client, headers, experiment).status_code == 200
+    token = _register(client, experiment["id"]).json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+
+    assert _post(
+        client, f"{base}/consent", token, 0, "decline-consent",
+        consent_version="consent-v1", affirmed=True,
+    ).json()["stage"] == "E0"
+    e0 = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert _post(
+        client, f"{base}/policy-options-ack", token, 1, "decline-e0",
+        content_hash=e0["content_hash"],
+    ).json()["stage"] == "M1"
+    assert _post(
+        client, f"{base}/measurements/M1", token, 2, "decline-m1",
+        choice="A", reason="", confidence=3,
+    ).json()["stage"] == "E1a"
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    assert _release_result(client, headers, experiment["id"], "T3").status_code == 200
+    _ack_result(client, experiment["id"], token, "T3", 3, "decline-t3")
+    profile_screen = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert profile_screen["research_profile_required"] is True
+    declined = _post(
+        client, f"{base}/research-profile", token, 3, "decline-profile",
+        profile=None, consented=False,
+        consent_version=profile_screen["research_profile_contract"]["rules_version"],
+    )
+    assert declined.status_code == 200
+    assert declined.json()["research_profile_decision"] == "declined"
+    exposure = _post(client, f"{base}/exposures/E1a", token, 3, "decline-e1a", read_ack=True)
+    assert exposure.status_code == 200 and exposure.json()["stage"] == "M2"
+    assert _post(
+        client, f"{base}/measurements/M2", token, 4, "decline-m2",
+        choice="A", reason="", confidence=3,
+        option_assessments={
+            "A": {"stance": "accept", "reason": "선택 사유"},
+            "B": {"stance": "reject", "reason": "부담"},
+            "C": {"stance": "reject", "reason": "위험"},
+        },
+    ).status_code == 200
+    pending = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/m2-reason-classification-pending",
+        headers=_admin_headers(client, "editor"),
+    )
+    assert pending.status_code == 200 and pending.json() == []
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT decision,age_band_id,monthly_personal_income_band_id,"
+            "expected_contribution_years_band_id,expected_retirement_age_band_id "
+            "FROM aipol_research_profiles"
+        ).fetchone()
+    assert row == ("declined", None, None, None, None)
+
+
+def test_v3_uses_facilitator_selected_public_input_and_distinct_d_prime_through_restart(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(client, headers, suffix="-v3-complete", procedure_version="v3")
+    _artifact(client, headers, experiment["id"], "personal_comparison", "personal-v2-complete")
+    assert _freeze(client, headers, experiment).status_code == 200
+    token = _register(client, experiment["id"]).json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+
+    assert _post(
+        client, f"{base}/consent", token, 0, "v2c-consent",
+        consent_version="consent-v1", affirmed=True,
+    ).json()["stage"] == "E0"
+    options = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert _post(
+        client, f"{base}/policy-options-ack", token, 1, "v2c-options",
+        content_hash=options["content_hash"],
+    ).json()["stage"] == "M1"
+    assert _post(
+        client, f"{base}/measurements/M1", token, 2, "v2c-m1",
+        choice="A", reason="", confidence=3,
+    ).json()["stage"] == "E1a"
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    assert _release_result(client, headers, experiment["id"], "T3").status_code == 200
+    _ack_result(client, experiment["id"], token, "T3", 3, "v2c-t3-ack")
+    assert _submit_research_profile(
+        client, experiment["id"], token, 3, "v2c-profile"
+    ).status_code == 200
+    e1a_after_t3 = _post(
+        client, f"{base}/exposures/E1a", token, 3, "v2c-e1a", read_ack=True,
+    )
+    assert e1a_after_t3.status_code == 200, e1a_after_t3.text
+    assert e1a_after_t3.json()["stage"] == "M2"
+    assert _post(
+        client, f"{base}/measurements/M2", token, 4, "v2c-m2",
+        choice="B", reason="", confidence=4,
+        option_assessments={
+            "A": {"stance": "reject", "reason": "국고 부담"},
+            "B": {"stance": "conditional", "reason": "조건을 확인해야 함"},
+            "C": {"stance": "reject", "reason": "운용 위험"},
+        },
+    ).json()["stage"] == "E2"
+    assert _release_result(client, headers, experiment["id"], "T5").status_code == 200
+    _ack_result(client, experiment["id"], token, "T5", 5, "v2c-t5-ack")
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    assert len(_approve_all_m2_reason_classifications(client, experiment["id"])) == 3
+    release = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/release-e2",
+        headers=headers,
+        json={"candidate_role": "fallback", "selection_reason": "v2 검토용 D 선택"},
+    )
+    assert release.status_code == 200, release.text
+    released = release.json()
+    t6 = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert t6["stage"] == "E2" and t6["interstitial_stage"] == "T6"
+    assert "국고 부담" not in json.dumps(t6, ensure_ascii=False)
+    assert t6["result_snapshot"]["analysis_narrative"]["analysis_type"] == (
+        "deterministic-approved-topic-projection"
+    )
+    assert "운영 승인된 AI 자료" not in t6["result_snapshot"]["analysis_narrative"]["text"]
+    assert t6["result_snapshot"]["d_candidate_provenance"]["fallback_used"] is True
+    assert _post(
+        client, f"{base}/t6-ack", token, 5, "v2c-t6-ack",
+        content_hash=t6["result_snapshot"]["content_hash"],
+    ).status_code == 200
+    too_early_public_input = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+        json={
+            "sequence": 1,
+            "statement": "아직 공개 청중 의견 절차 전입니다",
+            "idempotency_key": "v2c-too-early-public-input",
+        },
+    )
+    assert too_early_public_input.status_code == 409
+    assert _post(
+        client, f"{base}/exposures/E2", token, 5, "v2c-e2", read_ack=True,
+    ).json()["stage"] == "E1b"
+    assert _post(
+        client, f"{base}/exposures/E1b", token, 6, "v2c-e1b", read_ack=True,
+    ).json()["stage"] == "A1"
+    a1_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert a1_current["public_audience_discussion"] == {
+        "participant_text_collection": False,
+        "facilitator_selected_input": True,
+        "acknowledgement_required": True,
+    }
+    empty_public_inputs = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+    ).json()
+    assert empty_public_inputs["input_count"] == 0
+    assert empty_public_inputs["pending_count"] == 1
+    with sqlite3.connect(db_path) as connection:
+        expert_hash = connection.execute(
+            "SELECT content_hash FROM aipol_artifacts WHERE experiment_id=? AND kind='expert_explanation'",
+            (experiment["id"],),
+        ).fetchone()[0]
+        d_artifact_id, d_content_hash = connection.execute(
+            "SELECT c.artifact_id,c.content_hash FROM aipol_ai_candidates c "
+            "JOIN aipol_experiments e ON e.e2_selected_candidate_id=c.id WHERE e.id=?",
+            (experiment["id"],),
+        ).fetchone()
+    premature_d_prime = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "final_ai_opinion",
+            "artifact_id": "premature-d-prime-v2",
+            "artifact_version": "v1",
+            "content": {
+                "title": "조기 D′",
+                "body": "공개 청중 의견 절차 완료 전에는 차단되어야 합니다.",
+                "m2_aggregate_hash": released["e2_m2_aggregate_hash"],
+                "expert_artifact_hash": expert_hash,
+                "public_audience_input_hash": empty_public_inputs["aggregate_hash"],
+                "model": "fixture-revision-model",
+                "deployment": "fixture-revision-deployment",
+                "prompt_version": "fixture-d-prime-v1",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "evidence_refs": ["premature"],
+            },
+            "approval_id": f"approval-{experiment['id']}-premature-d-prime",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert premature_d_prime.status_code == 400
+    assert client.post(
+        f"{base}/audience-discussion-ack",
+        headers=_participant_headers(token),
+        json={
+            "response": "참가자 개인 텍스트는 받으면 안 됨",
+            "expected_revision": 7,
+            "idempotency_key": "v2c-invalid-private-text",
+        },
+    ).status_code == 400
+    removed_private_endpoint = client.post(
+        f"{base}/audience-feedback",
+        headers=_participant_headers(token),
+        json={
+            "response": "예전 비공개 입력 경로",
+            "abstained": False,
+            "expected_revision": 7,
+            "idempotency_key": "v2c-removed-private-endpoint",
+        },
+    )
+    assert removed_private_endpoint.status_code in {404, 405}
+
+    public_statement = "재정 조건을 더 명확히 밝혀야 합니다"
+    selected = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+        json={
+            "sequence": 1,
+            "statement": public_statement,
+            "idempotency_key": "v2c-public-input-1",
+        },
+    )
+    assert selected.status_code == 200, selected.text
+    discussion_ack = _post(
+        client, f"{base}/audience-discussion-ack", token, 7, "v2c-discussion-ack",
+    )
+    assert discussion_ack.status_code == 200 and discussion_ack.json()["stage"] == "E3"
+    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert current["waiting_for_e3_release"] is True
+    assert public_statement not in json.dumps(current, ensure_ascii=False)
+
+    aggregate_response = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/public-audience-inputs",
+        headers=headers,
+    )
+    assert aggregate_response.status_code == 200
+    aggregate = aggregate_response.json()
+    assert aggregate["input_count"] == 1
+    assert aggregate["inputs"][0]["statement"] == public_statement
+    final_content = {
+        "title": "수정 의견 D′",
+        "body": "M2, 전문가 논평, 청중 의견을 반영한 수정 의견입니다.",
+        "lever_values": {"fixture": "D_PRIME"},
+        "d_artifact_id": d_artifact_id,
+        "d_content_hash": d_content_hash,
+        "m2_aggregate_hash": released["e2_m2_aggregate_hash"],
+        "expert_artifact_hash": expert_hash,
+        "public_audience_input_hash": aggregate["aggregate_hash"],
+        "model": "fixture-revision-model",
+        "deployment": "fixture-revision-deployment",
+        "prompt_version": "fixture-d-prime-v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "evidence_refs": ["m2-finalization", "expert-approved", "audience-finalized"],
+    }
+    stale_content = dict(final_content)
+    stale_content["generated_at"] = aggregate["inputs"][0]["selected_at"]
+    stale = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "final_ai_opinion",
+            "artifact_id": "stale-d-prime-v3",
+            "artifact_version": "v1",
+            "content": stale_content,
+            "approval_id": f"approval-{experiment['id']}-stale-d-prime",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert stale.status_code == 400, stale.text
+    assert "모든 실제 참가자" in stale.text
+    with sqlite3.connect(db_path) as connection:
+        latest_barrier = connection.execute(
+            "SELECT MAX(barrier_at) FROM ("
+            "SELECT e.completed_at AS barrier_at FROM aipol_exposures e "
+            "JOIN aipol_participants p ON p.id=e.participant_id "
+            "WHERE p.experiment_id=? AND p.participant_type='real' AND e.stage='E1b' "
+            "UNION ALL SELECT a.acknowledged_at FROM aipol_audience_discussion_acks a "
+            "JOIN aipol_participants p ON p.id=a.participant_id "
+            "WHERE p.experiment_id=? AND p.participant_type='real' "
+            "UNION ALL SELECT selected_at FROM aipol_public_audience_inputs WHERE experiment_id=?"
+            ")",
+            (experiment["id"], experiment["id"], experiment["id"]),
+        ).fetchone()[0]
+    equal_barrier_content = dict(final_content)
+    equal_barrier_content["generated_at"] = latest_barrier
+    equal_barrier = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "final_ai_opinion",
+            "artifact_id": "equal-barrier-d-prime-v3",
+            "artifact_version": "v1",
+            "content": equal_barrier_content,
+            "approval_id": f"approval-{experiment['id']}-equal-barrier-d-prime",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert equal_barrier.status_code == 400, equal_barrier.text
+    assert "모든 실제 참가자" in equal_barrier.text
+    for index, (field, bad_value) in enumerate((
+        ("d_artifact_id", None),
+        ("d_artifact_id", "wrong-d-artifact-id"),
+        ("d_content_hash", None),
+        ("d_content_hash", "0" * 64),
+    )):
+        invalid_content = dict(final_content)
+        if bad_value is None:
+            invalid_content.pop(field)
+        else:
+            invalid_content[field] = bad_value
+        rejected = client.post(
+            f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+            headers=headers,
+            json={
+                "kind": "final_ai_opinion",
+                "artifact_id": f"invalid-d-prime-binding-{index}",
+                "artifact_version": "v1",
+                "content": invalid_content,
+                "approval_id": f"approval-{experiment['id']}-invalid-d-prime-{index}",
+                "approved_by": "hong",
+                "fallback_used": False,
+            },
+        )
+        assert rejected.status_code == 400, rejected.text
+        assert "직전에 공개된 D" in rejected.json()["detail"]
+
+    final = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "final_ai_opinion",
+            "artifact_id": "d-prime-v2",
+            "artifact_version": "v1",
+            "content": final_content,
+            "approval_id": f"approval-{experiment['id']}-d-prime-v2",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert final.status_code == 200, final.text
+    assert final.json()["artifact_id"] == "d-prime-v2"
+    assert final.json()["content_hash"] != released["e2_selected_candidate_id"]
+
+    e3 = _post(
+        client, f"{base}/exposures/E3", token, 8, "v2c-e3", read_ack=True,
+    )
+    assert e3.status_code == 200, e3.text
+    assert e3.json()["stage"] == "M3"
+    m3_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    d_prime = next(option for option in m3_current["policy_options"] if option["policy_option_id"] == "D_PRIME")
+    assert d_prime["lever_values"] == {"fixture": "D_PRIME"}
+    assert d_prime["artifact_id"] == "d-prime-v2"
+    assert d_prime["content_hash"] == final.json()["content_hash"]
+    oversized = _post(
+        client, f"{base}/measurements/M3", token, 9, "v2c-m3-oversized",
+        choice="D_PRIME", reason="", confidence=4,
+        option_assessments={
+            "A": {"stance": "reject", "reason": "x" * 2_001},
+            "B": {"stance": "reject", "reason": "수급 시점"},
+            "C": {"stance": "reject", "reason": "운용 위험"},
+            "D_PRIME": {"stance": "accept", "reason": "균형안"},
+        },
+    )
+    assert oversized.status_code == 400
+    completed = _post(
+        client, f"{base}/measurements/M3", token, 9, "v2c-m3",
+        choice="D_PRIME", reason="최종 선택", confidence=4,
+        option_assessments={
+            "A": {"stance": "reject", "reason": "국고 부담"},
+            "B": {"stance": "reject", "reason": "수급 시점"},
+            "C": {"stance": "reject", "reason": "운용 위험"},
+            "D_PRIME": {"stance": "accept", "reason": "균형안"},
+        },
+    )
+    assert completed.status_code == 200 and completed.json()["stage"] == "complete"
+    assert _release_result(client, headers, experiment["id"], "T10").status_code == 200
+    t10 = _ack_result(client, experiment["id"], token, "T10", 10, "v2c-t10-ack")
+    assert [row["key"] for row in t10["public_result"]["m3"]["options"]] == [
+        "A", "B", "C", "D_PRIME"
+    ]
+    assert client.get(f"{base}/current", headers=_participant_headers(token)).json()["stage"] == "complete"
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM aipol_audience_discussion_acks"
+        ).fetchone()[0] == 1
+
+
+        assert connection.execute(
+            "SELECT statement FROM aipol_public_audience_inputs"
+        ).fetchone()[0] == public_statement
+        assert connection.execute("SELECT COUNT(*) FROM aipol_v2_exposures").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(DISTINCT artifact_id) FROM aipol_artifacts "
+            "WHERE experiment_id=? AND kind='final_ai_opinion'",
+            (experiment["id"],),
+        ).fetchone()[0] == 1
+        d_id = connection.execute(
+            "SELECT c.artifact_id FROM aipol_ai_candidates c JOIN aipol_experiments e "
+            "ON e.e2_selected_candidate_id=c.id WHERE e.id=?", (experiment["id"],),
+        ).fetchone()[0]
+        d_prime_id = connection.execute(
+            "SELECT artifact_id FROM aipol_artifacts WHERE experiment_id=? "
+            "AND kind='final_ai_opinion'", (experiment["id"],),
+        ).fetchone()[0]
+        assert d_id != d_prime_id
+
+    for module_name in MODULES:
+        sys.modules.pop(module_name, None)
+    restarted = importlib.import_module("server")
+    with TestClient(restarted.app) as restarted_client:
+        restored = restarted_client.get(
+            f"{base}/current", headers=_participant_headers(token)
+        )
+        assert restored.status_code == 200
+        assert restored.json()["stage"] == "complete"
+
+
+def test_v3_synthetic_review_uses_explicit_synthetic_d_prime_without_real_aggregates(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(client, headers, suffix="-v3-synthetic", procedure_version="v3")
+    _artifact(client, headers, experiment["id"], "personal_comparison", "personal-v2-synthetic")
+    expert = _artifact(client, headers, experiment["id"], "expert_explanation", "expert-v2-synthetic")
+    _artifact(client, headers, experiment["id"], "ai_opinion", "ai-v2-synthetic", fallback=True)
+    frozen = client.put(
+        f"/api/admin/aipol/experiments/{experiment['id']}/freeze", headers=headers,
+        json={
+            "manifest_id": "freeze-v2-synthetic",
+            "experiment_version": experiment["experiment_version"],
+            "option_set_version": experiment["measurement_spec"]["option_set_version"],
+            "measurement_spec_hash": experiment["measurement_spec_hash"],
+            "status": "frozen", "collection_enabled": False, "approvals": [],
+        },
+    )
+    assert frozen.status_code == 200, frozen.text
+    created = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/synthetic-participants",
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    token = created.json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+    assert _post(client, f"{base}/consent", token, 0, "sv2-consent", consent_version="consent-v1", affirmed=True).json()["stage"] == "E0"
+    options = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert _post(client, f"{base}/policy-options-ack", token, 1, "sv2-options", content_hash=options["content_hash"]).json()["stage"] == "M1"
+    assert _post(client, f"{base}/measurements/M1", token, 2, "sv2-m1", choice="A", reason="", confidence=3).json()["stage"] == "E1a"
+    _ack_result(client, experiment["id"], token, "T3", 3, "sv2-t3-ack")
+    assert client.post(
+        f"{base}/exposures/E1a/open", headers=_participant_headers(token),
+        json={"expected_revision": 3, "idempotency_key": "sv2-e1a-open"},
+    ).status_code == 200
+    e1a = client.post(
+        f"{base}/exposures/E1a", headers=_participant_headers(token),
+        json={"expected_revision": 3, "idempotency_key": "sv2-e1a", "read_ack": True},
+    )
+    assert e1a.status_code == 200 and e1a.json()["stage"] == "M2"
+    assert _post(
+        client, f"{base}/measurements/M2", token, 4, "sv2-m2",
+        choice="B", reason="", confidence=3,
+        option_assessments={
+            "A": {"stance": "reject", "reason": "다른 안 선택"},
+            "B": {"stance": "accept", "reason": "선택"},
+            "C": {"stance": "reject", "reason": "다른 안 선택"},
+        },
+    ).json()["stage"] == "E2"
+    _ack_result(client, experiment["id"], token, "T5", 5, "sv2-t5-ack")
+    assert _post(client, f"{base}/exposures/E2", token, 5, "sv2-e2", read_ack=True).json()["stage"] == "E1b"
+    assert _post(client, f"{base}/exposures/E1b", token, 6, "sv2-e1b", read_ack=True).json()["stage"] == "A1"
+    assert _post(client, f"{base}/audience-discussion-ack", token, 7, "sv2-a1").json()["stage"] == "E3"
+    with sqlite3.connect(db_path) as connection:
+        d_artifact_id, d_content_hash = connection.execute(
+            "SELECT artifact_id,content_hash FROM aipol_ai_candidates "
+            "WHERE experiment_id=? AND candidate_role='fallback'",
+            (experiment["id"],),
+        ).fetchone()
+    final = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts", headers=headers,
+        json={
+            "kind": "final_ai_opinion", "artifact_id": "d-prime-v2-synthetic",
+            "artifact_version": "v1", "approval_id": f"approval-{experiment['id']}-d-prime-synthetic",
+            "approved_by": "hong", "fallback_used": False,
+            "content": {
+                "title": "합성 검토용 수정 의견 D′",
+                "body": "실제 참가자 집계와 분리된 화면 흐름 검토용 자료입니다.",
+                "lever_values": {"fixture": "D_PRIME"},
+                "d_artifact_id": d_artifact_id,
+                "d_content_hash": d_content_hash,
+                "synthetic_review": True, "m2_aggregate_hash": None,
+                "public_audience_input_hash": None,
+                "expert_artifact_hash": expert["content_hash"],
+                "model": "synthetic-review-fixture", "deployment": "test-only",
+                "prompt_version": "synthetic-review-v1",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "evidence_refs": ["synthetic-review-only"],
+            },
+        },
+    )
+    assert final.status_code == 200, final.text
+    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert current["artifact"]["artifact_id"] == "d-prime-v2-synthetic"
+    assert current["artifact"]["content"]["synthetic_review"] is True
+    assert _post(client, f"{base}/exposures/E3", token, 8, "sv2-e3", read_ack=True).json()["stage"] == "M3"
+    m3_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    d_prime = next(option for option in m3_current["policy_options"] if option["policy_option_id"] == "D_PRIME")
+    assert d_prime["lever_values"] == {"fixture": "D_PRIME"}
+    assert d_prime["artifact_id"] == "d-prime-v2-synthetic"
+    complete = _post(
+        client, f"{base}/measurements/M3", token, 9, "sv2-m3",
+        choice="D_PRIME", reason="", confidence=4,
+        option_assessments={
+            "A": {"stance": "reject", "reason": "합성 검토 A"},
+            "B": {"stance": "reject", "reason": "합성 검토 B"},
+            "C": {"stance": "reject", "reason": "합성 검토 C"},
+            "D_PRIME": {"stance": "accept", "reason": "합성 검토 D′"},
+        },
+    )
+    assert complete.status_code == 200 and complete.json()["stage"] == "complete"
+    t10 = _ack_result(client, experiment["id"], token, "T10", 10, "sv2-t10-ack")
+    public_json = json.dumps(t10["public_result"], ensure_ascii=False).lower()
+    assert "participant_key" not in public_json and '"reason"' not in public_json
+    assert t10["public_result"]["m3"]["options"][3]["count"] == 1
+    assert client.get(f"{base}/current", headers=_participant_headers(token)).json()["stage"] == "complete"
+
+
 def test_no_skip_idempotency_conflict_and_stale_revision(aipol_app):
     _, client, _ = aipol_app
     headers = _admin_headers(client)
@@ -2168,11 +3151,14 @@ def test_participant_ui_parses_flattened_jws_and_production_verifier_accepts_it(
 
     def parse_in_participant_ui(value: str) -> dict:
         result = subprocess.run(
-            [
-                "node", "-e",
-                "const p=require(process.argv[1]);process.stdout.write(JSON.stringify(p.parse(process.argv[2])));",
-                str(parser), value,
-            ],
+                [
+                    "node", "-e",
+                    "const fs=require('fs'),vm=require('vm'),m={exports:{}};"
+                    "vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),"
+                    "{module:m,exports:m.exports,globalThis:{},Buffer,URL,TextEncoder});"
+                    "process.stdout.write(JSON.stringify(m.exports.parse(process.argv[2])));",
+                    str(parser), value,
+                ],
             check=True, capture_output=True, text=True,
         )
         return json.loads(result.stdout)
@@ -2240,3 +3226,552 @@ def test_participant_ui_parses_flattened_jws_and_production_verifier_accepts_it(
             check=False,
         )
         assert result.returncode == 7
+
+
+def _professor_review_catalog() -> dict:
+    return json.loads(
+        (EVENT_TOOL / "review-catalogs" / "pension-professor-review-v1.json")
+        .read_text("utf-8")
+    )
+
+
+def _prepare_professor_review(client: TestClient, headers: dict, *, suffix: str) -> tuple[dict, dict]:
+    experiment = _create(client, headers, suffix=suffix, procedure_version="v3")
+    _canonical_documents(client, headers, experiment["id"])
+    _artifact(client, headers, experiment["id"], "personal_comparison", f"personal-review{suffix}")
+    catalog = _professor_review_catalog()
+    response = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "review_catalog",
+            "artifact_id": f"professor-review{suffix}",
+            "artifact_version": "v1",
+            "content": catalog,
+            "approval_id": f"approval-{experiment['id']}-professor-review",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    freeze_body = _freeze_body(client, headers, experiment)
+    freeze_body["collection_enabled"] = False
+    _artifact(client, headers, experiment["id"], "expert_explanation", "expert")
+    _artifact(client, headers, experiment["id"], "ai_opinion", "ai-fallback", fallback=True)
+    frozen = client.put(
+        f"/api/admin/aipol/experiments/{experiment['id']}/freeze",
+        headers=headers,
+        json=freeze_body,
+    )
+    assert frozen.status_code == 200, frozen.text
+    assert frozen.json()["registration_open"] is False
+    return experiment, catalog
+
+
+def _actual_experiment_counts(db_path: Path, experiment_id: str) -> dict[str, int]:
+    table_names = (
+        "aipol_participants", "aipol_measurements", "aipol_exposures",
+        "aipol_calculator_receipts", "aipol_admission_claims",
+    )
+    with sqlite3.connect(db_path) as connection:
+        available = {
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        return {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in table_names if table in available
+        }
+
+
+def _cookie_header(response, name: str = "aipol_review_session") -> dict[str, str]:
+    value = response.cookies.get(name)
+    assert value
+    return {"Cookie": f"{name}={value}"}
+
+
+def _review_exchange_json(experiment_id: str, review_token: str, nonce: str = "n" * 43) -> dict:
+    return {
+        "experiment_id": experiment_id,
+        "review_token": review_token,
+        "exchange_nonce": nonce,
+    }
+
+
+def test_professor_review_seat_set_exchange_catalog_revoke_is_read_only(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment, catalog = _prepare_professor_review(client, headers, suffix="-professor-review")
+    before = _actual_experiment_counts(db_path, experiment["id"])
+
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-1", "luke-review"],
+            "expires_in_seconds": 3600,
+            "idempotency_key": "professor-review-seat-set-1",
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    payload = issued.json()
+    assert len(payload["seats"]) == 2
+    assert len({seat["review_token"] for seat in payload["seats"]}) == 2
+    assert {seat["snapshot_hash"] for seat in payload["seats"]} == {payload["snapshot_hash"]}
+    for seat in payload["seats"]:
+        secret = seat["review_token"].split(".", 1)[-1]
+        decoded = base64.urlsafe_b64decode(secret + "=" * (-len(secret) % 4))
+        assert len(decoded) >= 32
+
+    sessions = []
+    public_catalog = {key: value for key, value in catalog.items() if key != "source_contract"}
+    for seat in payload["seats"]:
+        exchange = client.post(
+            "/api/aipol/review/exchange",
+            headers={"Origin": "https://testserver"},
+            json=_review_exchange_json(experiment["id"], seat["review_token"]),
+        )
+        assert exchange.status_code == 204, exchange.text
+        set_cookie = exchange.headers["set-cookie"].lower()
+        assert "secure" in set_cookie and "httponly" in set_cookie
+        assert "samesite=strict" in set_cookie
+        assert seat["review_token"] not in exchange.text + set_cookie
+        sessions.append(_cookie_header(exchange))
+
+    for session in sessions:
+        for stage in catalog["stages"]:
+            response = client.get(
+                f"/api/aipol/review/{experiment['id']}/catalog",
+                headers=session,
+                params={"stage": stage["id"]},
+            )
+            assert response.status_code == 200, response.text
+            assert response.headers["cache-control"] == "no-store"
+            body = response.json()
+            assert body["current_stage_id"] == stage["id"]
+            assert body["snapshot_hash"] == payload["snapshot_hash"]
+            assert body["catalog"] == public_catalog
+            assert "source_contract" not in response.text
+            assert body["scope"] == "national-pension-only"
+            assert body["expires_at"]
+            assert all(seat["review_token"] not in response.text for seat in payload["seats"])
+
+    assert _actual_experiment_counts(db_path, experiment["id"]) == before
+    mutation = client.post(
+        f"/api/aipol/experiments/{experiment['id']}/participants",
+        headers=sessions[0],
+        json={"admission_code": "Wrong-Review-Seat-123!", "registration_nonce": "n" * 16, "idempotency_key": "review-mutation"},
+    )
+    assert mutation.status_code == 423
+
+    revoked = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets/{payload['review_id']}/revoke",
+        headers=headers,
+        json={"logical_seat_id": "professor-1", "reason": "reissue test"},
+    )
+    assert revoked.status_code == 200, revoked.text
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=sessions[0]
+    ).status_code == 401
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=sessions[1]
+    ).status_code == 200
+
+
+def test_professor_review_tokens_are_hash_only_and_fail_closed(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-review-security")
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-1"], "expires_in_seconds": 60,
+            "idempotency_key": "professor-review-security-1",
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    token = issued.json()["seats"][0]["review_token"]
+
+    for candidate_id, candidate_token in (
+        ("wrong-experiment", token),
+        (experiment["id"], "malformed-token"),
+    ):
+        denied = client.post(
+            "/api/aipol/review/exchange",
+            headers={"Origin": "https://testserver"},
+            json=_review_exchange_json(candidate_id, candidate_token),
+        )
+        assert denied.status_code == 401
+        assert token not in denied.text
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(aipol_review_seats)")
+        }
+        assert "token_hash" in columns and "review_token" not in columns
+        serialized = json.dumps(connection.execute(
+            "SELECT * FROM aipol_review_seats"
+        ).fetchall())
+        assert token not in serialized
+
+
+def test_professor_review_exchange_recovers_commit_after_response_loss(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-response-loss")
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-response-loss"],
+            "expires_in_seconds": 3600,
+            "idempotency_key": "professor-review-response-loss",
+        },
+    ).json()
+    review_token = issued["seats"][0]["review_token"]
+    request = _review_exchange_json(experiment["id"], review_token, "r" * 43)
+
+    first = client.post(
+        "/api/aipol/review/exchange", headers={"Origin": "https://testserver"}, json=request,
+    )
+    assert first.status_code == 204
+    # Model a lost response by deliberately discarding the first cookie. The
+    # browser repeats the same nonce and must recover exactly the committed session.
+    recovered = client.post(
+        "/api/aipol/review/exchange", headers={"Origin": "https://testserver"}, json=request,
+    )
+    assert recovered.status_code == 204
+    assert _cookie_header(recovered) == _cookie_header(first)
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=_cookie_header(recovered)
+    ).status_code == 200
+
+    stolen_retry = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://testserver"},
+        json=_review_exchange_json(experiment["id"], review_token, "s" * 43),
+    )
+    assert stolen_retry.status_code == 401
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM aipol_review_sessions").fetchone()[0] == 1
+        row = connection.execute(
+            "SELECT token_hash,exchange_nonce_hash FROM aipol_review_sessions"
+        ).fetchone()
+        assert all(len(value) == 64 for value in row)
+        assert review_token not in json.dumps(row)
+
+
+def test_professor_review_static_entry_is_never_cached(aipol_app):
+    _, client, _ = aipol_app
+    for path in ("/aipol-review.html", "/aipol-review.js", "/aipol-review.css"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
+
+
+def test_professor_review_actual_https_browser_uses_real_cookie_and_isolates_seats(
+    aipol_app, monkeypatch,
+):
+    from playwright.sync_api import sync_playwright
+    import uvicorn
+
+    server_module, client, db_path = aipol_app
+    with socket.socket() as handle:
+        handle.bind(("127.0.0.1", 0))
+        port = int(handle.getsockname()[1])
+    base = f"https://localhost:{port}"
+    monkeypatch.setenv("AIPOL_PUBLIC_ORIGIN", base)
+    headers = _admin_headers(client)
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-live-browser")
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-live-1", "professor-live-2"],
+            "expires_in_seconds": 3600,
+            "idempotency_key": "live-browser-review-seats-1",
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    grant = issued.json()
+    before = _actual_experiment_counts(db_path, experiment["id"])
+
+    cert = db_path.parent / "review-cert.pem"
+    key = db_path.parent / "review-key.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(key), "-out", str(cert), "-days", "1",
+            "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
+        ],
+        check=True, capture_output=True,
+    )
+    live = uvicorn.Server(uvicorn.Config(
+        server_module.app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        lifespan="off",
+        ssl_keyfile=str(key),
+        ssl_certfile=str(cert),
+    ))
+    thread = threading.Thread(target=live.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 10
+    while not live.started and time.time() < deadline:
+        time.sleep(0.05)
+    assert live.started
+    errors: list[str] = []
+    requests: list[tuple[str, str]] = []
+    try:
+        with sync_playwright() as runtime:
+            browser = runtime.chromium.launch(headless=True)
+            contexts = []
+            pages = []
+            for seat in grant["seats"]:
+                context = browser.new_context(
+                    viewport={"width": 390, "height": 844}, ignore_https_errors=True,
+                )
+                context.on("request", lambda request: requests.append((request.method, request.url)))
+                page = context.new_page()
+                page.on(
+                    "console", lambda message: errors.append(message.text)
+                    if message.type == "error" else None,
+                )
+                entry = page.goto(
+                    f"{base}/aipol-review.html?experiment={experiment['id']}"
+                    f"#review_token={seat['review_token']}"
+                )
+                assert entry is not None and entry.status == 200
+                assert entry.headers["cache-control"] == "no-store"
+                page.locator("#review-content").filter(has_text="실험 안내").wait_for()
+                assert page.evaluate("location.hash") == ""
+                assert seat["review_token"] not in page.url
+                assert page.evaluate("localStorage.length + sessionStorage.length") == 0
+                contexts.append(context)
+                pages.append(page)
+
+            pages[0].locator("#review-next").click()
+            pages[0].locator("#review-content").filter(has_text="전문가 A/B/C안").wait_for()
+            pages[0].reload()
+            pages[0].locator("#review-content").filter(has_text="전문가 A/B/C안").wait_for()
+            pages[0].locator("#review-next").click()
+            pages[0].locator("#review-content").filter(has_text="M1 단순 투표 결과").wait_for()
+            pages[0].go_back()
+            pages[0].locator("#review-content").filter(has_text="전문가 A/B/C안").wait_for()
+            pages[0].go_forward()
+            pages[0].locator("#review-content").filter(has_text="M1 단순 투표 결과").wait_for()
+            assert pages[1].locator("#review-content").inner_text().find("실험 안내") >= 0
+            assert not errors
+
+            revoked = client.post(
+                f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets/{grant['review_id']}/revoke",
+                headers=headers,
+                json={"logical_seat_id": "professor-live-1", "reason": "live isolation check"},
+            )
+            assert revoked.status_code == 200
+            pages[0].reload()
+            pages[0].locator("#review-status").filter(has_text="새 링크").wait_for()
+            assert pages[0].locator("#review-stage-list button").count() == 0
+            assert pages[0].locator("#review-previous").is_disabled()
+            assert pages[0].locator("#review-next").is_disabled()
+            assert pages[0].locator("#review-reset").is_disabled()
+            pages[1].reload()
+            pages[1].locator("#review-content").filter(has_text="실험 안내").wait_for()
+            assert errors == [
+                "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+            ]
+            for context in contexts:
+                context.close()
+            browser.close()
+    finally:
+        live.should_exit = True
+        thread.join(timeout=10)
+
+    assert _actual_experiment_counts(db_path, experiment["id"]) == before
+    forbidden = ("/participants", "/measurements/", "/exposures/", "/withdraw", "/api/admin/")
+    assert not [
+        url for method, url in requests
+        if method != "GET" and any(marker in url for marker in forbidden)
+    ]
+
+
+def test_professor_review_session_revalidates_snapshot_and_expiry(aipol_app, monkeypatch):
+    server, client, _ = aipol_app
+    headers = _admin_headers(client)
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-revalidate")
+
+    issued = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["snapshot-seat"], "expires_in_seconds": 60,
+            "idempotency_key": "review-revalidate-snapshot",
+        },
+    ).json()
+    exchange = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://testserver"},
+        json=_review_exchange_json(experiment["id"], issued["seats"][0]["review_token"]),
+    )
+    assert exchange.status_code == 204
+    session = _cookie_header(exchange)
+    monkeypatch.setenv("AIPOL_BUILD_COMMIT", "4" * 40)
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=session
+    ).status_code == 401
+    monkeypatch.setenv("AIPOL_BUILD_COMMIT", "1" * 40)
+
+    class FrozenDateTime(datetime):
+        current = datetime.now(timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current if tz else cls.current.replace(tzinfo=None)
+
+    monkeypatch.setattr(server.aipol_store, "datetime", FrozenDateTime)
+    expiring = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["expiring-seat"], "expires_in_seconds": 60,
+            "idempotency_key": "review-revalidate-expiry",
+        },
+    ).json()
+    exchange = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://testserver"},
+        json=_review_exchange_json(experiment["id"], expiring["seats"][0]["review_token"]),
+    )
+    assert exchange.status_code == 204
+    expiring_session = _cookie_header(exchange)
+    FrozenDateTime.current += timedelta(seconds=61)
+    assert client.get(
+        f"/api/aipol/review/{experiment['id']}/catalog", headers=expiring_session
+    ).status_code == 401
+
+
+def test_professor_review_catalog_snapshot_and_delivery_fail_closed(aipol_app, monkeypatch):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+
+    draft = _create(client, headers, suffix="-catalog-allowlist", procedure_version="v3")
+    _canonical_documents(client, headers, draft["id"])
+    _artifact(client, headers, draft["id"], "personal_comparison", "personal-catalog-allowlist")
+    malicious = _professor_review_catalog()
+    malicious["stages"][0]["raw_discord"] = "should never be served"
+    denied = client.post(
+        f"/api/admin/aipol/experiments/{draft['id']}/artifacts",
+        headers=headers,
+        json={
+            "kind": "review_catalog", "artifact_id": "malicious-review",
+            "artifact_version": "v1", "content": malicious,
+            "approval_id": "approval-malicious-review", "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert denied.status_code == 400
+
+    experiment, _ = _prepare_professor_review(client, headers, suffix="-snapshot-contract")
+    first = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-a", "professor-b"],
+            "expires_in_seconds": 604800, "idempotency_key": "seven-day-review-first",
+        },
+    )
+    assert first.status_code == 200, first.text
+    second = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-b", "professor-a"],
+            "expires_in_seconds": 604800, "idempotency_key": "seven-day-review-second",
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert first.json()["snapshot_hash"] != second.json()["snapshot_hash"]
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TRIGGER aipol_artifacts_no_update")
+        connection.execute(
+            "UPDATE aipol_artifacts SET content=? WHERE experiment_id=? AND kind='review_catalog'",
+            (json.dumps({"tampered": True}), experiment["id"]),
+        )
+        connection.execute(
+            "CREATE TRIGGER aipol_artifacts_no_update BEFORE UPDATE ON aipol_artifacts "
+            "BEGIN SELECT RAISE(ABORT, 'append-only'); END"
+        )
+        connection.commit()
+    corrupted = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-c"], "expires_in_seconds": 3600,
+            "idempotency_key": "tampered-catalog-must-fail",
+        },
+    )
+    assert corrupted.status_code == 409
+
+    clean, _ = _prepare_professor_review(client, headers, suffix="-production-binding")
+    monkeypatch.delenv("AIPOL_IMAGE_DIGEST")
+    unpinned = client.post(
+        f"/api/admin/aipol/experiments/{clean['id']}/review-seat-sets",
+        headers=headers,
+        json={
+            "logical_seat_ids": ["professor-prod"], "expires_in_seconds": 3600,
+            "idempotency_key": "production-unpinned-must-fail",
+        },
+    )
+    assert unpinned.status_code == 400
+    assert "build/image/DB/deployment/origin" in unpinned.text
+
+    for variable, invalid in (
+        ("AIPOL_BUILD_COMMIT", "not-a-commit"),
+        ("AIPOL_IMAGE_DIGEST", "sha256:not-a-digest"),
+        ("AIPOL_DB_SEED_HASH", "not-a-seed-hash"),
+        ("AIPOL_PUBLIC_ORIGIN", "https://testserver/path"),
+    ):
+        monkeypatch.setenv("AIPOL_IMAGE_DIGEST", "sha256:" + "2" * 64)
+        monkeypatch.setenv("AIPOL_BUILD_COMMIT", "1" * 40)
+        monkeypatch.setenv("AIPOL_DB_SEED_HASH", "3" * 64)
+        monkeypatch.setenv("AIPOL_PUBLIC_ORIGIN", "https://testserver")
+        monkeypatch.setenv(variable, invalid)
+        denied = client.post(
+            f"/api/admin/aipol/experiments/{clean['id']}/review-seat-sets",
+            headers=headers,
+            json={
+                "logical_seat_ids": ["invalid-pin-seat"],
+                "expires_in_seconds": 3600,
+                "idempotency_key": f"invalid-pin-{variable.lower()}",
+            },
+        )
+        assert denied.status_code == 400, (variable, denied.text)
+
+
+def test_professor_review_exchange_has_exact_origin_and_dedicated_rate_limit(aipol_app):
+    _, client, _ = aipol_app
+    wrong_origin = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://attacker.example"},
+        json=_review_exchange_json("unknown", "malformed-token"),
+    )
+    assert wrong_origin.status_code == 403
+    for _ in range(12):
+        denied = client.post(
+            "/api/aipol/review/exchange",
+            headers={"Origin": "https://testserver"},
+            json=_review_exchange_json("unknown", "malformed-token"),
+        )
+        assert denied.status_code == 401
+    limited = client.post(
+        "/api/aipol/review/exchange",
+        headers={"Origin": "https://testserver"},
+        json=_review_exchange_json("unknown", "malformed-token"),
+    )
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "60"

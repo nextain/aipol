@@ -102,7 +102,11 @@ checkpoint, 백업 해시, 별도 복구 서명키를 연결하는 recovery-line
 
 ### 5. 새 앱 생성과 기본 주소 검증
 
-모든 비밀 버전, 활성 key ID, 이미지 digest, 감사 잠금 증거를 넣은 뒤 `deployFoundation=true`, `configureRuntimeAccess=true`, `deployApp=true`, `manageAuditPolicy=false`로 배포합니다. 이때도 DNS는 바뀌지 않습니다.
+모든 비밀 버전, 활성 key ID, 이미지 digest, 감사 잠금 증거와 함께 `reviewBuildCommit`,
+`reviewDbSeedHash`, `reviewDeploymentRevision`, `reviewPublicOrigin`을 실제 배포 영수증 값으로 고정한 뒤
+`deployFoundation=true`, `configureRuntimeAccess=true`, `deployApp=true`, `manageAuditPolicy=false`로 배포합니다.
+`reviewDeploymentRevision`은 `aipol-session-prod--<revisionSuffix>` 전체 이름과 정확히 같아야 합니다.
+하나라도 비었거나 형식이 다르면 앱 리소스를 만들지 않습니다. 이때도 DNS는 바뀌지 않습니다.
 
 Container App의 기본 Azure FQDN으로 다음을 확인합니다.
 

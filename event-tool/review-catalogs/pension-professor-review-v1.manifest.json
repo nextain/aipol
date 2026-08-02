@@ -1,0 +1,13 @@
+{
+  "schema_version": "professor-review-manifest-v1",
+  "catalog_id": "pension-professor-review-v1",
+  "scope": "national-pension-only",
+  "requirements_ledger_hash": "deabd986fb9c098e37216b12c34f44d9a98e469f72898714d26630c228d2559a",
+  "traceability_hash": "fd498058393918466ca3c74c2a13be1e8960b6bc0205e6bbcbdadc1cfe12815f",
+  "gap_analysis_hash": "6d00c2e87669df31eeb545e5742fa66c0e8798140352fb46082845c743eaa02a",
+  "implementation_plan_hash": "22bb5cf894b8daf0bd10a48a1d57c9579c6c3abce51a8c87dfce5492b173c453",
+  "uc_fe_contract_hash": "1b928f9c27b9ae1927f708435d981d0c04a4a1518c54b1dcfd6166d1859f698d",
+  "source_verification_receipt_file": "pension-professor-review-v1.source-receipt.json",
+  "source_verification_receipt_hash": "49f2a14678fe3f93582b94dbf09c7cf16de3c9628544d44e4d14e4cf303b4f4a",
+  "catalog_file": "pension-professor-review-v1.json"
+}

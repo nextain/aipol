@@ -3,11 +3,32 @@
   "integration_base_commit": "90376ff973afbf3d759f6e8cc854605b8a043662",
   "branding_revision": "2026-07-30 logo-led visual system, public metadata, legal notices, portal integration, and production administrator MFA",
   "core_sha256": {
-    "event-tool/web/index.html": "6a2eee17f13e8ffc341c8204c0cf8010378bdea65ec5f579c3094465be2b1770",
-    "event-tool/web/app.js": "204754f79a2a6eb65ba446665fa53cee9a3f858a29a04496b41b95c2b48ae930",
-    "event-tool/web/style.css": "3bf6cf2360306ac88fe5b69ae2f8bdbb22b576c463db3d1c2b0c52191d4ad0c1",
-    "event-tool/web/admin.js": "a9599f48d739f70f294152cb0f3a82f51b6555d155088c36fdf4a0148d1c540c"
+    "event-tool/web/index.html": "fe8fb6ae11d018ed5f1408a762c1f63efa8b0e397dbe92a5f96e3d38c21dd78a",
+    "event-tool/web/app.js": "0dea4bcde2622e111f5e06da1671e77cc1161d914e503e20f935a991829125d8",
+    "event-tool/web/style.css": "1dbf73fb007c1020a8515cfe1f9f03e3492d152b900b5ddc40b577f4ee0cb8f9",
+    "event-tool/web/admin.js": "0b15db317fded2b4ba1876ecd555aad027f6f2c1ead15b75ba77a957b6bfd986"
   },
+  "aipol_application_sha256": {
+    "event-tool/web/aipol.html": "81a752d487b5719edb8f6ab5bc772c1d38e18249cd91dea66011df57b06e91e9",
+    "event-tool/web/aipol.js": "ce5be327610ae766e1f135173fe0d1a4bcbfa09a09303a77b7739a92732530c9",
+    "event-tool/web/aipol.css": "40f95de09b1b024f444f8c902940a1b4827cafc77534a7b80f2fac4ce39ed218",
+    "event-tool/web/aipol-admin.html": "a667a8ef833d0334ffacad6013ec30d2b93f011833e3629d35325d4cd4162068",
+    "event-tool/web/aipol-admin.js": "1a2f2f50f3a821405c7162a0e9f12c82fee2c92d87f67638cc53d7fc25a1655c",
+    "event-tool/web/aipol-preparation.js": "700d95305254c52a6a5298cafaa23c3a6101d6230fd1a9c837ad724d86024503",
+    "event-tool/web/aipol-receipt.js": "868146870b7908356be97d02f38ca225eaa15cbbbe3da65b4bf815d0d9aa5757",
+    "event-tool/web/aipol-calculator-return.html": "dd46ae6106aa7b74ee2337c6138cf604cabe165cdc44556c559fcb1b9aabc6e0",
+    "event-tool/web/aipol-calculator-return.js": "b0a70e4eeb5badb8279f213108a91921b9bc801311cefde74dbfc6acf1f900c6"
+  },
+  "aipol_participant_api_routes": [
+    "/api/aipol/experiments/{experiment_id}/participants",
+    "/api/aipol/experiments/{experiment_id}/participants/recover",
+    "/api/aipol/experiments/{experiment_id}/current",
+    "/api/aipol/experiments/{experiment_id}/consent",
+    "/api/aipol/experiments/{experiment_id}/research-profile",
+    "/api/aipol/experiments/{experiment_id}/exposures/{stage}",
+    "/api/aipol/experiments/{experiment_id}/measurements/{measurement_id}",
+    "/api/aipol/experiments/{experiment_id}/withdraw"
+  ],
   "public_portal_normalized_sha256": {
     "site/index.html": "24a315dc2c61b4bdec31fe3a927afa4ae29d77e5dd04058d9888864585ba0ea9",
     "site/project/index.html": "45cdb695cf32bed65faee199143cb5e995fe38b1ced09bb0c9e84cb4d9c93e0a",

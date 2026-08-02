@@ -337,9 +337,15 @@ def test_public_deployment_requires_dev_same_sha_and_browser_gate_before_prod() 
     assert workflow.count("ref: ${{ github.sha }}") == 3
     assert "- deploy-dev" in workflow
     assert "if: ${{ inputs.target == 'prod' }}" in workflow
-    assert "python -m playwright install --with-deps chromium" in workflow
+    assert "python -m playwright install --with-deps chromium webkit" in workflow
+    assert "AIPOL_REVIEW_BROWSER_ENGINES: chromium,webkit" in workflow
     assert 'python -m pip install -e ".[test]"' in workflow
     assert "tests/test_public_site_browser.py" in workflow
+    assert "tests/test_aipol_review_browser.py" in workflow
+    assert "tests/test_aipol_event_tool.py" in workflow
+    assert "tests/test_aipol_admin_browser.py" in workflow
+    assert "tests/test_aipol_uc_contract.py" in workflow
+    assert "tests/test_aipol_portal_preservation.py" in workflow
     assert 'python scripts/verify_live_aipol.py --origin "$LIVE_ORIGIN"' in workflow
     assert '"playwright>=1.58,<2"' in pyproject
     assert 'pytest.importorskip("playwright.sync_api")' in browser_test

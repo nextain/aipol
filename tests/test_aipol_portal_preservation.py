@@ -37,6 +37,8 @@ def _site_path(route: str) -> Path:
 def test_existing_participant_application_is_byte_preserved() -> None:
     for relative, expected in BASELINE["core_sha256"].items():
         assert _sha256(ROOT / relative) == expected, relative
+    for relative, expected in BASELINE["aipol_application_sha256"].items():
+        assert _sha256(ROOT / relative) == expected, relative
 
 
 def test_public_portal_matches_the_approved_branding_revision() -> None:
@@ -67,6 +69,8 @@ def test_existing_event_tool_surfaces_and_static_portal_routes_remain_present() 
     server = (ROOT / "event-tool" / "server.py").read_text("utf-8")
     assert 'app.mount("/", StaticFiles(directory=str(WEB), html=True), name="web")' in server
     for route in ("/api/citizen/current", "/api/citizen/submit", "/api/admin/events"):
+        assert route in server
+    for route in BASELINE["aipol_participant_api_routes"]:
         assert route in server
     assert (WEB / "index.html").exists() and (WEB / "admin.html").exists()
     for route in BASELINE["public_site_routes"]:

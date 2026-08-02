@@ -62,10 +62,11 @@ function canonicalRows(documents, drafts) {
 async function openPreparation(experiment) {
   selected = experiment;
   canonicalPreview = null;
-  const [summary, documents, drafts] = await Promise.all([
+  const [summary, documents, drafts, publicInputs] = await Promise.all([
     api(`/api/admin/aipol/experiments/${experiment.id}/summary`),
     prepSafe(`/api/admin/aipol/experiments/${experiment.id}/canonical-documents`, []),
     prepSafe(`/api/admin/aipol/experiments/${experiment.id}/canonical-drafts`, []),
+    prepSafe(`/api/admin/aipol/experiments/${experiment.id}/public-audience-inputs`, null),
   ]);
   const aggregate = preparationAggregate?.experiment_id === experiment.id
     ? preparationAggregate : null;
@@ -116,7 +117,15 @@ async function openPreparation(experiment) {
       <p id="m2-finalization" class="artifact-meta" role="status">${aggregate ? `M2 확정 · ${esc(aggregate.aggregate_hash)} · ${esc(aggregate.cohort_finalized_at)}` : "M2 미확정"}</p>
       <label class="field-label" for="release-role">공개 후보</label><select id="release-role" class="field-input"><option value="primary">primary</option><option value="fallback">fallback</option></select>
       ${prepTextarea("release-reason", "사람의 선택 사유")}<button type="button" id="release-candidate" class="btn-primary">선택 근거와 함께 E2 공개</button>
-    </details>`;
+    </details>
+    ${publicInputs ? `<details open><summary>6. 공개 청중 의견 진행자 선별 입력 (${publicInputs.input_count})</summary>
+      <p class="stage-note">현장에서 공개로 발언된 의견 중 진행자가 AI 수정 의견 D′에 반영할 내용만 등록합니다. 등록한 순번·내용은 변경·삭제할 수 없습니다. 참가자 개인 텍스트 입력은 받지 않습니다.</p>
+      ${field("public-audience-sequence", "공개 발언 순번", "number", String(publicInputs.input_count + 1))}
+      ${prepTextarea("public-audience-statement", "진행자가 선별한 공개 청중 의견")}
+      <button type="button" id="save-public-audience-input" class="btn-primary">선별 공개 의견 등록</button>
+      <p id="public-audience-result" class="artifact-meta" role="status"></p>
+      <div>${publicInputs.inputs.length ? publicInputs.inputs.map((item) => `<article class="proposal-card"><strong>${item.sequence}. ${esc(item.statement)}</strong><p class="artifact-meta">진행자 ${esc(item.selected_by)} · ${esc(item.selected_at)}</p></article>`).join("") : "<p class='muted'>아직 선별 등록된 공개 청중 의견이 없습니다.</p>"}</div>
+    </details>` : ""}`;
 
   if (calculation) $("pc-canonical").value = calculation.content_hash;
   if (aggregate) $("ai-m2-hash").value = aggregate.aggregate_hash;
@@ -133,6 +142,10 @@ async function openPreparation(experiment) {
   $("mark-attrition").onclick = markPendingAttrition;
   $("refresh-m2").onclick = refreshM2Finalization;
   $("release-candidate").onclick = releaseCandidate;
+  if ($("save-public-audience-input")) {
+    $("public-audience-sequence").value = String(publicInputs.input_count + 1);
+    $("save-public-audience-input").onclick = savePublicAudienceInput;
+  }
 }
 
 async function previewCanonical() {
@@ -188,7 +201,14 @@ async function saveExpert() {
 async function saveAiCandidate() {
   try {
     const role = $("ai-role").value;
-    const saved = await api(`/api/admin/aipol/experiments/${selected.id}/ai-candidates`, {method: "POST", body: JSON.stringify({candidate_role: role, artifact_id: $("ai-id").value.trim(), artifact_version: $("ai-version").value.trim(), content: {title: $("ai-title").value.trim(), body: $("ai-body").value.trim()}, model: $("ai-model").value.trim(), deployment: $("ai-deployment").value.trim(), prompt_version: $("ai-prompt").value.trim(), generated_at: approvedAt("ai-generated"), evidence_refs: $("ai-evidence").value.split(",").map((value) => value.trim()).filter(Boolean), m2_aggregate_hash: role === "primary" ? $("ai-m2-hash").value.trim() : null, approval_id: $("ai-approval").value.trim(), approved_by: prepActor()})});
+    const content = {title: $("ai-title").value.trim(), body: $("ai-body").value.trim()};
+    if (selected.procedure_config?.version === "aipol-pension-3-measurements-v3") {
+      content.lever_values = Object.fromEntries(
+        [...new Set((selected.policy_options || []).flatMap((option) => Object.keys(option.lever_values || {})))]
+          .map((key) => [key, `D: ${key}`]),
+      );
+    }
+    const saved = await api(`/api/admin/aipol/experiments/${selected.id}/ai-candidates`, {method: "POST", body: JSON.stringify({candidate_role: role, artifact_id: $("ai-id").value.trim(), artifact_version: $("ai-version").value.trim(), content, model: $("ai-model").value.trim(), deployment: $("ai-deployment").value.trim(), prompt_version: $("ai-prompt").value.trim(), generated_at: approvedAt("ai-generated"), evidence_refs: $("ai-evidence").value.split(",").map((value) => value.trim()).filter(Boolean), m2_aggregate_hash: role === "primary" ? $("ai-m2-hash").value.trim() : null, approval_id: $("ai-approval").value.trim(), approved_by: prepActor()})});
     $("ai-result").textContent = `${role} 승인 ${saved.approval_id} · ${saved.content_hash} · 서버 시각 ${saved.approved_at}`;
   } catch (error) { $("admin-error").textContent = error.message; }
 }
@@ -228,6 +248,21 @@ async function refreshM2Finalization() {
 async function releaseCandidate() {
   try {
     await api(`/api/admin/aipol/experiments/${selected.id}/release-e2`, {method: "POST", body: JSON.stringify({candidate_role: $("release-role").value, selection_reason: $("release-reason").value.trim()})});
+    await refreshPreparation();
+  } catch (error) { $("admin-error").textContent = error.message; }
+}
+
+async function savePublicAudienceInput() {
+  try {
+    const sequence = Number($("public-audience-sequence").value);
+    const statement = $("public-audience-statement").value.trim();
+    if (!Number.isInteger(sequence) || sequence < 1) throw new Error("공개 발언 순번은 1 이상의 정수여야 합니다.");
+    if (!statement) throw new Error("진행자가 선별한 공개 청중 의견을 입력해 주세요.");
+    const saved = await api(`/api/admin/aipol/experiments/${selected.id}/public-audience-inputs`, {
+      method: "POST",
+      body: JSON.stringify({sequence, statement, idempotency_key: crypto.randomUUID()}),
+    });
+    $("public-audience-result").textContent = `${saved.sequence}번 공개 의견 등록 완료 · ${saved.selected_at}`;
     await refreshPreparation();
   } catch (error) { $("admin-error").textContent = error.message; }
 }

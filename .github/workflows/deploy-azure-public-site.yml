@@ -36,14 +36,23 @@ jobs:
       - name: Install public-site test dependencies
         run: |
           python -m pip install -e ".[test]"
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps chromium webkit
 
       - name: Verify static pages, metadata, browser behavior, RSS, and live-smoke contracts
+        env:
+          AIPOL_REVIEW_BROWSER_ENGINES: chromium,webkit
         run: >-
           python -m pytest -q
           tests/test_public_site.py
           tests/test_aipol_metadata.py
           tests/test_public_site_browser.py
+          tests/test_aipol_review_browser.py
+          tests/test_aipol_event_tool.py
+          tests/test_aipol_admin_browser.py
+          tests/test_aipol_uc_contract.py
+          tests/test_aipol_web_assets.py
+          tests/test_aipol_portal_preservation.py
+          tests/test_event_tool_dev_iac.py
           tests/test_policy_news_site_build.py
           tests/test_live_aipol_smoke.py
 

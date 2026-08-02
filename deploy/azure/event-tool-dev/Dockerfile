@@ -14,13 +14,13 @@ COPY event-tool/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --requirement /tmp/requirements.txt \
     && groupadd --gid 10001 aipol \
     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin aipol \
-    && install -d -o 10001 -g 10001 -m 0750 /data
+    && install -d -o 10001 -g 10001 -m 0750 /data /app/instances
 
 # server.py imports both event-tool modules and the repository-level policy_lab
 # package. Keep this Dockerfile's build context at the repository root.
 COPY event-tool/*.py ./
 COPY event-tool/web ./web
-COPY event-tool/instances ./instances
+COPY event-tool/review-catalogs ./review-catalogs
 COPY policy_lab ./policy_lab
 COPY deploy/azure/event-tool-dev/serialized_app.py ./serialized_app.py
 COPY deploy/azure/event-tool-dev/backup_sqlite.py ./backup_sqlite.py

@@ -12,8 +12,10 @@ param location string = 'koreacentral'
 @description('Container image pinned to an immutable tag or digest. Build and push it before deployApp=true.')
 param containerImage string = '${registryName}.azurecr.io/aipol/event-tool:bootstrap-not-built'
 
-@description('Keep public ingress off until an explicit exposure review is complete.')
-@allowed([false])
+@description('Exact Container Apps revision suffix; must equal reviewDeploymentRevision.')
+param revisionSuffix string = 'not-deployed'
+
+@description('Expose the review app through the Container Apps HTTPS FQDN only after explicit review approval. Participant admission codes and strong administrator authentication remain mandatory.')
 param enableExternalIngress bool = false
 
 @description('Top-level collection kill switch. The development deployment defaults to disabled.')
@@ -97,6 +99,18 @@ param keyVaultName string = 'kv-aipol-evt-${take(uniqueString(subscription().id,
 @description('Optional comma-separated proxy CIDRs allowed to supply X-Forwarded-For. Empty trusts no forwarded headers.')
 param trustedProxyCidrs string = ''
 
+@description('Exact Git commit presented in the professor-review snapshot (40 lowercase hex).')
+param reviewBuildCommit string = ''
+
+@description('SHA-256 of the reviewed database seed (64 lowercase hex).')
+param reviewDbSeedHash string = ''
+
+@description('Immutable deployment revision presented in the professor-review snapshot.')
+param reviewDeploymentRevision string = ''
+
+@description('Exact HTTPS origin used by the professor-review browser.')
+param reviewPublicOrigin string = ''
+
 var tags = {
   project: 'AIPOL'
   component: 'event-tool'
@@ -108,8 +122,11 @@ var tags = {
 
 var resourceGroupGuardPassed = resourceGroup().name == 'rg-aipol-dev'
 var receiptInputGuardPassed = !receiptVerifierEnabled || (!empty(receiptPublicKeySecretVersion) && !empty(receiptKeyId) && !empty(receiptIssuer) && !empty(receiptAudience))
-var appInputGuardPassed = contains(containerImage, '@sha256:') && !empty(eventSessionSecretVersion) && !empty(eventAdminUsersSecretVersion) && !empty(eventAdminRolesSecretVersion) && !empty(eventAdminTotpSecretVersion) && !empty(eventCredentialKeysetVersion) && !empty(eventCredentialActiveKeyId) && !empty(eventAuditCheckpointKeysetVersion) && !empty(eventAuditCheckpointActiveKeyId) && receiptInputGuardPassed
-var featureGuardPassed = !enableExternalIngress && !collectionEnabled && !chatbotEnabled
+var reviewPinGuardPassed = length(reviewBuildCommit) == 40 && length(reviewDbSeedHash) == 64 && reviewDeploymentRevision == '${containerAppName}--${revisionSuffix}' && revisionSuffix != 'not-deployed' && startsWith(reviewPublicOrigin, 'https://')
+var appInputGuardPassed = contains(containerImage, '@sha256:') && !empty(eventSessionSecretVersion) && !empty(eventAdminUsersSecretVersion) && !empty(eventAdminRolesSecretVersion) && !empty(eventAdminTotpSecretVersion) && !empty(eventCredentialKeysetVersion) && !empty(eventCredentialActiveKeyId) && !empty(eventAuditCheckpointKeysetVersion) && !empty(eventAuditCheckpointActiveKeyId) && receiptInputGuardPassed && reviewPinGuardPassed
+// An externally reachable review app remains a synthetic-only, interactive
+// surface. Background jobs are forbidden while public ingress is enabled.
+var featureGuardPassed = !collectionEnabled && !chatbotEnabled && (!enableExternalIngress || !batchEnabled)
 var provisionInfrastructure = deployInfrastructure && resourceGroupGuardPassed
 
 resource storage 'Microsoft.Storage/storageAccounts@2025-01-01' = if (provisionInfrastructure) {
@@ -156,6 +173,9 @@ resource stateShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2025-
 resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2025-01-01' = if (provisionInfrastructure) {
   parent: storage
   name: 'default'
+  properties: {
+    isVersioningEnabled: true
+  }
 }
 
 // This container is a separate monotonic trust boundary for the SQLite audit
@@ -171,7 +191,10 @@ resource auditCheckpointContainer 'Microsoft.Storage/storageAccounts/blobService
   }
 }
 
-resource auditImmutabilityPolicy 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2025-01-01' = if (provisionInfrastructure) {
+// A locked policy is irreversible and Azure rejects even an idempotent ARM
+// update. App deployments therefore attest the observed lock and leave the
+// existing policy untouched.
+resource auditImmutabilityPolicy 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2025-01-01' = if (provisionInfrastructure && !auditImmutabilityPolicyLocked) {
   parent: auditCheckpointContainer
   name: 'default'
   properties: {
@@ -317,7 +340,6 @@ resource auditCheckpointWriterRole 'Microsoft.Authorization/roleDefinitions@2022
           'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete'
           'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/deleteBlobVersion/action'
           'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/permanentDelete/action'
-          'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies/runAsSuperUser/action'
         ]
       }
     ]
@@ -431,7 +453,7 @@ resource policyNewsJobOperatorRole 'Microsoft.Authorization/roleAssignments@2022
 }
 
 var baseRuntimeEnvironment = [
-  { name: 'EVENT_ENV', value: 'development' }
+  { name: 'EVENT_ENV', value: enableExternalIngress ? 'production' : 'development' }
   { name: 'EVENT_DEMO_ENABLED', value: 'false' }
   { name: 'EVENT_DB_PATH', value: '/data/event.db' }
   { name: 'EVENT_ROSTER_PATH', value: '/data/roster.json' }
@@ -441,6 +463,12 @@ var baseRuntimeEnvironment = [
   { name: 'AIPOL_BATCH_AZURE_ENABLED', value: string(batchEnabled) }
   { name: 'AIPOL_BATCH_AZURE_JOB_RESOURCE_ID', value: batchEnabled ? policyNewsJob.id : '' }
   { name: 'AIPOL_TRUSTED_PROXY_CIDRS', value: trustedProxyCidrs }
+  { name: 'AIPOL_BUILD_COMMIT', value: reviewBuildCommit }
+  { name: 'AIPOL_IMAGE_DIGEST', value: last(split(containerImage, '@')) }
+  { name: 'AIPOL_DB_INSTANCE_ID', value: '${storageAccountName}/${fileShareName}/event.db' }
+  { name: 'AIPOL_DB_SEED_HASH', value: reviewDbSeedHash }
+  { name: 'AIPOL_DEPLOYMENT_REVISION', value: reviewDeploymentRevision }
+  { name: 'AIPOL_PUBLIC_ORIGIN', value: reviewPublicOrigin }
   { name: 'AZURE_CLIENT_ID', value: appIdentity!.properties.clientId }
   { name: 'EVENT_SESSION_SECRET', secretRef: 'event-session-secret' }
   { name: 'EVENT_ADMIN_USERS_JSON', secretRef: 'event-admin-users-json' }
@@ -542,6 +570,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (provisionApp) {
       secrets: concat(baseAppSecrets, receiptAppSecrets)
     }
     template: {
+      revisionSuffix: revisionSuffix
       containers: [
         {
           name: 'event-tool'
@@ -628,7 +657,7 @@ output batchJobResourceId string = provisionApp && batchEnabled ? policyNewsJob.
 output registryLoginServer string = provisionInfrastructure ? '${registryName}.azurecr.io' : ''
 output keyVaultResourceName string = provisionInfrastructure ? keyVaultName : ''
 output appFqdn string = provisionApp ? app!.properties.configuration.ingress.fqdn : ''
-output keyVaultSecretsUserScopeMode string = receiptVerifierEnabled ? 'six-named-secrets-only' : 'five-named-secrets-only'
+output keyVaultSecretsUserScopeMode string = receiptVerifierEnabled ? 'seven-named-secrets-only' : 'six-named-secrets-only'
 output vaultWideKeyVaultSecretsUserAllowed bool = false
 output blobDataContributorAllowed bool = false
 output auditCheckpointDeleteAllowed bool = false

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -50,10 +51,76 @@ def test_participant_page_has_all_server_driven_states_and_no_result_container()
     assert "localStorage.setItem(recovery" not in script
 
 
+def test_participant_page_starts_with_experiment_intro_and_ends_with_panel_closing():
+    soup = BeautifulSoup((WEB / "aipol.html").read_text("utf-8"), "html.parser")
+    start = soup.find(id="state-start")
+    assert start.find(id="intro-procedure-title").get_text(strip=True) == "진행 절차"
+    procedure = start.find(id="intro-procedure")
+    assert len(procedure.find_all("li")) == 5
+    assert "정책전문가팀" in start.get_text(" ", strip=True)
+    assert "AI팀" in start.get_text(" ", strip=True)
+    assert "AI가 정책을 결정하거나 정답을 제시하지 않으며" in start.get_text(" ", strip=True)
+    assert start.find(id="admission-code")
+
+    done = soup.find(id="state-done")
+    assert done.find(id="closing-panel-title").get_text(strip=True) == "패널 총평과 마무리"
+    closing = done.get_text(" ", strip=True)
+    assert "정책전문가팀과 AI팀의 총평" in closing
+    assert "전체 시민의 여론이나 정책 효과를 뜻하지 않습니다" in closing
+
+
+def test_saved_v2_keeps_legacy_single_stance_form_and_intro_is_version_neutral():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    html = (WEB / "aipol.html").read_text("utf-8")
+    soup = BeautifulSoup(html, "html.parser")
+    tokenless_copy = " ".join((
+        soup.find(id="procedure-summary").get_text(" ", strip=True),
+        soup.find(id="state-start").get_text(" ", strip=True),
+    ))
+    assert 'legacyStructuredM2 = current.stage === "M2"' in script
+    assert 'aipol-pension-3-measurements-v2' in script
+    assert 'id="stance"' in script
+    assert "실험 버전" in tokenless_copy
+    assert "진행자가 안내한 실험 버전" in tokenless_copy
+    for version_specific_claim in (
+        "A/B/C/D′를 놓고",
+        "D와 D′",
+        "AI 수정 의견",
+        "청중 논평",
+        "세 번의 선택",
+    ):
+        assert version_specific_claim not in tokenless_copy
+
+
+def test_m2_renders_three_structured_option_assessments_with_reason_limits():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    assert "structured_option_assessment" in script
+    assert "세 안에 대한 판단" in script
+    assert "선택안은 수용 또는 조건부 수용" in script
+    assert "선택하지 않은 각 안은 비선택과 사유" in script
+    assert 'class="option-assessment-reason"' in script
+    assert 'maxlength="2000"' in script
+    assert "...(structuredAssessment ? {option_assessments:optionAssessments} : {})" in script
+
+
+def test_participant_provenance_and_suppressed_counts_are_explicit():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    for label in ("생성 시각", "승인자", "승인 시각", "대체안"):
+        assert label in script
+    assert 'current.stage === "E2" || current.stage === "E3"' in script
+    assert "snapshot.d_candidate_provenance" in script
+    assert "규칙 기반 분석 설명" in script
+    assert "승인된 AI 분석 설명" not in script
+    assert "resultCount(row.count)" in script
+    assert 'value == null ? "—"' in script
+
+
 def test_calculator_fragment_and_openerless_return_channel_validate_context():
     helper = WEB / "aipol-receipt.js"
     code = r"""
-const api=require(process.argv[1]);
+const fs=require('fs'),vm=require('vm'),m={exports:{}};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{module:m,exports:m.exports,globalThis:{},Buffer,URL,TextEncoder});
+const api=m.exports;
 const context={experiment_id:'xp',experiment_version:'v1',session_id:'s1',participant_pseudonym:'p1',artifact_id:'calc',artifact_hash:'a'.repeat(64),contract_hash:'b'.repeat(64)};
 const integration={contract_version:api.CONTRACT_VERSION,allowed_origin:'https://calculator.example',launch_url:'https://calculator.example/run',context_fragment_key:'aipol_context',max_context_bytes:2048};
 const channelId='123e4567-e89b-12d3-a456-426614174000';
@@ -133,3 +200,100 @@ def test_admin_javascript_has_one_experiment_path_and_parses_in_node():
     assert "AI 의견은 primary/fallback" not in base
     assert "personal_comparison / expert_explanation / ai_opinion" not in base + preparation
     assert preparation.count("async function openPreparation") == 1
+
+
+def test_professor_review_assets_are_read_only_private_safe_and_mobile_first():
+    html_path = WEB / "aipol-review.html"
+    script_path = WEB / "aipol-review.js"
+    style_path = WEB / "aipol-review.css"
+    assert html_path.exists() and script_path.exists() and style_path.exists()
+
+    html = html_path.read_text("utf-8")
+    script = script_path.read_text("utf-8")
+    style = style_path.read_text("utf-8")
+    soup = BeautifulSoup(html, "html.parser")
+    assert soup.html["lang"] == "ko"
+    assert soup.find("meta", attrs={"name": "referrer", "content": "no-referrer"})
+    assert soup.find("meta", attrs={"name": "robots", "content": "noindex,nofollow"})
+    for element_id in (
+        "review-disclosure", "review-content", "review-previous",
+        "review-next", "review-reset", "review-expiry", "review-retry",
+    ):
+        assert soup.find(id=element_id)
+
+    assert "/api/aipol/review/exchange" in script
+    assert "/api/aipol/review/" in script and "/catalog" in script
+    assert "history.replaceState" in script
+    assert "localStorage" not in script and "sessionStorage" not in script
+    for forbidden_route in (
+        "/participants", "/measurements/", "/exposures/", "/withdraw", "/api/admin/",
+    ):
+        assert forbidden_route not in script
+    for private_marker in (
+        "pension-final-report-260713", "prelearning-1", "prelearning-2",
+        "step-by-step.pdf", ".agents/work", "/var/home/",
+    ):
+        assert private_marker not in html + script + style
+
+    assert "@media" in style and "390px" in style
+    subprocess.run(
+        ["node", "--check", str(script_path)], check=True, capture_output=True, text=True
+    )
+
+
+def test_professor_review_private_source_receipt_is_reproducible_and_runtime_bound():
+    catalog_dir = ROOT / "event-tool" / "review-catalogs"
+    manifest = json.loads((catalog_dir / "pension-professor-review-v1.manifest.json").read_text("utf-8"))
+    receipt_path = catalog_dir / manifest["source_verification_receipt_file"]
+    receipt = json.loads(receipt_path.read_text("utf-8"))
+    catalog_path = catalog_dir / manifest["catalog_file"]
+    oracle_path = ROOT / "tests" / "fixtures" / "aipol_professor_review_oracle.json"
+    catalog = json.loads(catalog_path.read_text("utf-8"))
+    assert hashlib.sha256(receipt_path.read_bytes()).hexdigest() == manifest[
+        "source_verification_receipt_hash"
+    ]
+    assert receipt["source_sha256"] == catalog["source_contract"]["document_hashes"]
+    assert receipt["catalog_sha256"] == hashlib.sha256(catalog_path.read_bytes()).hexdigest()
+    assert receipt["oracle_sha256"] == hashlib.sha256(oracle_path.read_bytes()).hexdigest()
+    assert set(receipt["stage_page_text_sha256"]) == {
+        stage["id"] for stage in catalog["stages"]
+    }
+    verifier = ROOT / "scripts" / "verify_professor_review_sources.py"
+    assert verifier.exists()
+    source = verifier.read_text("utf-8")
+    for command in ("hwp5txt", "pdftotext", "pdfinfo"):
+        assert command in source
+
+
+def test_professor_review_catalog_binds_final_plan_and_latest_scenario():
+    catalog_path = ROOT / "event-tool" / "review-catalogs" / "pension-professor-review-v1.json"
+    assert catalog_path.exists()
+    catalog = json.loads(catalog_path.read_text("utf-8"))
+    oracle = json.loads(
+        (ROOT / "tests" / "fixtures" / "aipol_professor_review_oracle.json").read_text("utf-8")
+    )
+    assert catalog["schema_version"] == "professor-review-catalog-v1"
+    assert catalog["policy_columns"] == oracle["policy_columns"]
+    assert [
+        [row["id"], row["start_age"], row["fund_strategy"], row["government_support"]]
+        for row in catalog["policy_options"]
+    ] == oracle["policy_options"]
+    stages = {stage["id"]: stage for stage in catalog["stages"]}
+    assert list(stages) == oracle["stage_ids"]
+    assert stages["m1-result"]["input_contract"] == oracle["m1_inputs"]
+    assert all(
+        forbidden not in " ".join(stages["m1-result"]["input_contract"])
+        for forbidden in ("사유", "확신", "자유서술", "응답보류")
+    )
+    assert stages["personal-impact"]["input_contract"] == oracle["personal_inputs"]
+    assert stages["personal-impact"]["output_contract"] == oracle["personal_outputs"]
+    assert stages["m2-result"]["input_contract"] == oracle["m2_inputs"]
+    assert stages["t6-analysis"]["grouping_variables"] == oracle["t6_variables"]
+    assert stages["d"]["generation_inputs"] == oracle["d_inputs"]
+    assert stages["expert-audience"]["discussion_scope"] == oracle["discussion_scope"]
+    assert stages["d-prime"]["generation_inputs"] == oracle["d_prime_inputs"]
+    assert stages["m3-result"]["choice_set"] == oracle["m3_choices"]
+    assert stages["m3-result"]["example_view"]["d_prime"]["start_age"] == "67세(점진 전환)"
+    assert catalog["source_contract"]["document_hashes"] == oracle["authority_hashes"]
+    assert set(catalog["source_contract"]["page_mapping"]) == set(stages)
+    assert [stage["example_view"]["type"] for stage in catalog["stages"]] == oracle["required_example_types"]

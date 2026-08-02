@@ -1,0 +1,281 @@
+{
+  "schema_version": "professor-review-catalog-v1",
+  "disclosure": "교수 검토용 합성 예시입니다. 실제 참가자 응답이나 실험 결과가 아닙니다.",
+  "policy_columns": [
+    "수급개시연령",
+    "기금운용전략(운영수익률)",
+    "국고투입(지원)수준"
+  ],
+  "policy_options": [
+    {
+      "id": "A",
+      "start_age": "65세",
+      "fund_strategy": "안정형 5.5%",
+      "government_support": "매년 GDP 0.6%"
+    },
+    {
+      "id": "B",
+      "start_age": "68세까지 점진 상향",
+      "fund_strategy": "안정형 5.5%",
+      "government_support": "초기 100조원 + 이후 매년 GDP 0.25%"
+    },
+    {
+      "id": "C",
+      "start_age": "68세까지 점진 상향",
+      "fund_strategy": "적극형 6.0%",
+      "government_support": "정기 지원 없음(5년마다 필요 시 보충)"
+    }
+  ],
+  "stages": [
+    {
+      "id": "intro",
+      "position": 1,
+      "title": "실험 안내",
+      "summary": "국민연금에 한정한 100분 정책숙의의 목적, 절차, 정책전문가팀과 AI팀의 역할을 확인합니다.",
+      "data_classification": "synthetic_review_only",
+      "review_points": [
+        "QR 또는 검토 링크로 스마트폰에서 진입",
+        "AI는 정책 결정자가 아니라 숙의 촉진자임을 고지",
+        "기초연금이 아닌 국민연금 시나리오만 진행"
+      ],
+      "example_view": {
+        "type": "timeline",
+        "items": ["전문가 A/B/C", "M1", "개인영향", "M2·T6", "D", "전문가·청중", "D′", "M3"]
+      }
+    },
+    {
+      "id": "expert-options",
+      "position": 2,
+      "title": "전문가 A/B/C안",
+      "summary": "최종 보고서의 국민연금 A/B/C안을 동일한 세 열과 동일한 순서로 비교합니다.",
+      "data_classification": "synthetic_review_only",
+      "review_points": [
+        "수급개시연령·기금운용전략(운영수익률)·국고투입(지원)수준만 같은 표에서 비교",
+        "정책전문가가 목표, 설계 배경, 기대효과를 설명",
+        "5년마다 지속가능성을 평가하여 필요 시 보충·조정"
+      ],
+      "example_view": {"type": "policy_table", "options": ["A", "B", "C"]}
+    },
+    {
+      "id": "m1-result",
+      "position": 3,
+      "title": "M1 단순 투표 결과",
+      "summary": "참가자가 A/B/C 중 한 안만 선택하고 1차 선택률을 확인합니다.",
+      "data_classification": "synthetic_review_only",
+      "input_contract": ["A/B/C 중 한 안 선택"],
+      "output_contract": ["A/B/C별 1차 선택률"],
+      "review_points": [
+        "최신 교수 지시에 따라 선택 사유·확신도·자유서술·응답보류를 받지 않음",
+        "결과는 승인된 공개 기준을 만족할 때만 표시"
+      ],
+      "example_view": {
+        "type": "choice_result",
+        "question": "가장 선호하는 국민연금 개혁안 하나를 선택해 주십시오.",
+        "rows": [{"option": "A", "percent": 38}, {"option": "B", "percent": 42}, {"option": "C", "percent": 20}]
+      }
+    },
+    {
+      "id": "personal-impact",
+      "position": 4,
+      "title": "개인 조건별 영향",
+      "summary": "입력값은 브라우저 안에서 계산하고 서버에는 원값을 저장하지 않으며, 선택안을 중심으로 A/B/C 영향을 비교합니다.",
+      "data_classification": "synthetic_review_only",
+      "input_contract": [
+        "현재 나이",
+        "월소득(현재 또는 예상)",
+        "예상 국민연금 가입기간",
+        "예상 최종 은퇴연령"
+      ],
+      "output_contract": [
+        "안별 예상 월연금",
+        "수급 개시 시점과 은퇴 후 소득공백",
+        "83.5세 기준 예상 생애 총수급액",
+        "1인당 예상 연 조세부담률",
+        "기금 소진시점 또는 70년 후 적립배율",
+        "개인 상황을 고려한 AI 정책 해설"
+      ],
+      "review_points": [
+        "모든 참가자를 국민연금 가입자로 가정",
+        "초과세수 100조원은 개인 조세부담 계산에서 제외",
+        "개인혜택·세대 간 형평성·재정 안정성·장점과 유의점을 함께 설명"
+      ],
+      "example_view": {
+        "type": "personal_impact",
+        "input_placeholders": ["현재 나이", "월소득", "가입기간", "은퇴연령"],
+        "rows": [
+          {"option": "A", "monthly": "계산값", "gap": "계산값", "lifetime": "계산값", "tax_rate": "계산값", "fund_status": "계산값", "explanation": "개인혜택·형평성·재정안정성 해설"},
+          {"option": "B", "monthly": "계산값", "gap": "계산값", "lifetime": "계산값", "tax_rate": "계산값", "fund_status": "계산값", "explanation": "개인혜택·형평성·재정안정성 해설"},
+          {"option": "C", "monthly": "계산값", "gap": "계산값", "lifetime": "계산값", "tax_rate": "계산값", "fund_status": "계산값", "explanation": "개인혜택·형평성·재정안정성 해설"}
+        ]
+      }
+    },
+    {
+      "id": "m2-result",
+      "position": 5,
+      "title": "M2 구조화 평가 결과",
+      "summary": "개인영향 확인 뒤 A/B/C를 다시 선택하고 세 안 모두에 구조화된 판단을 남긴 결과를 비교합니다.",
+      "data_classification": "synthetic_review_only",
+      "input_contract": [
+        "A/B/C 재선택",
+        "선택안 수용 또는 조건부 수용과 사유",
+        "나머지 두 안 비선택과 사유"
+      ],
+      "output_contract": ["1차·2차 선택률", "M1→M2 선택 변화", "안별 구조화 판단"],
+      "review_points": [
+        "선택안과 비선택안의 사유를 구분",
+        "개인영향 확인 전후의 선호 변화를 공개"
+      ],
+      "example_view": {
+        "type": "m2_result",
+        "rows": [
+          {"option": "A", "m1": 38, "m2": 31, "accept": 18, "conditional": 13, "not_selected": 69},
+          {"option": "B", "m1": 42, "m2": 47, "accept": 29, "conditional": 18, "not_selected": 53},
+          {"option": "C", "m1": 20, "m2": 22, "accept": 12, "conditional": 10, "not_selected": 78}
+        ]
+      }
+    },
+    {
+      "id": "t6-analysis",
+      "position": 6,
+      "title": "T6 변수별 특성",
+      "summary": "개인을 식별하지 않는 승인 구간과 최소표본 기준으로 변수별 선택 특성과 이유를 설명합니다.",
+      "data_classification": "synthetic_review_only",
+      "grouping_variables": ["나이", "월소득", "예상 가입기간", "예상 최종 은퇴연령"],
+      "review_points": [
+        "네 변수의 완전교차가 아니라 각 변수별로 이해 가능한 특성을 제시",
+        "작은 집단은 억제하고 실제·합성 집계를 혼합하지 않음",
+        "재정 지속가능성·세대 간 형평성·노후소득 적정성 등 승인된 쟁점으로 설명"
+      ],
+      "example_view": {
+        "type": "segment_result",
+        "rows": [
+          {"variable": "나이", "segment": "승인 구간 예시", "characteristic": "B안 조건부 수용 비중이 상대적으로 높음", "reason": "수급공백과 재정안정성 쟁점"},
+          {"variable": "월소득", "segment": "승인 구간 예시", "characteristic": "A안 수용 비중이 상대적으로 높음", "reason": "연 조세부담과 월연금 쟁점"},
+          {"variable": "예상 가입기간", "segment": "승인 구간 예시", "characteristic": "C안 비선택 비중이 상대적으로 높음", "reason": "운용위험과 생애총액 쟁점"},
+          {"variable": "예상 최종 은퇴연령", "segment": "승인 구간 예시", "characteristic": "B안 수용 비중이 상대적으로 높음", "reason": "수급개시연령과 소득공백 쟁점"}
+        ]
+      }
+    },
+    {
+      "id": "d",
+      "position": 7,
+      "title": "A/B/C와 M2로 만든 D안",
+      "summary": "운영에서는 동결된 전문가 대안과 실제 M2 구조화 집계 및 승인 근거로 D안을 생성합니다. 이 검토본은 실제 응답이 없는 승인 합성 예시만 보여줍니다.",
+      "data_classification": "synthetic_review_only",
+      "generation_inputs": ["동결된 A/B/C", "실제 M2 구조화 집계", "승인된 근거"],
+      "bounds": ["보험료율 18% 이하", "소득대체율 43%", "수익률 5~7%", "수급연령 65~70세", "연 국고지원 GDP 1% 이하"],
+      "review_points": [
+        "검토 화면의 수치와 근거는 합성 예시이며 실제 M2를 사용하지 않음",
+        "운영에서는 다수결 복사가 아니라 상충하는 정책목표의 균형을 설명",
+        "반영·미반영된 시민 쟁점과 이유를 제시",
+        "모델·배포·프롬프트·근거·fallback·사람 승인 계보를 결박"
+      ],
+      "example_view": {
+        "type": "generated_policy",
+        "label": "D",
+        "values": {"start_age": "67세", "fund_strategy": "안정·성장 혼합 5.7%", "government_support": "매년 GDP 0.35%"},
+        "basis": ["M2의 수급공백 우려 반영", "재정 지속가능성과 세대 간 형평성의 균형", "사람 승인 전에는 공개하지 않음"]
+      }
+    },
+    {
+      "id": "expert-audience",
+      "position": 8,
+      "title": "전문가·선정 청중 의견",
+      "summary": "전문가 패널과 진행자가 선별한 공개 청중 의견으로 D안의 비용과 제약을 검토합니다.",
+      "data_classification": "synthetic_review_only",
+      "discussion_scope": "D안의 비용과 제약",
+      "review_points": [
+        "가능·불가능 단정이 아니라 비용과 제약으로 논의 범위를 제한",
+        "참가자의 비공개 자유서술을 자동 공개하지 않음",
+        "진행자가 공개할 대표 의견을 선택하고 기록"
+      ],
+      "example_view": {
+        "type": "commentary",
+        "expert": ["67세 전환기간의 노동시장 비용을 명시해야 함", "5.7% 목표수익률의 위험관리 조건이 필요함"],
+        "audience": ["은퇴 후 수급공백 완화 장치를 함께 설명해 달라", "국고지원 상한과 5년 점검 기준을 명확히 해 달라"]
+      }
+    },
+    {
+      "id": "d-prime",
+      "position": 9,
+      "title": "의견을 반영한 D′안",
+      "summary": "D안과 승인된 전문가 논평, 진행자가 선별한 공개 청중 의견을 반영해 D′안을 만들고 사람이 다시 승인합니다.",
+      "data_classification": "synthetic_review_only",
+      "generation_inputs": ["승인된 D안", "승인된 전문가 논평", "진행자가 선별한 공개 청중 의견"],
+      "review_points": [
+        "D 대비 변경된 세 레버와 그 이유를 표시",
+        "입력별 반영·미반영과 이유를 표시",
+        "D·전문가·청중 hash와 생성 provenance 및 별도 사람 승인을 결박"
+      ],
+      "example_view": {
+        "type": "generated_policy",
+        "label": "D′",
+        "values": {"start_age": "67세(점진 전환)", "fund_strategy": "안정·성장 혼합 5.7%", "government_support": "매년 GDP 0.35%, 5년 점검"},
+        "basis": ["전문가의 전환비용 조건 반영", "선정 청중의 수급공백 설명 요구 반영", "D 대비 점진 전환·5년 점검 조건 명시"]
+      }
+    },
+    {
+      "id": "m3-result",
+      "position": 10,
+      "title": "A/B/C/D′ 최종 평가",
+      "summary": "A/B/C/D′를 같은 세 열로 비교하고 네 안 중 하나를 최종 선택한 뒤 안별 판단과 최종 결과를 확인합니다.",
+      "data_classification": "synthetic_review_only",
+      "choice_set": ["A", "B", "C", "D′"],
+      "input_contract": ["네 안 중 최종 선택", "선택안 수용 또는 조건부 수용", "나머지 안 비선택"],
+      "output_contract": ["최종 선택률", "안별 판단", "M1→M2→M3 선택 변화"],
+      "review_points": [
+        "D′도 A/B/C와 동일한 세 열로 비교",
+        "D′의 근거와 사람 승인 상태를 함께 표시",
+        "AI가 숙의 촉진자로 수행한 역할을 평가"
+      ],
+      "example_view": {
+        "type": "m3_result",
+        "d_prime": {"start_age": "67세(점진 전환)", "fund_strategy": "안정·성장 혼합 5.7%", "government_support": "매년 GDP 0.35%, 5년 점검"},
+        "rows": [{"option": "A", "percent": 24}, {"option": "B", "percent": 29}, {"option": "C", "percent": 15}, {"option": "D′", "percent": 32}]
+      }
+    },
+    {
+      "id": "closing",
+      "position": 11,
+      "title": "마무리",
+      "summary": "전문가 패널 총평, AI-Assisted Deliberation의 의미, 결과 해석 한계와 연구·철회 안내를 확인하고 종료합니다.",
+      "data_classification": "synthetic_review_only",
+      "review_points": [
+        "정책 산출물의 사람 승인 상태를 표시",
+        "검토 예시와 실제 전체 시민 여론을 구분",
+        "연구 문의·철회 절차와 후속 발전 방향을 안내"
+      ],
+      "example_view": {
+        "type": "closing",
+        "items": ["사람 승인 상태", "패널 총평", "결과 해석 한계", "연구 문의·철회 안내"]
+      }
+    }
+  ],
+  "source_contract": {
+    "mode": "approved_derived_only",
+    "document_hashes": [
+      "f7dfe2d05c7729822b29d078fd8225c6d4f52288973d3b48fa01d83ec852ee5a",
+      "1229894633a810de01b8f3d7fe2b1c56afaae94e29207cf78eab1021285da36f",
+      "9fb9479dd7ec735e7130802453a3f82e0a18528600dbf680d8a306cae32d99c8",
+      "b9fb159169dcf19df435f8106a251321d59e0ae6abc5706c7aef7cb5c6585e55"
+    ],
+    "page_mapping": {
+      "intro": [1],
+      "expert-options": [1],
+      "m1-result": [1],
+      "personal-impact": [1, 2],
+      "m2-result": [2, 3],
+      "t6-analysis": [3],
+      "d": [3, 4],
+      "expert-audience": [4],
+      "d-prime": [4],
+      "m3-result": [4, 5],
+      "closing": [5]
+    }
+  },
+  "golden_contract": {
+    "reset_stage": "intro",
+    "stage_count": 11,
+    "actual_data_included": false
+  }
+}
