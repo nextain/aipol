@@ -13,6 +13,7 @@ from policy_lab.domains.pension.public_results import (
     build_t3_m1_results,
     build_t5_results,
     canonical_content_hash,
+    V4_M3_OPTIONS,
 )
 
 
@@ -80,7 +81,7 @@ def test_t5_has_stable_3x3_pairing_and_per_option_stance_denominators():
     assert (by_option["A"].abstention_count, by_option["A"].denominator) == (1, 2)
 
 
-def test_t10_outputs_final_choice_stances_and_both_stable_3x4_transitions():
+def test_t10_outputs_four_option_final_choice_and_stances():
     measurements = [
         m("p1", "M1", "A"), m("p1", "M2", "B"), m("p1", "M3", "D_PRIME"),
         m("p2", "M1", "B"), m("p2", "M2", "B"), m("p2", "M3", "A"),
@@ -104,9 +105,39 @@ def test_t10_outputs_final_choice_stances_and_both_stable_3x4_transitions():
     assert result.m1_to_m3.cells == ((0, 0, 1, 1), (1, 0, 0, 0), (0, 0, 0, 0))
     assert result.m2_to_m3.denominator == 2
     assert result.m1_to_m3.denominator == 3
-    d_prime = result.m3_stances[-1]
+    d_prime = next(item for item in result.m3_stances if item.option_id == "D_PRIME")
     assert d_prime.option_id == "D_PRIME"
     assert [row.count for row in d_prime.stances] == [1, 0, 2]
+
+
+def test_t10_v4_uses_d_without_changing_legacy_d_prime_contract():
+    measurements = [
+        m("p1", "M1", "A"), m("p1", "M2", "B"), m("p1", "M3", "D"),
+    ]
+    assessments = [
+        a("p1", "M3", option, "accept" if option == "D" else "reject")
+        for option in V4_M3_OPTIONS
+    ]
+
+    result = build_t10_results(
+        measurements,
+        assessments,
+        eligible_participants=("p1",),
+        cutoff=CUTOFF,
+        rules_version="public-v4",
+        m3_options=V4_M3_OPTIONS,
+    )
+
+    assert [row.key for row in result.m3.options] == ["A", "B", "C", "D"]
+    assert result.m2_to_m3.column_options == V4_M3_OPTIONS
+    with pytest.raises(PublicResultError, match="invalid choice"):
+        build_t10_results(
+            [m("p1", "M3", "D")],
+            [],
+            eligible_participants=("p1",),
+            cutoff=CUTOFF,
+            rules_version="public-v3",
+        )
 
 
 def test_content_is_order_independent_bound_to_rules_and_contains_no_participant_or_reason():

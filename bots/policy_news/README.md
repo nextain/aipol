@@ -9,7 +9,7 @@ Request 승인 뒤에만 가능하다.
 - 일정: 매일 06:00 KST (`0 21 * * *` UTC)
 - 실행 환경: Azure Container Apps Job `aipol-policy-news-daily`
 - 수집 한도: 실행당 공식 출처 최대 3건
-- 초안: Upstage `solar-open2`
+- 초안: Upstage `solar-pro4`
 - 독립 검토: AIPOL 전용 AnyLLM 계정의 `xai:grok-4.3`
 - 저장: 비공개 Azure Blob `policy-news-sources`, `policy-news-runs`
 - 공개: 자동 게시 없음

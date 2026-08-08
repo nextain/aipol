@@ -30,7 +30,8 @@ ROUTES = (
     "/platform/",
     "/cases/",
     "/cases/pension/",
-    "/cases/pension/experiment/",
+    "/cases/pension/report-2/",
+    "/cases/pension/report-2/results/",
     "/cases/pension/experiment/terms/",
     "/cases/pension/experiment/privacy/",
     "/events/",
@@ -150,6 +151,24 @@ def test_routes_render_without_browser_errors(browser, site_url):
         assert page.locator("h1").count() == 1, route
 
     assert errors == []
+    context.close()
+
+
+def test_pension_experiment_route_redirects_to_the_canonical_review_event(browser, site_url):
+    target = "https://session.aipol.kaps.or.kr/aipol.html?review=review-event-1"
+    context = _context(browser, viewport={"width": 390, "height": 844})
+    context.route(
+        "https://session.aipol.kaps.or.kr/**",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="text/html; charset=utf-8",
+            body="<!doctype html><html lang='ko'><body><h1>참가자 화면</h1></body></html>",
+        ),
+    )
+    page = context.new_page()
+    page.goto(f"{site_url}/cases/pension/experiment/?review=review-event-1", wait_until="networkidle")
+    assert page.url == target
+    assert page.locator("h1").get_by_text("참가자 화면").count() == 1
     context.close()
 
 

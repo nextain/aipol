@@ -1,0 +1,59 @@
+{
+  "work": "pension-package-official-run",
+  "status": "review_only",
+  "current_phase": "discord_revision_ui_local_validated_release_evidence_blocked",
+  "contract_id": "pension-package-official-run-2026-08-06",
+  "contract_digest": "b76c866c308f4290fbe906e70d4e6b2f365f853f0f087ceb7446340777ac7b06",
+  "started_at": "2026-08-06T19:08:03+09:00",
+  "stage_timings": [
+    {"stage": "M1-synthetic-250", "duration_ms": 1194037},
+    {"stage": "M2-synthetic-250", "duration_ms": 602654},
+    {"stage": "M2-ready-to-D", "duration_ms": 373516},
+    {"stage": "D-prime", "duration_ms": 35301},
+    {"stage": "biased-M3-quarantined-206", "duration_ms": 1358509},
+    {"stage": "neutral-M3-250", "duration_ms": 805554},
+    {"stage": "deployment-scope-tests", "duration_ms": 92810},
+    {"stage": "official-pretest-2-M2-ready-to-D", "duration_ms": 373516},
+    {"stage": "official-pretest-2-M3-synthetic-250", "duration_ms": 581378},
+    {"stage": "official-pretest-2-full-regression", "duration_ms": 90060}
+  ],
+  "evidence": [
+    "Discord source package message 1534865632166936726 and attachment 1534865631873204314",
+    "r4 public/private artifact validation: 250 participants, 250 unique IDs, 0 contract errors",
+    "r4 M3 choices: A=25, B=69, C=13, D_PRIME=143",
+    "r4 known new successful receipts=460; cumulative r2+r3+r4 known successful receipts=1652",
+    "deployment-scope tests: 434 passed, 6 skipped, 1 out-of-image deselected",
+    "production read-only: aipol-session-prod healthy, collection_ready=false, immutable audit policy Locked/365d",
+    "verify-product-preservation: REVIEW_ONLY because signed baseline/current probe and planning/integration evidence are absent",
+    "official second pretest content verdict: r3 matches package ver.2; r4 four-option M3 does not",
+    "official second pretest r3 validation: 250 rows, 250 unique IDs, M1/M2/M3 ABC and separate D assessment, 0 contract errors",
+    "official second pretest public-site and full regression: 435 passed, 6 skipped, 1 preexisting out-of-scope portal hash deselected",
+    "review-pass complexity preflight: NOT_CLEAN sha256:31eef28321512e8c36d33ea0182fac7d63bff8865bfaff1c1501287a9d36fd27",
+    "Discord official second pretest report confirmed: message 1534976545909899354",
+    "Discord revision request set rechecked: messages 1535040074079543398 through 1535049855397920881",
+    "Professor review UI revision: 11-stage D-only flow, updated A/B/C/D labels and copy, issue-only T6, expert/citizen response flow, D movement visualization",
+    "Generated deliberation illustration: 1693x929 PNG, no text or brand marks",
+    "Revision validation: web asset tests 12 passed; Playwright desktop 11-stage and mobile stage-2 checks passed with zero console errors",
+    "Discord revision progress report confirmed: message 1535055036172730368"
+  ],
+  "artifacts": [
+    "private/internal/virtual-citizen-domestic-event-v3-250-2026-08-06-r4",
+    "private/internal/virtual-citizen-domestic-fullqual-250-2026-08-06-r3",
+    "private/internal/pension-domestic-event-v3-r4-final-report-2026-08-06.md",
+    "private/internal/pension-official-second-pretest-final-report-2026-08-07.md",
+    "site/cases/pension/report-2/index.html",
+    "site/cases/pension/report-2/results/index.html",
+    "event-tool/web/aipol-review.html",
+    "event-tool/web/aipol-review.js",
+    "event-tool/web/aipol-review.css",
+    "event-tool/web/aipol-deliberation-ai.png",
+    ".agents/work/discord-review-screenshots-20260807"
+  ],
+  "deployment": {
+    "attempted": false,
+    "reason": "verify-product-preservation release evidence missing and review-pass complexity preflight NOT_CLEAN; Discord revision UI is locally validated but remains REVIEW_ONLY",
+    "current_revision": "aipol-session-prod--rmfa03",
+    "current_image": "acraipolprod01.azurecr.io/policy-lab-event@sha256:d535d25a1407aca5baa14e915ee7b04f6edf12d9ce3a65a9a08bfabb76df166f"
+  },
+  "updated_at": "2026-08-07T07:42:46+09:00"
+}

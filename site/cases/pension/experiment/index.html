@@ -9,18 +9,17 @@
       content="AIPOL 연금개혁-AI 숙의민주주의 정책실험 참가자 화면입니다."
     />
     <meta name="robots" content="noindex,nofollow,noarchive" />
-    <meta
-      http-equiv="refresh"
-      content="0;url=https://aipol-pension-design-review.vercel.app/experiment?review=team"
-    />
+    <link rel="canonical" href="https://aipol.kaps.or.kr/cases/pension/experiment/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="AIPOL" />
+    <meta property="og:title" content="연금개혁-AI 숙의민주주의 정책실험 | AIPOL" />
+    <meta property="og:description" content="AIPOL 연금개혁-AI 숙의민주주의 정책실험 참가자 화면입니다." />
+    <meta property="og:url" content="https://aipol.kaps.or.kr/cases/pension/experiment/" />
+    <meta property="og:image" content="https://aipol.kaps.or.kr/assets/og-aipol.png" />
     <link href="/assets/site.css" rel="stylesheet" />
-    <link
-      href="/cases/pension/experiment/assets/index-BBUseKTC.css"
-      media="not all"
-      rel="stylesheet"
-    />
     <link href="/assets/favicon.svg" rel="icon" type="image/svg+xml" />
     <script defer src="/assets/site.js"></script>
+    <script defer src="/cases/pension/experiment/entry.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">본문으로 건너뛰기</a>
@@ -61,13 +60,16 @@
           <article class="card">
             <img src="/assets/aipol-logo.png" alt="AIPOL" class="brand-logo" />
             <h1>정책실험 참가자 화면으로 연결합니다.</h1>
-            <p>자동으로 이동하지 않으면 아래 버튼을 눌러 주세요.</p>
+            <p id="experiment-entry-status" role="status">
+              진행자가 제공한 행사 링크를 이용해 주세요. 행사 식별자 없이 임의 행사에는 연결하지 않습니다.
+            </p>
             <a
               class="button button-primary"
-              href="https://aipol-pension-design-review.vercel.app/experiment?review=team"
+              id="experiment-entry-link"
+              href="/cases/pension/"
               rel="noopener"
             >
-              참가자 화면 열기
+              연금개혁 정책실험 안내 보기
             </a>
           </article>
         </div>

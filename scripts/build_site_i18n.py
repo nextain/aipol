@@ -27,7 +27,7 @@ from solar_adapter import ENDPOINT, resolve_api_key  # noqa: E402
 
 
 SITE_URL = "https://aipol.kaps.or.kr"
-MODEL = "solar-open2"
+MODEL = "solar-pro4"
 KOREAN = re.compile(r"[가-힣]")
 SKIP_PARENTS = {"script", "style", "code", "pre"}
 META_NAMES = {

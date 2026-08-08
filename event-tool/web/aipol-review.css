@@ -1,0 +1,57 @@
+body { background: #eef2f7; }
+#review-app { width: min(100% - 24px, 1240px); margin: 24px auto 48px; }
+.review-head, .review-card { background: #fff; border: 1px solid #d8dee8; border-radius: 18px; padding: 22px; box-shadow: 0 4px 18px rgba(21,33,52,.07); }
+.review-head h1 { margin: 4px 0 10px; }
+.review-warning { padding: 12px 14px; color: #7a3b00; background: #fff4df; border: 2px solid #d8831d; border-radius: 12px; font-weight: 800; }
+.review-progress { display: flex; align-items: center; gap: 12px; font-weight: 800; }
+.review-progress progress { width: 100%; height: 14px; }
+.review-card { margin-top: 16px; }
+.review-card h2 { margin-top: 0; }
+.review-note { padding: 12px 14px; border-left: 4px solid #315aa9; background: #f2f6ff; }
+.review-table-wrap { overflow-x: auto; margin: 16px 0; }
+.review-table { width: 100%; min-width: 680px; border-collapse: collapse; }
+.review-table caption { padding: 8px; font-weight: 800; text-align: left; }
+.review-table th, .review-table td { padding: 10px; border: 1px solid #cfd6e2; text-align: left; vertical-align: top; }
+.review-table th { background: #f5f7fb; }
+.review-options, .review-fields { display: grid; gap: 10px; }
+.review-choice, .review-field { padding: 12px; border: 2px solid #cfd6e2; border-radius: 12px; background: #fff; }
+.review-choice { display: flex; gap: 10px; align-items: flex-start; }
+.review-choice input { width: 22px; height: 22px; }
+.review-choice span { display: grid; gap: 4px; }
+.review-choice small { color: #526173; line-height: 1.45; }
+.review-field label { display: block; font-weight: 800; margin-bottom: 5px; }
+.review-field input, .review-field select, .review-field textarea { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px; border: 1px solid #aeb8c7; border-radius: 8px; }
+.review-basis { padding: 14px; border: 1px solid #cfd6e2; border-radius: 12px; background: #fbfcfe; }
+.policy-intro-layout { display: grid; gap: 18px; }
+.option-summary-list { display: grid; gap: 10px; }
+.option-summary-list section { padding: 14px; border: 1px solid #cfd6e2; border-radius: 12px; background: #fbfcfe; }
+.option-summary-list h3 { margin: 0 0 6px; color: #17366f; }
+.option-summary-list p { margin: 0; line-height: 1.55; }
+.deliberation-figure { margin: 0; overflow: hidden; border: 1px solid #cfd6e2; border-radius: 16px; background: #f5f8fc; }
+.deliberation-figure img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.deliberation-figure figcaption { padding: 12px 14px; color: #35465a; font-weight: 700; line-height: 1.5; }
+.issue-grid, .movement-grid, .discussion-flow { display: grid; gap: 12px; }
+.issue-card, .movement-panel, .discussion-flow section { padding: 14px; border: 1px solid #cfd6e2; border-radius: 14px; background: #fbfcfe; }
+.issue-card h3, .discussion-flow h3 { margin-top: 0; }
+.issue-rate { margin: 0; color: #17366f; font-size: 1.7rem; font-weight: 900; }
+.issue-bar, .movement-bar { height: 12px; overflow: hidden; border-radius: 999px; background: #dce5f2; }
+.issue-bar span, .movement-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #315aa9, #25a29a); }
+.movement-panel { margin-top: 16px; background: #f7faff; }
+.movement-total { display: flex; align-items: center; justify-content: space-between; margin: 16px 0; padding: 16px; border-radius: 12px; background: #17366f; color: #fff; }
+.movement-total strong { font-size: 1.8rem; }
+.movement-grid > div { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px; border-radius: 12px; background: #fff; }
+.movement-grid .movement-bar { grid-column: 1 / -1; }
+.review-actions { position: sticky; bottom: 0; display: flex; gap: 10px; margin-top: 16px; padding: 12px; background: rgba(238,242,247,.96); }
+.review-actions button { min-height: 50px; flex: 1; border: 2px solid #315aa9; border-radius: 12px; background: #fff; color: #17366f; font-weight: 800; }
+.review-actions #review-next { background: #315aa9; color: #fff; }
+.review-actions button:disabled { opacity: .45; }
+@media (max-width: 640px) {
+  #review-app { width: min(100% - 12px, 980px); margin-top: 6px; }
+  .review-head, .review-card { padding: 16px 12px; border-radius: 13px; }
+  .review-actions { gap: 6px; padding: 8px 2px; }
+  .review-actions button { min-height: 46px; font-size: .92rem; }
+}
+@media (min-width: 820px) {
+  .policy-intro-layout { grid-template-columns: minmax(0, 1fr) minmax(300px, .9fr); align-items: start; }
+  .issue-grid, .movement-grid, .discussion-flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

@@ -37,7 +37,7 @@ _DEFAULT_PROVIDERS = {
 
 _DEFAULT_DOKPAMO = [
     {"label": "EXAONE", "company": "LG", "provider": "friendli", "model": "LGAI-EXAONE/K-EXAONE-236B-A23B"},
-    {"label": "Solar", "company": "Upstage", "provider": "upstage", "model": "solar-pro3"},
+    {"label": "Solar", "company": "Upstage", "provider": "upstage", "model": "solar-pro4"},
     {"label": "HCX", "company": "Naver", "provider": "clova", "model": "HCX-005"},
     # {"label": "A.X", "company": "SKT", "provider": "sktax", "model": "ax4"},  # 유효 키 오면 UI에서 추가
 ]

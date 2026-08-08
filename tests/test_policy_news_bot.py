@@ -69,7 +69,7 @@ def test_generated_html_marks_ai_editorial_boundary() -> None:
     normalized = " ".join(html.split())
     assert "현재 발행분과 자동화 준비 상태를 구분" in normalized
     assert "현재 공개된 8건은 Codex" in normalized
-    assert "solar-open2" in normalized
+    assert "solar-pro4" in normalized
     assert "비공개 초안 1건" in normalized
     assert "nvidia/nemotron-3-ultra-550b-a55b:free" in normalized
     assert "정기 자동발행은 아직 가동하지 않았습니다" in normalized
@@ -110,8 +110,8 @@ def test_solar_adapter_is_review_only_and_bounded() -> None:
         "title": "Official item",
         "source_text": "AI is used to support a public consultation analysis.",
     }
-    payload = solar_adapter.build_payload(packet, "solar-open2")
-    assert payload["model"] == "solar-open2"
+    payload = solar_adapter.build_payload(packet, "solar-pro4")
+    assert payload["model"] == "solar-pro4"
     assert payload["max_tokens"] == 16384
     assert payload["stream"] is False
     assert payload["response_format"] == {"type": "json_object"}

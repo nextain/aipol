@@ -45,6 +45,64 @@ CATEGORIES = (
 ADMISSION_CREDENTIALS: dict[str, list[str]] = {}
 
 
+def _approved_v4_bindings(client: TestClient) -> dict[str, str]:
+    """Create independently approved, versioned v4 inputs for one test event."""
+    editor_headers = _admin_headers(client, "editor")
+    approver_headers = _admin_headers(client, "hong")
+    suffix = uuid.uuid4().hex
+    definitions = {
+        "source_bundle": {
+            "documents": [
+                {
+                    "document_id": "fixture-policy-source",
+                    "title": "검증용 정책 원천",
+                    "content_hash": "a" * 64,
+                }
+            ]
+        },
+        "constraint_set": {
+            "constraints": [
+                {
+                    "constraint_id": "fixture-evidence-required",
+                    "description": "근거 없는 수치를 D안에 추가하지 않습니다.",
+                }
+            ]
+        },
+        "issue_taxonomy": {
+            "topics": [
+                {"code": "fiscal_sustainability", "label": "재정 지속가능성"},
+                {"code": "intergenerational_equity", "label": "세대 간 형평성"},
+                {"code": "retirement_income_adequacy", "label": "노후소득 적정성"},
+                {"code": "political_acceptability", "label": "정치적 수용성"},
+                {"code": "administrative_feasibility", "label": "행정적 실행 가능성"},
+            ],
+            "classification_mode": "multi_label",
+        },
+    }
+    bindings: dict[str, str] = {}
+    for artifact_type, content_json in definitions.items():
+        version_id = f"fixture-{artifact_type}-{suffix}"
+        created = client.post(
+            "/api/admin/aipol/artifacts",
+            headers=editor_headers,
+            json={
+                "artifact_type": artifact_type,
+                "version_id": version_id,
+                "content_json": content_json,
+            },
+        )
+        assert created.status_code == 200, created.text
+        approved = client.post(
+            f"/api/admin/aipol/artifacts/{artifact_type}/{version_id}/approve",
+            headers=approver_headers,
+            json={"approval_id": f"approval-{artifact_type}-{suffix}"},
+        )
+        assert approved.status_code == 200, approved.text
+        bindings[f"{artifact_type}_version_id"] = version_id
+    bindings["taxonomy_version_id"] = bindings.pop("issue_taxonomy_version_id")
+    return bindings
+
+
 @pytest.fixture()
 def aipol_app(tmp_path, monkeypatch):
     monkeypatch.setenv("EVENT_ENV", "development")
@@ -99,8 +157,10 @@ def _create(
     capacity: int = 20,
     suffix: str = "",
     procedure_version: str = "v1",
+    event_kind: str = "live",
 ) -> dict:
     editor_headers = _admin_headers(client, "editor")
+    v4_bindings = _approved_v4_bindings(client) if procedure_version == "v4" else {}
     response = client.post(
         "/api/admin/aipol/experiments",
         headers=editor_headers,
@@ -115,6 +175,8 @@ def _create(
             "option_set_version": "approved-options-v1",
             "capacity": capacity,
             "procedure_version": procedure_version,
+            "event_kind": event_kind,
+            **v4_bindings,
             "policy_options": [
                 {"policy_option_id": "A", "label": "검증용 A안", "policy_version": "approved-options-v1",
                  "source": "test-fixture", "approved_by": "test-reviewer", "lever_values": {"fixture": "A"}},
@@ -127,9 +189,13 @@ def _create(
     )
     assert response.status_code == 200, response.text
     created = response.json()
-    ADMISSION_CREDENTIALS[created["id"]] = list(created["admission_credentials"])
-    assert len(ADMISSION_CREDENTIALS[created["id"]]) == capacity
-    assert len(set(ADMISSION_CREDENTIALS[created["id"]])) == capacity
+    credentials = list(created.get("admission_credentials") or [])
+    ADMISSION_CREDENTIALS[created["id"]] = credentials
+    if event_kind == "live":
+        assert len(credentials) == capacity
+        assert len(set(credentials)) == capacity
+    else:
+        assert credentials == []
     return created
 
 
@@ -436,8 +502,44 @@ def _artifact(client, headers, experiment_id, kind, marker, *, fallback=False):
             if row["id"] == experiment_id
         )
         content = {"title": marker, "body": "운영 승인된 AI 자료"}
-        if experiment["procedure_config"].get("version") == "aipol-pension-3-measurements-v3":
+        procedure_version = experiment["procedure_config"].get("version")
+        if procedure_version in {
+            "aipol-pension-3-measurements-v3",
+            "aipol-pension-3-measurements-v4",
+        }:
             content["lever_values"] = {"fixture": "D"}
+        if procedure_version == "aipol-pension-3-measurements-v4":
+            approved_d = {
+                "title": marker,
+                "body": "운영 승인된 AI 자료",
+                "lever_values": {"fixture": "D"},
+            }
+            content = {
+                **approved_d,
+                "public_summary": "승인된 입력과 시민 의견을 바탕으로 구성한 공개 요약입니다.",
+                "deliberation_process": [
+                    {"stage": "independent_proposals", "summary": "역할별 제안을 독립 생성했습니다."},
+                    {"stage": "cross_critique", "summary": "제안 사이의 충돌과 근거를 교차 검토했습니다."},
+                    {"stage": "revised_proposals", "summary": "비판을 반영해 역할별 제안을 수정했습니다."},
+                    {"stage": "d_synthesis", "summary": "공통점과 차이를 D안 초안으로 종합했습니다."},
+                    {"stage": "constraint_check", "summary": "승인된 제약조건 위반 여부를 확인했습니다."},
+                ],
+                "ai_draft": {
+                    "title": f"{marker} AI 초안",
+                    "body": "전문가 검토 전 AI 초안입니다.",
+                    "lever_values": {"fixture": "D"},
+                },
+                "approved_d": approved_d,
+                "expert_approval_diff": [
+                    {
+                        "field": "body",
+                        "before": "전문가 검토 전 AI 초안입니다.",
+                        "after": "운영 승인된 AI 자료",
+                        "reason": "승인된 근거와 제약을 더 분명히 표시했습니다.",
+                    }
+                ],
+                "approval_rationale": "공개 가능한 근거와 제약조건을 확인해 승인했습니다.",
+            }
         response = client.post(
             f"/api/admin/aipol/experiments/{experiment_id}/ai-candidates",
             headers=headers,
@@ -601,7 +703,7 @@ def _approve_all_m2_reason_classifications(client, experiment_id):
         headers=editor_headers,
     )
     assert pending.status_code == 200, pending.text
-    approved = []
+    drafts = []
     for index, item in enumerate(pending.json()):
         draft = client.post(
             f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-drafts",
@@ -614,6 +716,7 @@ def _approve_all_m2_reason_classifications(client, experiment_id):
             },
         )
         assert draft.status_code == 200, draft.text
+        drafts.append(draft.json())
         if index == 0:
             self_approval = client.post(
                 f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classifications",
@@ -625,17 +728,37 @@ def _approve_all_m2_reason_classifications(client, experiment_id):
                 },
             )
             assert self_approval.status_code == 403
+
+    approval_queue = client.get(
+        f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-approvals",
+        headers=approver_headers,
+    )
+    assert approval_queue.status_code == 200, approval_queue.text
+    queued_by_id = {item["draft_id"]: item for item in approval_queue.json()}
+    assert set(queued_by_id) == {item["draft_id"] for item in drafts}
+    assert all("reason" not in item for item in approval_queue.json())
+    assert all(item["self_approval_blocked"] is False for item in approval_queue.json())
+
+    approved = []
+    for index, draft in enumerate(drafts):
+        queued = queued_by_id[draft["draft_id"]]
+        assert queued["draft_hash"] == draft["draft_hash"]
         approval = client.post(
             f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classifications",
             headers=approver_headers,
             json={
-                "draft_id": draft.json()["draft_id"],
-                "draft_hash": draft.json()["draft_hash"],
+                "draft_id": queued["draft_id"],
+                "draft_hash": queued["draft_hash"],
                 "approval_id": f"classification-{experiment_id}-{index}",
             },
         )
         assert approval.status_code == 200, approval.text
         approved.append(approval.json())
+    empty_queue = client.get(
+        f"/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-approvals",
+        headers=approver_headers,
+    )
+    assert empty_queue.status_code == 200 and empty_queue.json() == []
     return approved
 
 
@@ -967,7 +1090,7 @@ def test_server_generated_registration_codes_failure_budgets_and_success_volume(
             "title": "weak", "experiment_version": "weak-v1", "session_id": "weak-session",
             "consent_version": "v1", "consent_text": "consent", "question_id": "q",
             "question_text": "question", "option_set_version": "v1", "admission_code": "Operator-Code-123!",
-            "capacity": 1, "policy_options": [
+            "capacity": 1, "event_kind": "live", "policy_options": [
                 {"policy_option_id": key, "label": key, "policy_version": "v1"}
                 for key in ("A", "B", "C")
             ],
@@ -1668,6 +1791,7 @@ def test_v3_starts_with_policy_options_then_personal_comparison_and_structures_m
     assert consented.status_code == 200 and consented.json()["stage"] == "E0"
     first = client.get(f"{base}/current", headers=_participant_headers(token)).json()
     assert first["stage"] == "E0" and len(first["policy_options"]) == 3
+    assert [option["label"] for option in first["policy_options"]] == ["A", "B", "C"]
     assert _post(
         client, f"{base}/policy-options-ack", token, 1, "v2-options",
         content_hash=first["content_hash"],
@@ -1675,7 +1799,7 @@ def test_v3_starts_with_policy_options_then_personal_comparison_and_structures_m
 
     m1 = _post(
         client, f"{base}/measurements/M1", token, 2, "v2-m1",
-        choice="A", reason="최초 선택", confidence=3,
+        choice="A", reason="", confidence=None,
     )
     assert m1.status_code == 200 and m1.json()["stage"] == "E1a"
     waiting = client.get(f"{base}/current", headers=_participant_headers(token)).json()
@@ -1829,7 +1953,7 @@ def test_v3_profile_decline_keeps_participation_and_excludes_reason_classificati
     ).json()["stage"] == "M1"
     assert _post(
         client, f"{base}/measurements/M1", token, 2, "decline-m1",
-        choice="A", reason="", confidence=3,
+        choice="A", reason="", confidence=None,
     ).json()["stage"] == "E1a"
     assert client.post(
         f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
@@ -1891,7 +2015,7 @@ def test_v3_uses_facilitator_selected_public_input_and_distinct_d_prime_through_
     ).json()["stage"] == "M1"
     assert _post(
         client, f"{base}/measurements/M1", token, 2, "v2c-m1",
-        choice="A", reason="", confidence=3,
+        choice="A", reason="", confidence=None,
     ).json()["stage"] == "E1a"
     assert client.post(
         f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
@@ -2166,14 +2290,15 @@ def test_v3_uses_facilitator_selected_public_input_and_distinct_d_prime_through_
     assert e3.json()["stage"] == "M3"
     m3_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
     d_prime = next(option for option in m3_current["policy_options"] if option["policy_option_id"] == "D_PRIME")
+    assert [option["label"] for option in m3_current["policy_options"]] == ["A", "B", "C", "D′"]
     assert d_prime["lever_values"] == {"fixture": "D_PRIME"}
     assert d_prime["artifact_id"] == "d-prime-v2"
     assert d_prime["content_hash"] == final.json()["content_hash"]
     oversized = _post(
         client, f"{base}/measurements/M3", token, 9, "v2c-m3-oversized",
-        choice="D_PRIME", reason="", confidence=4,
+        choice="A", reason="", confidence=4,
         option_assessments={
-            "A": {"stance": "reject", "reason": "x" * 2_001},
+            "A": {"stance": "accept", "reason": "x" * 2_001},
             "B": {"stance": "reject", "reason": "수급 시점"},
             "C": {"stance": "reject", "reason": "운용 위험"},
             "D_PRIME": {"stance": "accept", "reason": "균형안"},
@@ -2182,20 +2307,18 @@ def test_v3_uses_facilitator_selected_public_input_and_distinct_d_prime_through_
     assert oversized.status_code == 400
     completed = _post(
         client, f"{base}/measurements/M3", token, 9, "v2c-m3",
-        choice="D_PRIME", reason="최종 선택", confidence=4,
+        choice="A", reason="최종 선택", confidence=4,
         option_assessments={
-            "A": {"stance": "reject", "reason": "국고 부담"},
-            "B": {"stance": "reject", "reason": "수급 시점"},
+            "A": {"stance": "accept", "reason": "최종 선택"},
+            "B": {"stance": "reject", "reason": "재정 조건 차이"},
             "C": {"stance": "reject", "reason": "운용 위험"},
-            "D_PRIME": {"stance": "accept", "reason": "균형안"},
+            "D_PRIME": {"stance": "reject", "reason": "A안을 최종 선택"},
         },
     )
     assert completed.status_code == 200 and completed.json()["stage"] == "complete"
     assert _release_result(client, headers, experiment["id"], "T10").status_code == 200
     t10 = _ack_result(client, experiment["id"], token, "T10", 10, "v2c-t10-ack")
-    assert [row["key"] for row in t10["public_result"]["m3"]["options"]] == [
-        "A", "B", "C", "D_PRIME"
-    ]
+    assert [row["key"] for row in t10["public_result"]["m3"]["options"]] == ["A", "B", "C", "D_PRIME"]
     assert client.get(f"{base}/current", headers=_participant_headers(token)).json()["stage"] == "complete"
 
     with sqlite3.connect(db_path) as connection:
@@ -2237,7 +2360,9 @@ def test_v3_uses_facilitator_selected_public_input_and_distinct_d_prime_through_
 def test_v3_synthetic_review_uses_explicit_synthetic_d_prime_without_real_aggregates(aipol_app):
     _, client, db_path = aipol_app
     headers = _admin_headers(client)
-    experiment = _create(client, headers, suffix="-v3-synthetic", procedure_version="v3")
+    experiment = _create(
+        client, headers, suffix="-v3-synthetic", procedure_version="v3", event_kind="review",
+    )
     _artifact(client, headers, experiment["id"], "personal_comparison", "personal-v2-synthetic")
     expert = _artifact(client, headers, experiment["id"], "expert_explanation", "expert-v2-synthetic")
     _artifact(client, headers, experiment["id"], "ai_opinion", "ai-v2-synthetic", fallback=True)
@@ -2262,7 +2387,7 @@ def test_v3_synthetic_review_uses_explicit_synthetic_d_prime_without_real_aggreg
     assert _post(client, f"{base}/consent", token, 0, "sv2-consent", consent_version="consent-v1", affirmed=True).json()["stage"] == "E0"
     options = client.get(f"{base}/current", headers=_participant_headers(token)).json()
     assert _post(client, f"{base}/policy-options-ack", token, 1, "sv2-options", content_hash=options["content_hash"]).json()["stage"] == "M1"
-    assert _post(client, f"{base}/measurements/M1", token, 2, "sv2-m1", choice="A", reason="", confidence=3).json()["stage"] == "E1a"
+    assert _post(client, f"{base}/measurements/M1", token, 2, "sv2-m1", choice="A", reason="", confidence=None).json()["stage"] == "E1a"
     _ack_result(client, experiment["id"], token, "T3", 3, "sv2-t3-ack")
     assert client.post(
         f"{base}/exposures/E1a/open", headers=_participant_headers(token),
@@ -2321,15 +2446,16 @@ def test_v3_synthetic_review_uses_explicit_synthetic_d_prime_without_real_aggreg
     assert _post(client, f"{base}/exposures/E3", token, 8, "sv2-e3", read_ack=True).json()["stage"] == "M3"
     m3_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
     d_prime = next(option for option in m3_current["policy_options"] if option["policy_option_id"] == "D_PRIME")
+    assert [option["label"] for option in m3_current["policy_options"]] == ["A", "B", "C", "D′"]
     assert d_prime["lever_values"] == {"fixture": "D_PRIME"}
     assert d_prime["artifact_id"] == "d-prime-v2-synthetic"
     complete = _post(
         client, f"{base}/measurements/M3", token, 9, "sv2-m3",
         choice="D_PRIME", reason="", confidence=4,
         option_assessments={
-            "A": {"stance": "reject", "reason": "합성 검토 A"},
-            "B": {"stance": "reject", "reason": "합성 검토 B"},
-            "C": {"stance": "reject", "reason": "합성 검토 C"},
+            "A": {"stance": "reject", "reason": "D′를 최종 선택"},
+            "B": {"stance": "reject", "reason": "D′를 최종 선택"},
+            "C": {"stance": "reject", "reason": "D′를 최종 선택"},
             "D_PRIME": {"stance": "accept", "reason": "합성 검토 D′"},
         },
     )
@@ -2337,8 +2463,542 @@ def test_v3_synthetic_review_uses_explicit_synthetic_d_prime_without_real_aggreg
     t10 = _ack_result(client, experiment["id"], token, "T10", 10, "sv2-t10-ack")
     public_json = json.dumps(t10["public_result"], ensure_ascii=False).lower()
     assert "participant_key" not in public_json and '"reason"' not in public_json
-    assert t10["public_result"]["m3"]["options"][3]["count"] == 1
+    assert [row["count"] for row in t10["public_result"]["m3"]["options"]] == [0, 0, 0, 1]
     assert client.get(f"{base}/current", headers=_participant_headers(token)).json()["stage"] == "complete"
+
+
+def test_v4_review_event_uses_canonical_api_and_restores_the_full_journey(aipol_app):
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(
+        client,
+        headers,
+        suffix="-v4-review",
+        procedure_version="v4",
+        event_kind="review",
+    )
+    _artifact(client, headers, experiment["id"], "personal_comparison", "v4-personal")
+    _artifact(client, headers, experiment["id"], "expert_explanation", "v4-expert")
+    d_candidate = _artifact(
+        client, headers, experiment["id"], "ai_opinion", "v4-approved-d", fallback=True
+    )
+    assert d_candidate["source_bundle_version_id"] == experiment["source_bundle_version_id"]
+    assert d_candidate["source_bundle_hash"] == experiment["source_bundle_hash"]
+    assert d_candidate["constraint_set_version_id"] == experiment["constraint_set_version_id"]
+    assert d_candidate["constraint_set_hash"] == experiment["constraint_set_hash"]
+    assert d_candidate["taxonomy_version_id"] == experiment["taxonomy_version_id"]
+    assert d_candidate["taxonomy_hash"] == experiment["taxonomy_hash"]
+    assert d_candidate["issue_aggregation_hash"] is None
+    assert all(
+        len(d_candidate[field]) == 64
+        for field in (
+            "generation_input_hash", "ai_draft_hash", "approved_d_hash", "expert_diff_hash"
+        )
+    )
+    assert d_candidate["content"]["issue_aggregation"] == {
+        "status": "preapproved_fallback",
+        "derived_from_participant_opinions": False,
+        "notice": "행사 의견 집계 전 승인된 대체 D안입니다.",
+    }
+    assert d_candidate["provenance"]["generation_input_hash"] == d_candidate[
+        "generation_input_hash"
+    ]
+    frozen = client.put(
+        f"/api/admin/aipol/experiments/{experiment['id']}/freeze",
+        headers=headers,
+        json={
+            "manifest_id": "v4-review-freeze",
+            "experiment_version": experiment["experiment_version"],
+            "option_set_version": experiment["measurement_spec"]["option_set_version"],
+            "measurement_spec_hash": experiment["measurement_spec_hash"],
+            "status": "frozen",
+            "collection_enabled": False,
+            "approvals": [],
+        },
+    )
+    assert frozen.status_code == 200, frozen.text
+
+    created = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/synthetic-participants",
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    token = created.json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+
+    consent = _post(
+        client,
+        f"{base}/consent",
+        token,
+        0,
+        "v4-review-consent",
+        consent_version="consent-v1",
+        affirmed=True,
+    )
+    assert consent.status_code == 200 and consent.json()["stage"] == "E0"
+    e0 = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert e0["event_kind"] == "review"
+    assert e0["synthetic_review"] is True
+    assert e0["demographics"]["required"] is True
+    demographics = e0["demographics"]
+    recorded = client.post(
+        f"{base}/demographics",
+        headers=_participant_headers(token),
+        json={
+            "gender_band_id": demographics["options"]["gender_band_id"][0]["id"],
+            "age_band_id": demographics["options"]["age_band_id"][0]["id"],
+            "monthly_personal_income_band_id": demographics["options"]
+            ["monthly_personal_income_band_id"][0]["id"],
+            "rules_version": demographics["rules_version"],
+            "expected_revision": 1,
+            "idempotency_key": "v4-review-demographics",
+        },
+    )
+    assert recorded.status_code == 200, recorded.text
+    e0_recorded = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert e0_recorded["demographics"]["recorded"] is True
+    assert _post(
+        client,
+        f"{base}/policy-options-ack",
+        token,
+        1,
+        "v4-review-options",
+        content_hash=e0_recorded["content_hash"],
+    ).json()["stage"] == "M1"
+
+    m1_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert m1_current["issue_interests_required"] is True
+    assert m1_current["issue_taxonomy"]["version_id"] == experiment["taxonomy_version_id"]
+    assert m1_current["issue_taxonomy"]["content_hash"] == experiment["taxonomy_hash"]
+    assert [topic["code"] for topic in m1_current["issue_taxonomy"]["topics"]] == [
+        "fiscal_sustainability",
+        "intergenerational_equity",
+        "retirement_income_adequacy",
+        "political_acceptability",
+        "administrative_feasibility",
+    ]
+    missing_issue_interests = _post(
+        client,
+        f"{base}/measurements/M1",
+        token,
+        2,
+        "v4-review-m1-missing-interests",
+        choice="A",
+        stance="accept",
+        reason="노후소득 보장을 우선해 A안을 수용합니다.",
+        confidence=None,
+    )
+    assert missing_issue_interests.status_code == 400
+    unknown_issue_interest = _post(
+        client,
+        f"{base}/measurements/M1",
+        token,
+        2,
+        "v4-review-m1-unknown-interest",
+        choice="A",
+        stance="accept",
+        reason="노후소득 보장을 우선해 A안을 수용합니다.",
+        confidence=None,
+        issue_interests=["unapproved-topic"],
+    )
+    assert unknown_issue_interest.status_code == 400
+    assert client.get(
+        f"{base}/current", headers=_participant_headers(token)
+    ).json()["stage"] == "M1"
+
+    m1 = _post(
+        client,
+        f"{base}/measurements/M1",
+        token,
+        2,
+        "v4-review-m1",
+        choice="A",
+        stance="accept",
+        reason="노후소득 보장을 우선해 A안을 수용합니다.",
+        confidence=None,
+        issue_interests=["intergenerational_equity", "retirement_income_adequacy"],
+    )
+    assert m1.status_code == 200 and m1.json()["stage"] == "E1a"
+    _ack_result(client, experiment["id"], token, "T3", 3, "v4-review-t3")
+    e1a = client.post(
+        f"{base}/exposures/E1a/open",
+        headers=_participant_headers(token),
+        json={"expected_revision": 3, "idempotency_key": "v4-review-e1a-open"},
+    )
+    assert e1a.status_code == 200, e1a.text
+    e1a = client.post(
+        f"{base}/exposures/E1a",
+        headers=_participant_headers(token),
+        json={
+            "expected_revision": 3,
+            "idempotency_key": "v4-review-e1a",
+            "read_ack": True,
+        },
+    )
+    assert e1a.status_code == 200, e1a.text
+    assert e1a.json()["stage"] == "M2"
+
+    m2_assessments = {
+        "A": {"stance": "reject", "reason": "개인 부담이 예상보다 큽니다."},
+        "B": {"stance": "conditional", "reason": "세대 간 부담 보완을 조건으로 수용합니다."},
+        "C": {"stance": "reject", "reason": "재정 지속가능성 설명이 부족합니다."},
+    }
+    m2 = _post(
+        client,
+        f"{base}/measurements/M2",
+        token,
+        4,
+        "v4-review-m2",
+        choice="B",
+        reason=None,
+        confidence=None,
+        option_assessments=m2_assessments,
+    )
+    assert m2.status_code == 200 and m2.json()["stage"] == "E2"
+    _ack_result(client, experiment["id"], token, "T5", 5, "v4-review-t5")
+
+    pending = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/m2-reason-classification-pending",
+        headers=_admin_headers(client, "editor"),
+    )
+    assert pending.status_code == 200, pending.text
+    assert len(pending.json()) == 3
+    assert all(
+        item["taxonomy"]["version_id"] == experiment["taxonomy_version_id"]
+        and item["taxonomy"]["content_hash"] == experiment["taxonomy_hash"]
+        for item in pending.json()
+    )
+    invalid_draft = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/m2-reason-classification-drafts",
+        headers=_admin_headers(client, "editor"),
+        json={
+            "participant_pseudonym": pending.json()[0]["participant_pseudonym"],
+            "option_id": pending.json()[0]["option_id"],
+            "reason_hash": pending.json()[0]["reason_hash"],
+            "topic_codes": ["unapproved-topic"],
+        },
+    )
+    assert invalid_draft.status_code == 400
+    approved_classifications = _approve_all_m2_reason_classifications(
+        client, experiment["id"]
+    )
+    assert len(approved_classifications) == 3
+
+    issue_aggregation = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/issue-aggregation",
+        headers=headers,
+    )
+    assert issue_aggregation.status_code == 200, issue_aggregation.text
+    issue_snapshot = issue_aggregation.json()
+    assert issue_snapshot["population"] == {
+        "event_kind": "review",
+        "participant_type": "synthetic",
+    }
+    assert issue_snapshot["denominators"] == {
+        "declared_interest_respondents": 1,
+        "valid_m2_respondents": 1,
+        "expected_reason_records": 3,
+        "approved_reason_records": 3,
+        "missing_reason_records": 0,
+    }
+    assert issue_snapshot["classification_complete"] is True
+    topics_by_code = {row["code"]: row for row in issue_snapshot["topics"]}
+    assert topics_by_code["fiscal_sustainability"] == {
+        "code": "fiscal_sustainability",
+        "label": "재정 지속가능성",
+        "declared_interest_participant_count": 0,
+        "classified_reason_participant_count": 1,
+        "classified_reason_record_count": 3,
+    }
+    assert topics_by_code["intergenerational_equity"][
+        "declared_interest_participant_count"
+    ] == 1
+    assert topics_by_code["retirement_income_adequacy"][
+        "declared_interest_participant_count"
+    ] == 1
+
+    e2 = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert e2["artifact"]["artifact_id"] == d_candidate["artifact_id"]
+    assert e2["artifact"]["content"]["public_summary"]
+    assert len(e2["artifact"]["content"]["deliberation_process"]) == 5
+    assert e2["artifact"]["content"]["expert_approval_diff"]
+    assert e2["artifact"]["provenance"]["approved_d_hash"] == d_candidate[
+        "approved_d_hash"
+    ]
+    assert _post(
+        client, f"{base}/exposures/E2", token, 5, "v4-review-e2", read_ack=True
+    ).json()["stage"] == "E1b"
+    assert _post(
+        client, f"{base}/exposures/E1b", token, 6, "v4-review-e1b", read_ack=True
+    ).json()["stage"] == "M3"
+
+    m3_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert m3_current["stage"] == "M3"
+    assert [option["policy_option_id"] for option in m3_current["policy_options"]] == [
+        "A", "B", "C", "D",
+    ]
+    assert m3_current["policy_options"][-1]["artifact_id"] == d_candidate["artifact_id"]
+    complete = _post(
+        client,
+        f"{base}/measurements/M3",
+        token,
+        7,
+        "v4-review-m3",
+        choice="D",
+        stance="conditional",
+        reason="전문가 수정 근거가 공개되는 조건으로 D안을 수용합니다.",
+        confidence=None,
+    )
+    assert complete.status_code == 200 and complete.json()["stage"] == "complete"
+    t10 = _ack_result(client, experiment["id"], token, "T10", 8, "v4-review-t10")
+    assert [row["key"] for row in t10["public_result"]["m3"]["options"]] == [
+        "A", "B", "C", "D",
+    ]
+    assert [row["count"] for row in t10["public_result"]["m3"]["options"]] == [
+        0, 0, 0, 1,
+    ]
+
+    with sqlite3.connect(db_path) as connection:
+        participant_id = connection.execute(
+            "SELECT id FROM aipol_participants WHERE experiment_id=?",
+            (experiment["id"],),
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM aipol_demographics WHERE participant_id=?", (participant_id,)
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT reason FROM aipol_measurements WHERE participant_id=? AND measurement_id='M1'",
+            (participant_id,),
+        ).fetchone()[0] == "노후소득 보장을 우선해 A안을 수용합니다."
+        stored_interests = connection.execute(
+            "SELECT taxonomy_version_id,taxonomy_hash,topic_codes_json,state_revision "
+            "FROM aipol_m1_issue_interests WHERE participant_id=?",
+            (participant_id,),
+        ).fetchone()
+        assert stored_interests == (
+            experiment["taxonomy_version_id"],
+            experiment["taxonomy_hash"],
+            json.dumps(
+                ["intergenerational_equity", "retirement_income_adequacy"],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            3,
+        )
+        stored_assessments = connection.execute(
+            "SELECT option_id,stance,reason FROM aipol_m2_option_assessments "
+            "WHERE participant_id=? ORDER BY option_id",
+            (participant_id,),
+        ).fetchall()
+        assert stored_assessments == [
+            (option_id, assessment["stance"], assessment["reason"])
+            for option_id, assessment in sorted(m2_assessments.items())
+        ]
+
+    for module_name in MODULES:
+        sys.modules.pop(module_name, None)
+    restarted = importlib.import_module("server")
+    with TestClient(restarted.app) as restarted_client:
+        restored = restarted_client.get(
+            f"{base}/current", headers=_participant_headers(token)
+        )
+        assert restored.status_code == 200, restored.text
+        assert restored.json()["stage"] == "complete"
+
+
+def test_v4_live_primary_d_is_bound_to_approved_m2_issue_aggregation(aipol_app):
+    _, client, _ = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(
+        client,
+        headers,
+        capacity=1,
+        suffix="-v4-live-primary",
+        procedure_version="v4",
+        event_kind="live",
+    )
+    _artifact(client, headers, experiment["id"], "personal_comparison", "v4-live-personal")
+    assert _freeze(client, headers, experiment).status_code == 200
+    token = _register(client, experiment["id"]).json()["participant_token"]
+    base = f"/api/aipol/experiments/{experiment['id']}"
+
+    assert _post(
+        client,
+        f"{base}/consent",
+        token,
+        0,
+        "v4-live-consent",
+        consent_version="consent-v1",
+        affirmed=True,
+    ).json()["stage"] == "E0"
+    e0 = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    demographics = e0["demographics"]
+    recorded = client.post(
+        f"{base}/demographics",
+        headers=_participant_headers(token),
+        json={
+            "gender_band_id": demographics["options"]["gender_band_id"][0]["id"],
+            "age_band_id": demographics["options"]["age_band_id"][0]["id"],
+            "monthly_personal_income_band_id": demographics["options"]
+            ["monthly_personal_income_band_id"][0]["id"],
+            "rules_version": demographics["rules_version"],
+            "expected_revision": 1,
+            "idempotency_key": "v4-live-demographics",
+        },
+    )
+    assert recorded.status_code == 200, recorded.text
+    e0 = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert _post(
+        client,
+        f"{base}/policy-options-ack",
+        token,
+        1,
+        "v4-live-options",
+        content_hash=e0["content_hash"],
+    ).json()["stage"] == "M1"
+    assert _post(
+        client,
+        f"{base}/measurements/M1",
+        token,
+        2,
+        "v4-live-m1",
+        choice="A",
+        stance="conditional",
+        reason="노후소득 보장과 세대 간 형평성을 함께 확인하고 싶습니다.",
+        confidence=None,
+        issue_interests=["retirement_income_adequacy", "intergenerational_equity"],
+    ).json()["stage"] == "E1a"
+    closed = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/close-registration",
+        headers=headers,
+    )
+    assert closed.status_code == 200, closed.text
+    t3_release = _release_result(client, headers, experiment["id"], "T3")
+    assert t3_release.status_code == 200, t3_release.text
+    _ack_result(client, experiment["id"], token, "T3", 3, "v4-live-t3")
+    assert _post(
+        client,
+        f"{base}/exposures/E1a",
+        token,
+        3,
+        "v4-live-e1a",
+        read_ack=True,
+    ).json()["stage"] == "M2"
+
+    raw_reasons = {
+        "A": "보험료 부담이 커지는 점을 수용하기 어렵습니다.",
+        "B": "재정 지속가능성 보완이 명확하면 조건부로 수용합니다.",
+        "C": "노후소득 보장 수준에 관한 근거가 더 필요합니다.",
+    }
+    assert _post(
+        client,
+        f"{base}/measurements/M2",
+        token,
+        4,
+        "v4-live-m2",
+        choice="B",
+        reason=None,
+        confidence=None,
+        option_assessments={
+            "A": {"stance": "reject", "reason": raw_reasons["A"]},
+            "B": {"stance": "conditional", "reason": raw_reasons["B"]},
+            "C": {"stance": "reject", "reason": raw_reasons["C"]},
+        },
+    ).json()["stage"] == "E2"
+    t5_release = _release_result(client, headers, experiment["id"], "T5")
+    assert t5_release.status_code == 200, t5_release.text
+    _ack_result(client, experiment["id"], token, "T5", 5, "v4-live-t5")
+    assert len(_approve_all_m2_reason_classifications(client, experiment["id"])) == 3
+
+    aggregate = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/m2-aggregate",
+        headers=headers,
+    ).json()
+    issue_snapshot = client.get(
+        f"/api/admin/aipol/experiments/{experiment['id']}/issue-aggregation",
+        headers=headers,
+    ).json()
+    assert issue_snapshot["classification_complete"] is True
+    assert issue_snapshot["population"] == {
+        "event_kind": "live",
+        "participant_type": "real",
+    }
+
+    approved_d = {
+        "title": "시민 의견 기반 D안",
+        "body": "승인된 정책 자료, 운영 제약, 시민 쟁점 집계를 함께 반영했습니다.",
+        "lever_values": {"fixture": "D"},
+    }
+    candidate = client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/ai-candidates",
+        headers=headers,
+        json={
+            "candidate_role": "primary",
+            "artifact_id": "v4-live-primary-d",
+            "artifact_version": "v1",
+            "content": {
+                **approved_d,
+                "public_summary": "실제 2차 의견의 승인된 쟁점 집계를 바탕으로 D안을 구성했습니다.",
+                "deliberation_process": [
+                    {"stage": "independent_proposals", "summary": "역할별 제안을 독립 생성했습니다."},
+                    {"stage": "cross_critique", "summary": "근거와 정책 충돌을 교차 검토했습니다."},
+                    {"stage": "revised_proposals", "summary": "검토 결과를 반영해 제안을 수정했습니다."},
+                    {"stage": "d_synthesis", "summary": "공통점과 쟁점을 D안 초안으로 종합했습니다."},
+                    {"stage": "constraint_check", "summary": "승인된 운영 제약 위반 여부를 확인했습니다."},
+                ],
+                "ai_draft": {
+                    "title": "시민 의견 기반 D안 AI 초안",
+                    "body": "AI가 생성한 검토 전 초안입니다.",
+                    "lever_values": {"fixture": "D"},
+                },
+                "approved_d": approved_d,
+                "expert_approval_diff": [
+                    {
+                        "field": "body",
+                        "before": "AI가 생성한 검토 전 초안입니다.",
+                        "after": approved_d["body"],
+                        "reason": "시민 쟁점 집계와 승인된 근거의 반영 범위를 명시했습니다.",
+                    }
+                ],
+                "approval_rationale": "승인된 입력 버전과 제약조건을 대조한 뒤 공개를 승인했습니다.",
+            },
+            "model": "fixture-model",
+            "deployment": "fixture-deployment",
+            "prompt_version": "fixture-prompt-v4",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "evidence_refs": ["approved-source-bundle", "approved-m2-issue-aggregation"],
+            "m2_aggregate_hash": aggregate["aggregate_hash"],
+            "approval_id": f"approval-{experiment['id']}-primary-d",
+            "approved_by": "hong",
+        },
+    )
+    assert candidate.status_code == 200, candidate.text
+    candidate_json = candidate.json()
+    assert candidate_json["issue_aggregation_hash"] == issue_snapshot["content_hash"]
+    assert candidate_json["content"]["issue_aggregation"] == issue_snapshot
+    assert candidate_json["provenance"]["generation_input_hash"] == candidate_json[
+        "generation_input_hash"
+    ]
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment['id']}/release-e2",
+        headers=headers,
+        json={
+            "candidate_role": "primary",
+            "selection_reason": "M2 의견 집계와 전문가 승인 계보가 확인된 D안 선택",
+        },
+    ).status_code == 200
+
+    e2 = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    public_artifact = e2["artifact"]
+    assert public_artifact["artifact_id"] == "v4-live-primary-d"
+    assert public_artifact["content"]["issue_aggregation"]["content_hash"] == issue_snapshot[
+        "content_hash"
+    ]
+    serialized = json.dumps(public_artifact, ensure_ascii=False).lower()
+    assert all(reason not in serialized for reason in raw_reasons.values())
+    assert "participant_pseudonym" not in serialized
+    assert "raw_prompt" not in serialized
+    assert "chain_of_thought" not in serialized
 
 
 def test_no_skip_idempotency_conflict_and_stale_revision(aipol_app):
@@ -2401,7 +3061,7 @@ def test_noncollection_synthetic_review_completes_without_real_collection_or_rec
 ):
     server, client, db_path = aipol_app
     headers = _admin_headers(client)
-    experiment = _create(client, headers, suffix="-synthetic-review")
+    experiment = _create(client, headers, suffix="-synthetic-review", event_kind="review")
     assert client.post(
         f"/api/admin/aipol/experiments/{experiment['id']}/synthetic-participants",
         headers=headers,
@@ -2441,6 +3101,8 @@ def test_noncollection_synthetic_review_completes_without_real_collection_or_rec
 
     current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
     assert current["synthetic_review"] is True
+
+
     assert current["stage"] == "consent"
     assert _post(
         client, f"{base}/consent", token, 0, "review-consent",
@@ -3217,4 +3879,4 @@ def test_participant_ui_parses_flattened_jws_and_production_verifier_accepts_it(
             ],
             check=False,
         )
-        assert result.returncode == 7
+    assert result.returncode == 7

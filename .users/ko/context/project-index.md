@@ -17,6 +17,8 @@
 
 도메인 작업 전: 해당 `domains/<name>/spec.md` (예: `domains/pension/spec.md`).
 
+`AGENTS.md` 계열은 공유 진입 인덱스입니다. 현재 작업 계약과 진행 상태는 현재 세션 식별자에 명시적으로 연결된 `.agents/progress/` 문서에서만 읽습니다.
+
 ## 핵심 — 방어장치가 이 프로젝트의 정체성
 
 red-team이 지적한 정책실험의 약점(폐루프 오류 증폭·manufactured consent·표본≠민의·

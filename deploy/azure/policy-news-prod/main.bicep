@@ -171,7 +171,7 @@ var baseEnv = [
   { name: 'POLICY_NEWS_PROVIDER_EVIDENCE_SHA256', value: providerQualityEvidenceSha256 }
   { name: 'POLICY_NEWS_REQUIRE_KB_COMPILE', value: 'false' }
   { name: 'POLICY_NEWS_KB_COMPILER_MODE', value: 'disabled' }
-  { name: 'UPSTAGE_MODEL', value: 'solar-open2' }
+  { name: 'UPSTAGE_MODEL', value: 'solar-pro4' }
   { name: 'ANYLLM_ENDPOINT', value: anyllmEndpoint }
   { name: 'ANYLLM_REVIEW_MODEL', value: anyllmReviewModel }
   { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
@@ -225,7 +225,7 @@ output resourceGroupScopeAccepted bool = resourceGroupNameValidated
 output fixedResourceNamesAccepted bool = fixedResourceNamesValidated
 output runtimeEnabled bool = runtimeEnabled
 output scheduleEnabled bool = scheduleEnabled
-output selectedDraftModel string = 'solar-open2'
+output selectedDraftModel string = 'solar-pro4'
 output selectedReviewModel string = anyllmReviewModel
 output runtimeConfigurationFingerprint string = runtimeConfigurationFingerprint
 output jobName string = job.name

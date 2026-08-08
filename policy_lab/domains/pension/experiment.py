@@ -90,6 +90,16 @@ PROCEDURE_CONFIG = {
     "e2_release": "registration-closed-and-m2-barrier",
 }
 
+V4_PROCEDURE_CONFIG = {
+    "version": "aipol-pension-3-measurements-v4",
+    "stages": ["consent", "E0", "M1", "E1a", "M2", "E2", "E1b", "M3", "complete"],
+    "exposures": {"E0": "policy_options", "E1a": "calculator", "E2": "d", "E1b": "expert"},
+    "measurements": ["M1", "M2", "M3"],
+    "m3_option_ids": ["A", "B", "C", "D"],
+    "option_order": "stable-per-participant",
+    "e2_release": "registration-closed-and-m2-barrier",
+}
+
 
 class ArtifactKind(str, Enum):
     PERSONAL_COMPARISON = "personal_comparison"
@@ -127,6 +137,12 @@ EXPOSURE_FOR_STAGE = {
     ExperimentStage.E2: (ArtifactKind.AI_OPINION, 5, ExperimentStage.E1B),
     ExperimentStage.E1B: (ArtifactKind.EXPERT_EXPLANATION, 6, ExperimentStage.A1),
     ExperimentStage.E3: (ArtifactKind.FINAL_AI_OPINION, 8, ExperimentStage.M3),
+}
+
+V4_EXPOSURE_FOR_STAGE = {
+    ExperimentStage.E1A: (ArtifactKind.PERSONAL_COMPARISON, 3, ExperimentStage.M2),
+    ExperimentStage.E2: (ArtifactKind.AI_OPINION, 5, ExperimentStage.E1B),
+    ExperimentStage.E1B: (ArtifactKind.EXPERT_EXPLANATION, 6, ExperimentStage.M3),
 }
 
 REQUIRED_FREEZE_APPROVALS = frozenset(
@@ -420,11 +436,22 @@ class PensionExperimentSession:
             LEGACY_PROCEDURE_CONFIG["version"],
             V2_PROCEDURE_CONFIG["version"],
             PROCEDURE_CONFIG["version"],
+            V4_PROCEDURE_CONFIG["version"],
         }:
             raise ExperimentError("지원하지 않는 행사 절차 버전입니다")
         self._legacy_procedure = procedure_version == LEGACY_PROCEDURE_CONFIG["version"]
         self._v2_procedure = procedure_version == V2_PROCEDURE_CONFIG["version"]
         self._current_procedure = procedure_version == PROCEDURE_CONFIG["version"]
+        self._v4_procedure = procedure_version == V4_PROCEDURE_CONFIG["version"]
+        raw_m3_option_ids = self.procedure_config.get("m3_option_ids", self.option_ids)
+        if self._v4_procedure:
+            if not isinstance(raw_m3_option_ids, (list, tuple)):
+                raise ExperimentError("v4 m3_option_ids는 정책안 ID 목록이어야 합니다")
+            self.m3_option_ids = tuple(raw_m3_option_ids)
+            if self.m3_option_ids not in (self.option_ids, self.option_ids + ("D",)):
+                raise ExperimentError("v4 3차 투표 선택지는 동결된 A/B/C 또는 A/B/C/D여야 합니다")
+        else:
+            self.m3_option_ids = self.option_ids
         self._clock = clock
         self._lock = RLock()
         self._participants: dict[str, _Participant] = {}
@@ -612,7 +639,11 @@ class PensionExperimentSession:
         def action() -> ExposureRecord:
             try:
                 exposure_map = (
-                    LEGACY_EXPOSURE_FOR_STAGE if self._legacy_procedure else EXPOSURE_FOR_STAGE
+                    LEGACY_EXPOSURE_FOR_STAGE
+                    if self._legacy_procedure
+                    else V4_EXPOSURE_FOR_STAGE
+                    if self._v4_procedure
+                    else EXPOSURE_FOR_STAGE
                 )
                 expected_kind, sequence, next_stage = exposure_map[participant.stage]
             except KeyError as exc:
@@ -717,11 +748,24 @@ class PensionExperimentSession:
             allowed_choices = (
                 self.option_ids + ("D_PRIME",)
                 if measurement_id == "M3" and self._current_procedure
+                else self.m3_option_ids
+                if measurement_id == "M3" and self._v4_procedure
                 else self.option_ids
             )
             if choice is not None and choice not in allowed_choices:
                 raise ExperimentError("동결된 정책안 ID가 아닌 선택입니다")
-            if measurement_id == "M2" and self._current_procedure:
+            if measurement_id == "M1" and self._v4_procedure:
+                if choice is None:
+                    raise ExperimentError("v4 M1에는 A/B/C 중 하나의 선택이 필요합니다")
+                if stance not in ("accept", "conditional"):
+                    raise ExperimentError("v4 M1 선택안은 수용 또는 조건부 수용이어야 합니다")
+                if not (reason or "").strip():
+                    raise ExperimentError("v4 M1에는 선택안의 수용 사유가 필요합니다")
+                if len(reason or "") > 2_000:
+                    raise ExperimentError("v4 M1 사유는 2,000자 이하여야 합니다")
+                if confidence is not None or option_assessments is not None:
+                    raise ExperimentError("v4 M1에는 확신도나 안별 판단을 제출할 수 없습니다")
+            elif measurement_id == "M2" and (self._current_procedure or self._v4_procedure):
                 if choice is None:
                     raise ExperimentError("M2에는 A/B/C 중 하나의 선택이 필요합니다")
                 if not isinstance(option_assessments, dict) or set(option_assessments) != set(self.option_ids):
@@ -754,7 +798,7 @@ class PensionExperimentSession:
             elif measurement_id == "M3" and self._current_procedure:
                 if choice is None:
                     raise ExperimentError("M3에는 A/B/C/D′ 중 하나의 최종 선택이 필요합니다")
-                if not isinstance(option_assessments, dict) or set(option_assessments) != set(allowed_choices):
+                if not isinstance(option_assessments, dict) or set(option_assessments) != set(self.option_ids + ("D_PRIME",)):
                     raise ExperimentError("M3에는 A/B/C/D′ 네 안의 판단이 모두 필요합니다")
                 for option_id, assessment in option_assessments.items():
                     if not isinstance(assessment, dict) or set(assessment) != {"stance", "reason"}:
@@ -774,6 +818,17 @@ class PensionExperimentSession:
                         raise ExperimentError("M3 비선택안에는 각각 비선택 사유가 필요합니다")
                 recorded_stance = str(option_assessments[choice]["stance"])
                 recorded_reason = option_assessments[choice]["reason"]
+            elif measurement_id == "M3" and self._v4_procedure:
+                if choice is None:
+                    raise ExperimentError("v4 M3에는 동결된 A/B/C/D 중 하나의 선택이 필요합니다")
+                if stance not in ("accept", "conditional"):
+                    raise ExperimentError("v4 M3 선택안은 수용 또는 조건부 수용이어야 합니다")
+                if not (reason or "").strip():
+                    raise ExperimentError("v4 M3에는 선택안의 수용 사유가 필요합니다")
+                if len(reason or "") > 2_000:
+                    raise ExperimentError("v4 M3 사유는 2,000자 이하여야 합니다")
+                if confidence is not None or option_assessments is not None:
+                    raise ExperimentError("v4 M3에는 확신도나 안별 판단을 제출할 수 없습니다")
             elif stance is not None or option_assessments is not None:
                 raise ExperimentError("수용 상태는 해당 절차의 M2에서만 제출할 수 있습니다")
             if confidence is not None and not (
@@ -802,7 +857,14 @@ class PensionExperimentSession:
                 self.measurement_spec.question_id,
                 self.measurement_spec.spec_hash,
                 self.measurement_spec.option_set_version,
-                participant.option_order + (("D_PRIME",) if measurement_id == "M3" and self._current_procedure else ()),
+                participant.option_order
+                + (
+                    ("D_PRIME",)
+                    if measurement_id == "M3" and self._current_procedure
+                    else self.m3_option_ids[len(self.option_ids):]
+                    if measurement_id == "M3" and self._v4_procedure
+                    else ()
+                ),
                 exposure_hash,
                 self._now(),
                 idempotency_key,
@@ -877,7 +939,13 @@ class PensionExperimentSession:
                 for record in self._exposures
                 if record.stage_sequence == sequence and record.participant_pseudonym in participants
             }
-            for sequence in ((2, 4, 6) if self._legacy_procedure else (3, 5, 6, 8))
+            for sequence in (
+                (2, 4, 6)
+                if self._legacy_procedure
+                else (3, 5, 6)
+                if self._v4_procedure
+                else (3, 5, 6, 8)
+            )
         }
         measurement_sets = {
             measurement: {
@@ -907,7 +975,7 @@ class PensionExperimentSession:
                 for participant in self._participants.values()
             ),
         }
-        if not self._legacy_procedure:
+        if not self._legacy_procedure and not self._v4_procedure:
             result["A1"] = sum(
                 record.participant_pseudonym in participants
                 for record in self._audience_discussion_acks
@@ -952,7 +1020,7 @@ class PensionExperimentSession:
             )
 
     def _preceding_exposure_hash(self, participant_pseudonym: str, measurement_id: str) -> str:
-        if measurement_id == "M1" and self._current_procedure:
+        if measurement_id == "M1" and (self._current_procedure or self._v4_procedure):
             matches = [record.content_hash for record in self._policy_options_acks if record.participant_pseudonym == participant_pseudonym]
             if len(matches) != 1:
                 raise InvalidTransition("M1 직전 A/B/C 비교표 확인 기록이 정확히 하나여야 합니다")
@@ -962,7 +1030,7 @@ class PensionExperimentSession:
         sequence = {
             "M1": 2,
             "M2": 4 if self._legacy_procedure else 3,
-            "M3": 6 if self._legacy_procedure else 8,
+            "M3": 6 if self._legacy_procedure or self._v4_procedure else 8,
         }[measurement_id]
         matches = [
             record.content_hash

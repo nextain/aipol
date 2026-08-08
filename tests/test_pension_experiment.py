@@ -30,6 +30,7 @@ from policy_lab.domains.pension.experiment import (
     InvalidTransition,
     PROCEDURE_CONFIG,
     V2_PROCEDURE_CONFIG,
+    V4_PROCEDURE_CONFIG,
     content_hash,
 )
 
@@ -332,6 +333,154 @@ def test_saved_v2_keeps_m1_first_and_single_stance_m2_contract():
     )
     assert (second.choice, second.stance, second.reason) == ("B", "conditional", "조건 확인")
     assert session.participant_state("saved-v2") == (ExperimentStage.E2, 4)
+
+
+def test_v4_procedure_has_exact_short_stage_order():
+    assert V4_PROCEDURE_CONFIG["stages"] == [
+        "consent", "E0", "M1", "E1a", "M2", "E2", "E1b", "M3", "complete",
+    ]
+    assert V4_PROCEDURE_CONFIG["exposures"] == {
+        "E0": "policy_options", "E1a": "calculator", "E2": "d", "E1b": "expert",
+    }
+    assert "A1" not in V4_PROCEDURE_CONFIG["stages"]
+    assert "E3" not in V4_PROCEDURE_CONFIG["stages"]
+    assert "D_PRIME" not in V4_PROCEDURE_CONFIG["m3_option_ids"]
+
+
+def test_v4_requires_acceptance_and_reason_in_m1_and_removes_d_prime_stages():
+    spec = _spec()
+    session = PensionExperimentSession(
+        experiment_version="2026-08-12.1",
+        session_id="session-v4",
+        measurement_spec=spec,
+        policy_options=_options(),
+        freeze_manifest=_freeze(spec),
+        procedure_config=V4_PROCEDURE_CONFIG,
+        clock=lambda: FIXED_NOW,
+    )
+    session.register_participant("real-v4", ParticipantType.REAL)
+    session.record_consent(
+        "real-v4", consent_version="v4", affirmed=True,
+        expected_revision=0, idempotency_key="v4-consent",
+    )
+    assert session.participant_state("real-v4") == (ExperimentStage.E0, 1)
+    session.acknowledge_policy_options(
+        "real-v4", content_hash_value=session.policy_options_content_hash,
+        expected_revision=1, idempotency_key="v4-options",
+    )
+    assert session.participant_state("real-v4") == (ExperimentStage.M1, 2)
+
+    invalid_m1_payloads = (
+        {"choice": None, "stance": "accept", "reason": "이유"},
+        {"choice": "A", "stance": None, "reason": "이유"},
+        {"choice": "A", "stance": "reject", "reason": "이유"},
+        {"choice": "A", "stance": "conditional", "reason": "  "},
+        {"choice": "A", "stance": "conditional", "reason": "x" * 2_001},
+    )
+    for index, payload in enumerate(invalid_m1_payloads):
+        with pytest.raises(ExperimentError):
+            session.submit_measurement(
+                "real-v4", "M1", confidence=None,
+                expected_revision=2, idempotency_key=f"v4-invalid-m1-{index}",
+                **payload,
+            )
+    with pytest.raises(ExperimentError):
+        session.submit_measurement(
+            "real-v4", "M1", choice="A", stance="accept", reason="이유", confidence=None,
+            option_assessments={"A": {}}, expected_revision=2,
+            idempotency_key="v4-invalid-m1-assessments",
+        )
+
+    first = session.submit_measurement(
+        "real-v4", "M1", choice="A", stance="conditional",
+        reason="재정 조건을 확인해야 수용할 수 있습니다", confidence=None,
+        expected_revision=2, idempotency_key="v4-m1",
+    )
+    assert (first.choice, first.stance, first.reason) == (
+        "A", "conditional", "재정 조건을 확인해야 수용할 수 있습니다"
+    )
+    assert session.participant_state("real-v4") == (ExperimentStage.E1A, 3)
+
+    personal = _artifact(ArtifactKind.PERSONAL_COMPARISON, "v4-personal")
+    session.record_exposure(
+        "real-v4", personal, read_ack=True,
+        expected_revision=3, idempotency_key="v4-e1a",
+    )
+    assessments = {
+        "A": {"stance": "reject", "reason": "보험료 부담"},
+        "B": {"stance": "accept", "reason": "균형이 적절함"},
+        "C": {"stance": "reject", "reason": "운용 위험"},
+    }
+    session.submit_measurement(
+        "real-v4", "M2", choice="B", reason=None, confidence=3,
+        option_assessments=assessments,
+        expected_revision=4, idempotency_key="v4-m2",
+    )
+    assert session.participant_state("real-v4") == (ExperimentStage.E2, 5)
+
+    ai = _artifact(ArtifactKind.AI_OPINION, "v4-d")
+    expert = _artifact(ArtifactKind.EXPERT_EXPLANATION, "v4-expert")
+    session.set_session_ai_artifact(ai)
+    session.set_expert_artifact(expert)
+    session.record_exposure(
+        "real-v4", ai, read_ack=True,
+        expected_revision=5, idempotency_key="v4-d-exposure",
+    )
+    assert session.participant_state("real-v4") == (ExperimentStage.E1B, 6)
+    expert_exposure = session.record_exposure(
+        "real-v4", expert, read_ack=True,
+        expected_revision=6, idempotency_key="v4-expert-exposure",
+    )
+    assert session.participant_state("real-v4") == (ExperimentStage.M3, 7)
+    with pytest.raises(InvalidTransition):
+        session.acknowledge_audience_discussion(
+            "real-v4", expected_revision=7, idempotency_key="v4-forbidden-a1",
+        )
+    third = session.submit_measurement(
+        "real-v4", "M3", choice="D", stance="accept", reason="검토 결과를 수용합니다",
+        confidence=None, expected_revision=7, idempotency_key="v4-m3",
+    )
+    assert third.preceding_exposure_hash == expert_exposure.content_hash
+    assert third.option_order == ("A", "B", "C", "D")
+    assert session.participant_state("real-v4") == (ExperimentStage.COMPLETE, 8)
+    assert session.funnel_counts() == {
+        "registered": 1,
+        "consented": 1,
+        "E1a": 1,
+        "M1": 1,
+        "E1b": 1,
+        "M2": 1,
+        "E2": 1,
+        "M3": 1,
+        "complete": 1,
+        "withdrawn": 0,
+    }
+
+
+def test_v4_m3_options_are_manifest_defined_and_may_omit_d():
+    spec = _spec()
+    procedure = {**V4_PROCEDURE_CONFIG, "m3_option_ids": ["A", "B", "C"]}
+    session = PensionExperimentSession(
+        experiment_version="2026-08-12.1",
+        session_id="session-v4-abc-only",
+        measurement_spec=spec,
+        policy_options=_options(),
+        freeze_manifest=_freeze(spec),
+        procedure_config=procedure,
+        clock=lambda: FIXED_NOW,
+    )
+    assert session.m3_option_ids == ("A", "B", "C")
+
+    with pytest.raises(ExperimentError, match="A/B/C 또는 A/B/C/D"):
+        PensionExperimentSession(
+            experiment_version="2026-08-12.1",
+            session_id="session-v4-invalid-options",
+            measurement_spec=spec,
+            policy_options=_options(),
+            freeze_manifest=_freeze(spec),
+            procedure_config={**V4_PROCEDURE_CONFIG, "m3_option_ids": ["A", "B", "D"]},
+            clock=lambda: FIXED_NOW,
+        )
 
 
 def test_skips_future_exposure_and_overwrite_are_rejected():

@@ -18,7 +18,7 @@ mandatory_reads:
 # 진입점
 entry_points:
   - file: AGENTS.md
-    purpose: "harness 진입점 (canonical SoT). CLAUDE.md/GEMINI.md 동일 내용."
+    purpose: "공유 harness 진입 인덱스. CLAUDE.md/GEMINI.md 동일 내용이며 현재 세션 계약을 담지 않음."
   - file: README.md
     purpose: "공개 진입점."
   - file: policy_lab/core/__init__.py
@@ -76,6 +76,9 @@ on_demand_loading:
 # 컨텍스트 SoT 우선순위
 context_priority:
   - .agents/context/agents-rules.json
-  - AGENTS.md
-  - RFC-0001-framework.md
   - .agents/context/project-index.yaml
+  - RFC-0001-framework.md
+
+session_work:
+  directory: .agents/progress
+  binding_rule: "현재 세션 식별자에 명시적으로 연결된 문서만 현재 작업 계약과 진행 상태로 사용한다."

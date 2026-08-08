@@ -15,8 +15,9 @@
     <header class="survey-head">
       <nav class="portal-nav" aria-label="서비스 전환"><a href="/">일반 행사 참여</a></nav>
       <p class="eyebrow">한국정책학회 · AIPOL</p>
-      <h1>연금개혁-AI 숙의민주주의 정책실험</h1>
+      <h1>정책이 나와 사회에 미치는 영향을 확인한 후, 다시 정책을 선택합니다.</h1>
       <p id="procedure-summary" class="muted">진행자가 안내한 실험 버전에 따라 승인된 정책 자료를 확인하고 선택과 의견을 기록합니다.</p>
+      <p id="participation-scope" class="scope-banner scope-unknown">참여 범위를 확인하는 중입니다.</p>
     </header>
     <section id="state-loading" class="state"><div class="spinner" aria-hidden="true"></div><p>현재 단계를 확인하는 중…</p></section>
     <section id="state-error" class="state hidden"><p class="big">진행할 수 없습니다.</p><p id="error-message" class="muted"></p><button id="retry" class="btn-primary">다시 확인</button><button id="reset-error" class="external-link hidden" type="button">다른 참가자로 시작</button></section>
@@ -45,6 +46,13 @@
       <hr><h2>다른 PC에서 이어하기</h2><p class="muted">이전에 저장한 일회용 복구 코드를 입력하세요. 사용 즉시 기존 PC의 참가 토큰은 폐기됩니다.</p><label class="field-label" for="recovery-code">일회용 복구 코드</label><input id="recovery-code" class="field-input" autocomplete="off" maxlength="128"><p id="recovery-error" class="error-inline" role="alert" aria-live="polite"></p><button id="recover" class="external-link" type="button">이 PC로 참가 이전</button>
     </section>
     <section id="state-recovery" class="state hidden"><p class="big">복구 키트를 안전하게 보관하세요</p><p class="muted">이 코드는 다른 PC로 참가를 한 번 이전할 때만 사용할 수 있습니다. 서버에는 원문이 저장되지 않아 다시 표시할 수 없습니다.</p><label class="field-label" for="recovery-kit-code">일회용 복구 코드</label><textarea id="recovery-kit-code" readonly rows="3"></textarea><div class="action-row"><button id="download-recovery-kit" class="external-link" type="button">복구 키트 다운로드</button><button id="continue-after-recovery" class="btn-primary" type="button">저장했고 계속하기</button></div></section>
+    <section id="state-review-intro" class="state hidden">
+      <p class="big">교수 검토용 전체 절차 안내</p>
+      <p class="scope-banner scope-synthetic"><strong>합성 검토 전용</strong> · 실제 참가자 응답이나 여론이 아니며 실제 수집은 열리지 않습니다.</p>
+      <section class="step-card" aria-labelledby="review-teams-title"><h2 id="review-teams-title">실험 취지와 참여 팀</h2><p>시민이 국민연금 개혁안을 비교하고, 정책전문가팀과 AI팀이 숙의를 어떻게 돕는지 검토합니다. AI는 정책을 결정하거나 정답을 제시하지 않습니다.</p><p><strong>정책전문가팀</strong>은 정책안과 비용·제약을 설명합니다. <strong>AI팀</strong>은 승인된 근거와 시민 의견을 바탕으로 공개 숙의 자료를 정리하며, 사람 승인 전에는 공개하지 않습니다.</p></section>
+      <section class="step-card" aria-labelledby="review-procedure-title"><h2 id="review-procedure-title">11단계 개요</h2><ol class="review-procedure-list"><li>취지·절차·정책전문가팀·AI팀 안내</li><li>정책전문가 A·B·C안 비교</li><li>1차 선택과 결과</li><li>개인 조건 영향 비교</li><li>2차 선택과 의견</li><li>조건별 분석 공개</li><li>AI 숙의 자료 공개</li><li>전문가 논평과 승인 자료 확인</li><li>최종 선택과 결과</li><li>패널 총평과 마무리</li><li>행사 종료</li></ol></section>
+      <button id="continue-review" class="btn-primary btn-lg" type="button">안내를 확인하고 현재 검토 단계로</button>
+    </section>
     <section id="state-step" class="hidden">
       <div class="step-line" id="step-line"></div>
       <div id="step-content"></div>

@@ -9,12 +9,26 @@ ROOT = Path(__file__).parents[1]
 WEB = ROOT / "event-tool" / "web"
 
 
+def test_legacy_review_route_hands_off_to_the_canonical_participant_app():
+    soup = BeautifulSoup((WEB / "aipol-review.html").read_text("utf-8"), "html.parser")
+    script = (WEB / "aipol-review.js").read_text("utf-8")
+
+    assert not soup.find("progress")
+    assert "별도의 목업 화면은 제공하지 않습니다" in soup.get_text(" ", strip=True)
+    assert 'params.get("review")' in script
+    assert 'params.get("experiment")' in script
+    assert '`/aipol.html?${mode}=' in script
+    assert "window.location.replace(target)" in script
+    for fixture_marker in ("const STAGES", "issueScores", "D_PRIME", "최종선택"):
+        assert fixture_marker not in script
+
+
 def test_participant_page_has_all_server_driven_states_and_no_result_container():
     soup = BeautifulSoup((WEB / "aipol.html").read_text("utf-8"), "html.parser")
     assert soup.html["lang"] == "ko"
     for element_id in (
         "state-loading", "state-error", "state-start", "state-step", "state-done",
-        "state-withdrawn", "state-recovery",
+        "state-withdrawn", "state-recovery", "state-review-intro",
     ):
         assert soup.find(id=element_id)
     assert not soup.find(id="results")
@@ -52,6 +66,7 @@ def test_participant_page_has_all_server_driven_states_and_no_result_container()
 
 def test_participant_page_starts_with_experiment_intro_and_ends_with_panel_closing():
     soup = BeautifulSoup((WEB / "aipol.html").read_text("utf-8"), "html.parser")
+    assert soup.find("h1").get_text(strip=True) == "정책이 나와 사회에 미치는 영향을 확인한 후, 다시 정책을 선택합니다."
     start = soup.find(id="state-start")
     assert start.find(id="intro-procedure-title").get_text(strip=True) == "진행 절차"
     procedure = start.find(id="intro-procedure")
@@ -60,6 +75,15 @@ def test_participant_page_starts_with_experiment_intro_and_ends_with_panel_closi
     assert "AI팀" in start.get_text(" ", strip=True)
     assert "AI가 정책을 결정하거나 정답을 제시하지 않으며" in start.get_text(" ", strip=True)
     assert start.find(id="admission-code")
+
+    review_intro = soup.find(id="state-review-intro")
+    assert review_intro.find(id="review-teams-title")
+    assert review_intro.find(id="review-procedure-title")
+    assert len(review_intro.find_all("li")) == 11
+    review_text = review_intro.get_text(" ", strip=True)
+    assert "합성 검토 전용" in review_text
+    assert "정책전문가팀" in review_text and "AI팀" in review_text
+    assert soup.find(id="participation-scope")
 
     done = soup.find(id="state-done")
     assert done.find(id="closing-panel-title").get_text(strip=True) == "패널 총평과 마무리"
@@ -100,6 +124,43 @@ def test_m2_renders_three_structured_option_assessments_with_reason_limits():
     assert 'class="option-assessment-reason"' in script
     assert 'maxlength="2000"' in script
     assert "...(structuredAssessment ? {option_assessments:optionAssessments} : {})" in script
+
+
+def test_policy_values_are_reused_across_e0_measurements_and_d_lineage():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    for label in ("수급개시연령", "기금운용전략(수익률)", "국고투입(지원) 수준"):
+        assert label in script
+    assert "기금운용전략(운용수익률)" in script
+    assert script.count("renderPolicyComparison(") >= 4
+    assert 'const comparisonCaption = current.stage === "M3" ? "A·B·C·D′ 최종 비교"' in script
+    assert 'const simpleM1 = current.stage === "M1"' in script
+    assert 'const optionalDetails = simpleM1 ? ""' in script
+    assert 'const confidenceField = simpleM1 ? ""' in script
+    assert "D 생성 근거" in script and "D′ 수정 근거" in script
+    for limit in ("보험료율 18% 이하", "소득대체율 43%", "운용수익률 5~7%", "수급개시연령 65~70세", "국고투입 GDP 1% 이하"):
+        assert limit in script
+    assert "D′안 별도 선택률 분포 그래프" in script
+    assert "segment-bar-fill" in script
+    assert "M2에서 M3로 어떤 선택이 움직였나요?" in script
+    assert "transitionMovementSummary(result.m2_to_m3" in script
+    assert "같은 선택을 유지한 경우를 제외한 실제 이동만 따로 계산했습니다." in script
+    assert "네 안에 대한 최종 판단" in script
+    assert 'value="${esc(option.policy_option_id)}"' in script
+    assert "A·B·C·D′ 최종 비교" in script
+    assert "주 선택은 A/B/C만 대상으로 기록합니다." not in script
+    assert "D′ 별도 투표" not in script
+
+
+def test_personal_review_preview_supports_dict_or_array_and_labels_unapproved_example():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    assert "Array.isArray(preview.options)" in script
+    assert "Object.entries(preview.options || {})" in script
+    for label in (
+        "예상 월연금", "개시·소득공백", "생애 총수급(83.5세)",
+        "예상 연조세부담률", "연금 소진시점", "개인 해설",
+        "화면 검토용 예시 · 계산 정책값과 산식 승인 전이며 실제 연금액이 아닙니다.",
+    ):
+        assert label in script
 
 
 def test_participant_provenance_and_suppressed_counts_are_explicit():
@@ -148,6 +209,81 @@ console.log(JSON.stringify({url:api.buildLaunchUrl(integration,context,'https://
     assert protected == {"alg": "EdDSA", "kid": "calculator-key-1", "typ": "JWT"}
     assert value["extraHeaderRejected"] is True
     assert value["dirtyRejected"] is True
+
+
+def test_v4_participant_branch_is_server_driven_and_review_scoped():
+    script = (WEB / "aipol.js").read_text("utf-8")
+    html = (WEB / "aipol.html").read_text("utf-8")
+    assert 'const reviewEventId = params.get("review")' in script
+    assert "queryConflict" in script and "event_kind !== \"review\"" in script
+    assert "synthetic_review !== true" in script
+    assert 'procedure_version === "aipol-pension-3-measurements-v4"' in script
+    for field in ("gender_band_id", "age_band_id", "monthly_personal_income_band_id"):
+        assert field in script
+    assert 'submitAction("demographics"' in script
+    assert "current.demographics || {}" in script
+    assert "demographics.required === true" in script
+    assert "demographics.recorded !== true" in script
+    assert "contract.options?.[key]" in script
+    assert 'rules_version: contract.rules_version || ""' in script
+    assert "raw" not in script[script.index("function renderDemographics"):script.index("function renderWaiting")]
+    assert "renderV4DeliberationArtifact" in script
+    for field in (
+        "public_summary", "source_bundle", "deliberation_process", "issue_aggregation",
+        "admin_constraints", "expert_approval_diff", "approval_rationale",
+    ):
+        assert field in script
+    assert "이 값은 점수가 아니라 고유 참가자 수와 승인된 사유 레코드 수입니다." in script
+    assert "복수 쟁점 분류이므로 쟁점별 합계가 응답자 수를 넘을 수 있습니다." in script
+    assert "AI 초안:" in script and "전문가 승인:" in script and "수정 사유:" in script
+    assert "숨은 사고 과정, 내부 프롬프트, 시민 자유서술 원문" in script
+    renderer = script[
+        script.index("function renderV4DeliberationArtifact"):
+        script.index("function renderPersonalComparisonPreview")
+    ]
+    assert "JSON.stringify" not in renderer
+    assert "승인 자료 없음" in script
+    assert "const structuredM3 = current.stage === \"M3\"" in script
+    assert "&& !v4M3" in script
+    assert "const v4M1" in script and "const v4M3" in script
+    assert "confidence" in script and "#confidence" in script
+    assert "review와 experiment" in script or "experiment와 review" in script
+    assert "9단계 개요" in script
+    assert 'const m3Label = isV4() ? "3차" : "최종"' in script
+    assert 'const legacyDPrimeSegments = isV4() ? "" : dPrimeSegmentCharts(result)' in script
+    assert 'isV4() && current.stage === "M3" ? "3차 선택"' in script
+    v4_intro = script[script.index("function renderV4ReviewIntro"):script.index("function policyLeverValue")]
+    assert "최종 선택" not in v4_intro
+    assert "3차 선택" in v4_intro
+    assert "D와 D′" not in html
+
+
+def test_v4_preparation_uses_approved_classification_and_structured_d_contracts():
+    script = (WEB / "aipol-preparation.js").read_text("utf-8")
+    for endpoint in (
+        "m2-reason-classification-pending",
+        "m2-reason-classification-drafts",
+        "m2-reason-classification-approvals",
+        "m2-reason-classifications",
+        "issue-aggregation",
+    ):
+        assert endpoint in script
+    for field in (
+        "lever_values",
+        "public_summary",
+        "deliberation_process",
+        "ai_draft",
+        "approved_d",
+        "expert_approval_diff",
+        "approval_rationale",
+    ):
+        assert field in script
+    approval_renderer = script[
+        script.index("async function loadClassificationApprovals"):
+        script.index("async function approveClassification")
+    ]
+    assert "item.reason}" not in approval_renderer
+    assert "reason hash" in approval_renderer and "draft hash" in approval_renderer
 
 
 def test_same_origin_return_page_has_no_opener_dependency_and_no_referrer():

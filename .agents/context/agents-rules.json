@@ -4,11 +4,8 @@
   "project": "AIPOL",
   "description": "Human+AI 정책 설계·실험 프레임워크. AI 도구용 규칙 SoT. 방어장치(RFC §6)가 이 프로젝트의 신뢰성 핵심.",
   "charter_immutability": {
-    "description": "확정된 헌장 파일 + 방어장치는 AI가 단독 수정 불가. 수정 시 사용자 명시 승인 필수.",
+    "description": "확정된 규칙·설계 정본과 방어장치는 AI가 단독 수정 불가. 공유 진입점은 정본이 아니라 인덱스다.",
     "charter_files": [
-      "AGENTS.md",
-      "CLAUDE.md",
-      "GEMINI.md",
       ".agents/context/agents-rules.json",
       "RFC-0001-framework.md",
       "policy_lab/core/guards.py"
@@ -34,6 +31,11 @@
       { "id": "G-NUM", "rule": "no_single_number", "enforce": "reject_single_number (ImpactResult.__post_init__)", "description": "단일 정밀 숫자를 권위로 제시 금지 — 방향성·불확실성 밴드만. 허위 정밀성 방어." },
       { "id": "G-PROV", "rule": "provenance_complete", "enforce": "ProvenanceRecord", "description": "모델·버전·temp·시드·프롬프트·근거 기록 — 결과 재현성." }
     ]
+  },
+  "context_boundaries": {
+    "shared_entrypoints": "AGENTS.md, CLAUDE.md, GEMINI.md는 저장소 인덱스이며 현재 세션 계약·진행 상태·제품 문구를 담지 않는다.",
+    "session_contract": "현재 세션 식별자에 명시적으로 연결된 .agents/progress 문서만 현재 목표와 진행 상태의 출처로 사용한다.",
+    "context_is_not_output": "기획 의도, 구현 지시, 검토 상태와 내부 분류는 명시적으로 산출물에 요구되지 않는 한 코드·화면·대외 문서의 콘텐츠가 아니다."
   },
   "forbidden_actions": [
     { "id": "F01", "rule": "charter_modification_without_approval", "description": "헌장 파일(guards.py 포함) 사용자 승인 없이 수정 금지.", "status": "ACTIVE" },

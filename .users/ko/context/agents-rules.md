@@ -5,9 +5,10 @@
 
 ## 헌장 불변 (Charter)
 
-다음 파일 + 방어장치는 AI가 단독 수정 불가, 사용자 명시 승인 필수:
-`AGENTS.md` · `CLAUDE.md` · `GEMINI.md` · `.agents/context/agents-rules.json` ·
-`RFC-0001-framework.md` · **`policy_lab/core/guards.py`**.
+다음 규칙·설계 정본과 방어장치는 AI가 단독 수정 불가, 사용자 명시 승인 필수:
+`.agents/context/agents-rules.json` · `RFC-0001-framework.md` · **`policy_lab/core/guards.py`**.
+
+`AGENTS.md` · `CLAUDE.md` · `GEMINI.md`는 헌장 정본이 아니라 여러 세션이 공유하는 진입 인덱스입니다.
 
 > `guards.py`가 헌장에 들어간 이유: 방어장치 코드가 곧 프레임워크의 신뢰성 보증이다.
 > 약화하면 이 프로젝트의 학술 기여가 무력화된다.
@@ -31,6 +32,12 @@
 - **F03** 출처·버전 없는 정량 앵커를 Evidence 추가 금지
 - **F04** 도메인 plugin 이 코어(`policy_lab/core`) 수정 금지 — 코어 변경은 별도 RFC/이슈
 - **F-SEC01** 키·시크릿·세션 원자료(투표 PII)는 추적 경로 금지 → `data-private/`(gitignored)
+
+## 컨텍스트 경계
+
+- 공유 진입점에는 현재 세션의 목표·범위·요구사항·결정·진행 상태를 기록하지 않습니다.
+- 현재 세션 식별자에 명시적으로 연결된 `.agents/progress/` 문서만 현재 작업 계약으로 사용합니다.
+- 기획 의도·구현 지시·검토 상태는 명시적으로 요구된 산출물 콘텐츠가 아닙니다.
 
 ## 승인 필요 고위험 행동 (ask)
 

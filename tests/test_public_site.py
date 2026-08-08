@@ -96,6 +96,41 @@ def test_internal_links_and_external_link_safety() -> None:
                 assert "noopener" in attrs.get("rel", "").split(), f"{path}: {href}"
 
 
+def test_pension_experiment_handoff_is_accessible_and_does_not_restore_old_flow() -> None:
+    path = SITE / "cases" / "pension" / "experiment" / "index.html"
+    source = path.read_text(encoding="utf-8")
+    parser = parse(path)
+    entry = (path.parent / "entry.js").read_text(encoding="utf-8")
+
+    assert parser.h1_count == 1
+    assert "noindex" in parser.robots and "nofollow" in parser.robots
+    assert parser.inline_styles == 0
+    assert parser.inline_scripts == 0
+    assert 'class="skip-link"' in source
+    assert "data-nav-toggle" in source and "data-nav" in source
+    assert '/assets/site.css' in source and '/assets/site.js' in source
+    assert "http-equiv=\"refresh\"" not in source
+    assert 'src="/cases/pension/experiment/entry.js"' in source
+    assert "https://aipol-pension-design-review.vercel.app" not in source + entry
+    assert "https://session.aipol.kaps.or.kr/aipol.html" in entry
+    assert 'params.get("review")' in entry and 'params.get("experiment")' in entry
+    assert "window.location.replace(target)" in entry
+    assert "/cases/pension/experiment/assets/" not in source
+
+    visible_sources = source + (SITE / "cases" / "pension" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    for marker in (
+        "1. 사전조사",
+        "2. 시뮬레이션·1차 투표",
+        "3. AI 진단·소그룹 토론",
+        "4. 최종 투표·결과 대시보드",
+        "연금팀 피드백 기준",
+        "시나리오 충실도",
+    ):
+        assert marker not in visible_sources
+
+
 def test_search_exposure_and_privacy_contract() -> None:
     robots_text = (SITE / "robots.txt").read_text(encoding="utf-8")
     assert robots_text == (
@@ -253,6 +288,27 @@ def test_unpublished_pension_material_is_not_published() -> None:
         "70년 후 " + "적립배율",
     ):
         assert marker not in public_text
+
+
+def test_official_second_pretest_has_synthetic_boundaries() -> None:
+    overview = (SITE / "cases" / "pension" / "report-2" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    results = (
+        SITE / "cases" / "pension" / "report-2" / "results" / "index.html"
+    ).read_text(encoding="utf-8")
+
+    assert "공식 2차 사전 실험" in overview
+    assert "합성 가상시민 250명" in overview
+    assert "실제 사람 참가자" in overview
+    assert "M3와 D 별도평가" in overview
+    assert "A/B/C/D′" not in overview
+
+    assert "pension-official-domestic-fullqual-250-20260806-r3" in results
+    assert "D안은 M3 선택지에 섞지 않고" in results
+    assert "6분 13.516초" in results
+    assert "실제 사람 참가자" in results
+    assert "합성 가상시민 ≠ 실제 여론" in results
 
 
 def test_removed_future_scenario_is_not_advertised() -> None:

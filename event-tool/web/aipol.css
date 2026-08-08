@@ -2,10 +2,24 @@
 .portal-nav a { color: var(--brand-dark); font-size: .88rem; font-weight: 700; text-underline-offset: 3px; }
 .service-footer { display: flex; justify-content: space-between; gap: 12px; max-width: 660px; margin: -112px auto 0; padding: 24px 22px 32px; color: var(--muted); font-size: .82rem; }
 .step-line { margin: 18px 16px 0; padding: 11px 14px; border-radius: 12px; background: var(--brand-tint); color: var(--brand-dark); font-weight: 800; }
+.scope-banner { margin: 14px 0 0; padding: 11px 14px; border: 2px solid; border-radius: 12px; font-weight: 800; }
+.scope-synthetic { color: #7a3b00; background: #fff4df; border-color: #d8831d; }
+.scope-real { color: #0c5132; background: #eaf8f0; border-color: #2b8a57; }
+.scope-unknown { color: #46505f; background: #f4f6f8; border-color: #aeb6c2; }
+.review-procedure-list { display: grid; gap: 8px; padding-left: 24px; text-align: left; }
 .step-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px 18px; margin: 14px 16px; box-shadow: 0 2px 10px rgba(24,34,51,.05); }
 .step-card h2 { margin-top: 0; font-size: 1.35rem; }
 .stage-note { padding: 12px 14px; border-left: 4px solid var(--brand); background: #f7f9fd; color: #3a4557; }
 .artifact-meta { font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
+.policy-table td.missing-value { color: #9b2c2c; font-weight: 700; }
+.policy-basis { margin-top: 14px; padding: 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: #fbfcfe; }
+.policy-basis h3 { margin: 0 0 8px; font-size: 1.05rem; }
+.constraint-note { margin-top: 12px; padding: 11px 13px; border-radius: 10px; background: #f1f5fb; font-size: .9rem; }
+.segment-bar-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 14px; }
+.segment-bar-item { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcfe; }
+.segment-bar-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 8px; }
+.segment-bar-track { width: 100%; height: 12px; border-radius: 999px; background: #dfe7f2; overflow: hidden; }
+.segment-bar-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #0f766e, #1d4ed8); }
 .option-list { display: grid; gap: 10px; margin: 16px 0; }
 .option-choice { display: flex; align-items: flex-start; gap: 12px; min-height: 58px; padding: 13px; border: 2px solid var(--line-strong); border-radius: 13px; cursor: pointer; }
 .option-choice:has(input:checked) { border-color: var(--brand); background: var(--brand-tint); }

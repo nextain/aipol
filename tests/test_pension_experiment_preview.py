@@ -6,6 +6,8 @@ from bs4 import BeautifulSoup
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "site" / "cases" / "pension" / "experiment" / "index.html"
 SOURCE = ROOT / "integrations" / "kaps-pension-experiment" / "vendor" / "src"
+BUILD_SCRIPT = ROOT / "scripts" / "build_pension_experiment.mjs"
+SERVICE_URL = "https://session.aipol.kaps.or.kr/aipol.html"
 
 
 def soup() -> BeautifulSoup:
@@ -16,22 +18,22 @@ def source_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in SOURCE.rglob("*.tsx"))
 
 
-def test_review_build_is_noindex_and_keeps_portal_navigation() -> None:
+def test_official_route_is_noindex_canonical_handoff_and_keeps_portal_navigation() -> None:
     document = soup()
     assert document.select_one('meta[name="robots"]')["content"] == "noindex,nofollow,noarchive"
-    assert document.select_one('meta[name="aipol-source-commit"]')["content"] == (
-        "fcbae3c0dab18476e2274f9e4ff91dadeb2db944"
-    )
     assert document.find("a", href="/cases/pension/")
     assert document.find("a", href="/")
     assert document.title.string == "연금개혁-AI 숙의민주주의 정책실험 | AIPOL"
     assert document.find("img", src="/assets/aipol-logo.png", alt="AIPOL")
     assert document.find("link", rel="stylesheet", href="/assets/site.css")
     assert document.find("script", src="/assets/site.js")
-    assert not document.select(".ipol-project-partners")
-    assert document.find("meta", property="og:title", content="연금개혁-AI 숙의민주주의 정책실험 | AIPOL")
-    assert document.find("meta", property="og:image", content="https://aipol.kaps.or.kr/assets/og-aipol.png")
-    assert document.find("meta", attrs={"name": "twitter:card", "content": "summary_large_image"})
+    assert not document.find("meta", attrs={"http-equiv": "refresh"})
+    assert document.find("link", rel="canonical", href="https://aipol.kaps.or.kr/cases/pension/experiment/")
+    assert document.find("meta", property="og:url")["content"] == "https://aipol.kaps.or.kr/cases/pension/experiment/"
+    assert document.find("script", src="/cases/pension/experiment/entry.js")
+    entry = (PAGE.parent / "entry.js").read_text("utf-8")
+    assert SERVICE_URL in entry
+    assert 'params.get("review")' in entry and 'params.get("experiment")' in entry
 
 
 def test_experiment_legal_pages_are_built_and_linked() -> None:
@@ -63,12 +65,12 @@ def test_professor_scenario_preserves_two_ballots_not_three() -> None:
     assert "M3" not in text
 
 
-def test_built_app_uses_the_scoped_pension_route() -> None:
-    document = soup()
-    script = document.find("script", src=True)
-    assert script and script["src"].startswith("/cases/pension/experiment/assets/")
-    canonical = document.select_one('link[rel="canonical"]')
-    assert canonical and canonical["href"] == "https://aipol.kaps.or.kr/cases/pension/experiment/"
+def test_vendor_build_script_keeps_scoped_route_and_source_provenance() -> None:
+    script = BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert '"--base=/cases/pension/experiment/"' in script
+    assert 'source_commit: "fcbae3c0dab18476e2274f9e4ff91dadeb2db944"' in script
+    assert 'source_scope: "top-level scenario app; personal-pension-simulator subproject excluded"' in script
+    assert 'integration_route: "/cases/pension/experiment/"' in script
 
 
 def test_adapter_keeps_profile_edit_available_on_mobile() -> None:

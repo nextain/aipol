@@ -52,10 +52,15 @@ from policy_lab.domains.pension.experiment import (  # noqa: E402
     V2_PROCEDURE_CONFIG,
     content_hash,
 )
+try:
+    from policy_lab.domains.pension.experiment import V4_PROCEDURE_CONFIG
+except ImportError:  # older v1-v3 domain module; v4 callers remain fail-closed
+    V4_PROCEDURE_CONFIG = {"version": "aipol-pension-3-measurements-v4"}
 from policy_lab.domains.pension.public_results import (  # noqa: E402
     DeidentifiedMeasurement,
     DeidentifiedOptionAssessment,
     PublicResultError,
+    V4_M3_OPTIONS,
     build_t10_results,
     build_t3_m1_results,
     build_t5_results,
@@ -97,6 +102,13 @@ CREATE TABLE IF NOT EXISTS aipol_experiments (
   created_by TEXT NOT NULL DEFAULT 'legacy-unknown',
   credential_key_id TEXT NOT NULL DEFAULT 'legacy-event-session',
   procedure_config TEXT NOT NULL DEFAULT '{}',
+  event_kind TEXT NOT NULL DEFAULT 'legacy_unclassified',
+  source_bundle_version_id TEXT,
+  constraint_set_version_id TEXT,
+  taxonomy_version_id TEXT,
+  source_bundle_hash TEXT,
+  constraint_set_hash TEXT,
+  taxonomy_hash TEXT,
   created_at REAL NOT NULL,
   UNIQUE(experiment_version, session_id)
 );
@@ -168,6 +180,17 @@ CREATE TABLE IF NOT EXISTS aipol_ai_candidates (
   generated_at TEXT NOT NULL,
   evidence_refs TEXT NOT NULL,
   m2_aggregate_hash TEXT,
+  source_bundle_version_id TEXT,
+  source_bundle_hash TEXT,
+  constraint_set_version_id TEXT,
+  constraint_set_hash TEXT,
+  taxonomy_version_id TEXT,
+  taxonomy_hash TEXT,
+  issue_aggregation_hash TEXT,
+  generation_input_hash TEXT,
+  ai_draft_hash TEXT,
+  approved_d_hash TEXT,
+  expert_diff_hash TEXT,
   approval_id TEXT NOT NULL,
   approved_by TEXT NOT NULL,
   approved_at TEXT NOT NULL,
@@ -394,6 +417,18 @@ CREATE TABLE IF NOT EXISTS aipol_measurements (
   FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
 );
 
+CREATE TABLE IF NOT EXISTS aipol_m1_issue_interests (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL UNIQUE,
+  taxonomy_version_id TEXT NOT NULL,
+  taxonomy_hash TEXT NOT NULL CHECK(length(taxonomy_hash)=64),
+  topic_codes_json TEXT NOT NULL,
+  submitted_at TEXT NOT NULL,
+  state_revision INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
+);
+
 CREATE TABLE IF NOT EXISTS aipol_audience_discussion_acks (
   id TEXT PRIMARY KEY,
   participant_id TEXT NOT NULL UNIQUE,
@@ -500,6 +535,8 @@ CREATE TABLE IF NOT EXISTS aipol_m2_reason_classification_drafts (
   option_id TEXT NOT NULL CHECK(option_id IN ('A','B','C')),
   reason_hash TEXT NOT NULL CHECK(length(reason_hash)=64),
   topic_codes TEXT NOT NULL,
+  taxonomy_version_id TEXT,
+  taxonomy_hash TEXT CHECK(taxonomy_hash IS NULL OR length(taxonomy_hash)=64),
   classified_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   UNIQUE(participant_id, option_id),
@@ -512,6 +549,8 @@ CREATE TABLE IF NOT EXISTS aipol_m2_reason_classifications (
   option_id TEXT NOT NULL CHECK(option_id IN ('A','B','C')),
   reason_hash TEXT NOT NULL CHECK(length(reason_hash)=64),
   topic_codes TEXT NOT NULL,
+  taxonomy_version_id TEXT,
+  taxonomy_hash TEXT CHECK(taxonomy_hash IS NULL OR length(taxonomy_hash)=64),
   draft_id TEXT NOT NULL UNIQUE,
   draft_hash TEXT NOT NULL CHECK(length(draft_hash)=64),
   classified_by TEXT NOT NULL,
@@ -544,6 +583,21 @@ CREATE TABLE IF NOT EXISTS aipol_research_profiles (
     (decision='declined' AND age_band_id IS NULL AND monthly_personal_income_band_id IS NULL
       AND expected_contribution_years_band_id IS NULL AND expected_retirement_age_band_id IS NULL)
   ),
+  FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
+);
+
+-- v4 demographics are a separate append-only receipt.  Only approved band
+-- identifiers are persisted; raw age/income values never have a column here.
+CREATE TABLE IF NOT EXISTS aipol_demographics (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL UNIQUE,
+  gender_band_id TEXT NOT NULL,
+  age_band_id TEXT NOT NULL,
+  monthly_personal_income_band_id TEXT NOT NULL,
+  rules_version TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  state_revision INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL,
   FOREIGN KEY(participant_id) REFERENCES aipol_participants(id)
 );
 
@@ -661,6 +715,35 @@ CREATE TABLE IF NOT EXISTS aipol_experiment_audit_outbox (
   created_at TEXT NOT NULL,
   delivered_at TEXT
 );
+
+-- v4 canonical inputs.  A version is append-only: content and approval state
+-- are never updated in place, and approval must be performed by another user.
+CREATE TABLE IF NOT EXISTS aipol_v4_artifacts (
+  id TEXT PRIMARY KEY,
+  artifact_type TEXT NOT NULL CHECK(artifact_type IN ('source_bundle','constraint_set','issue_taxonomy')),
+  version_id TEXT NOT NULL,
+  content_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  status TEXT NOT NULL CHECK(status IN ('draft','approved','rejected')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  approved_by TEXT,
+  approved_at TEXT,
+  approval_id TEXT,
+  UNIQUE(artifact_type, version_id),
+  CHECK(status='draft' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL AND approval_id IS NOT NULL)),
+  CHECK(approved_by IS NULL OR approved_by <> created_by)
+);
+CREATE TRIGGER IF NOT EXISTS aipol_v4_artifacts_immutable_content
+BEFORE UPDATE ON aipol_v4_artifacts
+WHEN OLD.id <> NEW.id OR OLD.artifact_type <> NEW.artifact_type
+  OR OLD.version_id <> NEW.version_id OR OLD.content_json <> NEW.content_json
+  OR OLD.content_hash <> NEW.content_hash OR OLD.created_by <> NEW.created_by
+  OR OLD.created_at <> NEW.created_at
+  OR OLD.status <> 'draft' OR NEW.status NOT IN ('approved','rejected')
+BEGIN SELECT RAISE(ABORT, 'immutable artifact version'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_artifacts_no_delete
+BEFORE DELETE ON aipol_v4_artifacts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE INDEX IF NOT EXISTS idx_aipol_experiment_audit_pending
 ON aipol_experiment_audit_outbox(delivered_at, created_at);
 
@@ -692,6 +775,10 @@ CREATE TRIGGER IF NOT EXISTS aipol_measurements_no_update
 BEFORE UPDATE ON aipol_measurements BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_measurements_no_delete
 BEFORE DELETE ON aipol_measurements BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m1_issue_interests_no_update
+BEFORE UPDATE ON aipol_m1_issue_interests BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_m1_issue_interests_no_delete
+BEFORE DELETE ON aipol_m1_issue_interests BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_audience_discussion_acks_no_update
 BEFORE UPDATE ON aipol_audience_discussion_acks BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_audience_discussion_acks_no_delete
@@ -736,6 +823,10 @@ CREATE TRIGGER IF NOT EXISTS aipol_research_profiles_no_update
 BEFORE UPDATE ON aipol_research_profiles BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_research_profiles_no_delete
 BEFORE DELETE ON aipol_research_profiles BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_demographics_no_update
+BEFORE UPDATE ON aipol_demographics BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_demographics_no_delete
+BEFORE DELETE ON aipol_demographics BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_t6_snapshots_no_update
 BEFORE UPDATE ON aipol_t6_snapshots BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_t6_snapshots_no_delete
@@ -971,6 +1062,30 @@ def init() -> None:
             connection.execute(
                 "ALTER TABLE aipol_experiments ADD COLUMN procedure_config TEXT NOT NULL DEFAULT '{}'"
             )
+        if "event_kind" not in columns:
+            # Existing rows cannot be proven to belong to either v4 namespace.
+            connection.execute(
+                "ALTER TABLE aipol_experiments ADD COLUMN event_kind TEXT NOT NULL DEFAULT 'legacy_unclassified'"
+            )
+        for column in (
+            "source_bundle_version_id", "constraint_set_version_id", "taxonomy_version_id",
+            "source_bundle_hash", "constraint_set_hash", "taxonomy_hash",
+        ):
+            if column not in columns:
+                connection.execute(f"ALTER TABLE aipol_experiments ADD COLUMN {column} TEXT")
+        # Upgrade databases created by the initial v4 migration: approval changes
+        # status metadata, while the version payload itself remains immutable.
+        connection.execute("DROP TRIGGER IF EXISTS aipol_v4_artifacts_no_update")
+        connection.execute("DROP TRIGGER IF EXISTS aipol_v4_artifacts_immutable_content")
+        connection.execute(
+            "CREATE TRIGGER aipol_v4_artifacts_immutable_content BEFORE UPDATE ON aipol_v4_artifacts "
+            "WHEN OLD.id <> NEW.id OR OLD.artifact_type <> NEW.artifact_type "
+            "OR OLD.version_id <> NEW.version_id OR OLD.content_json <> NEW.content_json "
+            "OR OLD.content_hash <> NEW.content_hash OR OLD.created_by <> NEW.created_by "
+            "OR OLD.created_at <> NEW.created_at OR OLD.status <> 'draft' "
+            "OR NEW.status NOT IN ('approved','rejected') "
+            "BEGIN SELECT RAISE(ABORT, 'immutable artifact version'); END"
+        )
         if "freeze_manifest_anchor_id" not in columns:
             connection.execute(
                 "ALTER TABLE aipol_experiments ADD COLUMN freeze_manifest_anchor_id TEXT"
@@ -986,6 +1101,17 @@ def init() -> None:
             connection.execute(
                 "ALTER TABLE aipol_e2_selections ADD COLUMN candidate_approval_hash TEXT NOT NULL DEFAULT ''"
             )
+        ai_candidate_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(aipol_ai_candidates)")
+        }
+        for column in (
+            "source_bundle_version_id", "source_bundle_hash",
+            "constraint_set_version_id", "constraint_set_hash",
+            "taxonomy_version_id", "taxonomy_hash", "issue_aggregation_hash",
+            "generation_input_hash", "ai_draft_hash", "approved_d_hash", "expert_diff_hash",
+        ):
+            if column not in ai_candidate_columns:
+                connection.execute(f"ALTER TABLE aipol_ai_candidates ADD COLUMN {column} TEXT")
         finalization_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(aipol_m2_finalizations)")
         }
@@ -1016,6 +1142,20 @@ def init() -> None:
                 "ALTER TABLE aipol_measurements ADD COLUMN stance TEXT "
                 "CHECK(stance IN ('accept','conditional','reject') OR stance IS NULL)"
             )
+        for table in (
+            "aipol_m2_reason_classification_drafts",
+            "aipol_m2_reason_classifications",
+        ):
+            classification_columns = {
+                row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
+            }
+            if "taxonomy_version_id" not in classification_columns:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN taxonomy_version_id TEXT")
+            if "taxonomy_hash" not in classification_columns:
+                connection.execute(
+                    f"ALTER TABLE {table} ADD COLUMN taxonomy_hash TEXT "
+                    "CHECK(taxonomy_hash IS NULL OR length(taxonomy_hash)=64)"
+                )
         withdrawal_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(aipol_withdrawals)")
         }
@@ -1240,8 +1380,196 @@ def _row_experiment(row: sqlite3.Row) -> dict:
     return result
 
 
+_V4_ARTIFACT_TYPES = {"source_bundle", "constraint_set", "issue_taxonomy"}
+
+
+def _row_v4_artifact(row: sqlite3.Row | dict) -> dict:
+    result = dict(row)
+    result["content_json"] = json.loads(result["content_json"])
+    return result
+
+
+def create_v4_artifact(*, artifact_type: str, version_id: str,
+                       content_json: object, created_by: str) -> dict:
+    """Store a draft canonical input; approval is a separate RBAC operation."""
+    if artifact_type not in _V4_ARTIFACT_TYPES or not isinstance(version_id, str) or not version_id.strip():
+        raise ExperimentError("artifact_type과 version_id가 유효하지 않습니다")
+    if not created_by.strip():
+        raise ExperimentError("artifact creator가 필요합니다")
+    try:
+        serialized = _json(content_json)
+        digest = content_hash(content_json)
+    except (TypeError, ValueError) as exc:
+        raise ExperimentError("content_json은 JSON으로 직렬화할 수 있어야 합니다") from exc
+    artifact_id = _id("v4a")
+    now = datetime.now(timezone.utc).isoformat()
+    with db._conn() as connection:
+        try:
+            connection.execute(
+                "INSERT INTO aipol_v4_artifacts(id,artifact_type,version_id,content_json,content_hash,status,created_by,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (artifact_id, artifact_type, version_id.strip(), serialized, digest, "draft", created_by.strip(), now),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ExperimentError("같은 artifact type/version_id가 이미 존재합니다") from exc
+        return _row_v4_artifact(connection.execute(
+            "SELECT * FROM aipol_v4_artifacts WHERE id=?", (artifact_id,)
+        ).fetchone())
+
+
+def list_v4_artifacts(*, artifact_type: str | None = None) -> list[dict]:
+    if artifact_type is not None and artifact_type not in _V4_ARTIFACT_TYPES:
+        raise ExperimentError("artifact_type이 유효하지 않습니다")
+    with db._conn() as connection:
+        if artifact_type is None:
+            rows = connection.execute("SELECT * FROM aipol_v4_artifacts ORDER BY created_at DESC").fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM aipol_v4_artifacts WHERE artifact_type=? ORDER BY created_at DESC",
+                (artifact_type,),
+            ).fetchall()
+        return [_row_v4_artifact(row) for row in rows]
+
+
+def get_v4_artifact(*, artifact_type: str, version_id: str,
+                    connection: sqlite3.Connection | None = None) -> dict:
+    owns = connection is None
+    connection = connection or db._conn()
+    try:
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_artifacts WHERE artifact_type=? AND version_id=?",
+            (artifact_type, version_id),
+        ).fetchone()
+        if not row:
+            raise ExperimentError("요청한 v4 artifact version이 없습니다")
+        return _row_v4_artifact(row)
+    finally:
+        if owns:
+            connection.close()
+
+
+def _v4_issue_taxonomy(experiment: dict, connection: sqlite3.Connection) -> dict:
+    """Return the approved, event-bound taxonomy after validating its public shape."""
+    version_id = experiment.get("taxonomy_version_id")
+    expected_hash = experiment.get("taxonomy_hash")
+    if not isinstance(version_id, str) or not version_id or not isinstance(expected_hash, str):
+        raise ImmutableRecordConflict("v4 행사에 승인된 쟁점 taxonomy가 결속되지 않았습니다")
+    artifact = get_v4_artifact(
+        artifact_type="issue_taxonomy", version_id=version_id, connection=connection
+    )
+    if artifact["status"] != "approved" or artifact["content_hash"] != expected_hash:
+        raise ImmutableRecordConflict("행사에 결속된 쟁점 taxonomy 승인본이 일치하지 않습니다")
+    content = artifact.get("content_json")
+    topics = content.get("topics") if isinstance(content, dict) else None
+    if not isinstance(topics, list) or not topics:
+        raise ImmutableRecordConflict("승인된 쟁점 taxonomy에 topics가 없습니다")
+    public_topics: list[dict] = []
+    seen: set[str] = set()
+    for topic in topics:
+        if not isinstance(topic, dict):
+            raise ImmutableRecordConflict("쟁점 taxonomy topic 형식이 유효하지 않습니다")
+        code = topic.get("code")
+        label = topic.get("label")
+        if (
+            not isinstance(code, str) or not code.strip()
+            or not isinstance(label, str) or not label.strip()
+            or code in seen
+        ):
+            raise ImmutableRecordConflict("쟁점 taxonomy code/label이 유효하지 않습니다")
+        seen.add(code)
+        public_topic = {"code": code, "label": label}
+        description = topic.get("description")
+        if isinstance(description, str) and description.strip():
+            public_topic["description"] = description
+        public_topics.append(public_topic)
+    mode = content.get("classification_mode", "multi_label")
+    if mode not in {"single_label", "multi_label"}:
+        raise ImmutableRecordConflict("쟁점 taxonomy 분류 방식이 유효하지 않습니다")
+    return {
+        "version_id": version_id,
+        "content_hash": expected_hash,
+        "classification_mode": mode,
+        "topics": public_topics,
+    }
+
+
+def _v4_classification_scope(experiment: dict, connection: sqlite3.Connection) -> dict:
+    """Bind v4 reason classification to one event namespace and taxonomy."""
+    event_kind = experiment.get("event_kind")
+    if event_kind == "live":
+        participant_type = ParticipantType.REAL.value
+    elif event_kind == "review":
+        participant_type = ParticipantType.SYNTHETIC.value
+    else:
+        raise ImmutableRecordConflict("v4 행사의 live/review 구분이 확정되지 않았습니다")
+    return {
+        "event_kind": event_kind,
+        "participant_type": participant_type,
+        "taxonomy": _v4_issue_taxonomy(experiment, connection),
+    }
+
+
+def _decide_v4_artifact(*, artifact_type: str, version_id: str, status: str,
+                        approved_by: str, approval_id: str) -> dict:
+    if status not in {"approved", "rejected"} or not approved_by.strip() or not approval_id.strip():
+        raise ExperimentError("승인 상태, 승인자, approval_id가 필요합니다")
+    now = datetime.now(timezone.utc).isoformat()
+    with db._conn() as connection:
+        artifact = get_v4_artifact(artifact_type=artifact_type, version_id=version_id, connection=connection)
+        if artifact["status"] != "draft":
+            raise ExperimentError("draft artifact만 승인/거부할 수 있습니다")
+        if artifact["created_by"] == approved_by.strip():
+            raise ExperimentError("artifact 작성자와 승인자는 달라야 합니다")
+        try:
+            connection.execute(
+                "UPDATE aipol_v4_artifacts SET status=?,approved_by=?,approved_at=?,approval_id=? WHERE id=?",
+                (status, approved_by.strip(), now, approval_id.strip(), artifact["id"]),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ExperimentError("artifact 승인 메타데이터가 유효하지 않습니다") from exc
+        return _row_v4_artifact(connection.execute(
+            "SELECT * FROM aipol_v4_artifacts WHERE id=?", (artifact["id"],)
+        ).fetchone())
+
+
+def approve_v4_artifact(**kwargs) -> dict:
+    return _decide_v4_artifact(status="approved", **kwargs)
+
+
+def reject_v4_artifact(**kwargs) -> dict:
+    return _decide_v4_artifact(status="rejected", **kwargs)
+
+
+def _approved_v4_bindings(*, source_bundle_version_id: str,
+                          constraint_set_version_id: str,
+                          taxonomy_version_id: str,
+                          connection: sqlite3.Connection) -> dict:
+    requested = {
+        "source_bundle": source_bundle_version_id,
+        "constraint_set": constraint_set_version_id,
+        "issue_taxonomy": taxonomy_version_id,
+    }
+    result = {}
+    for artifact_type, version_id in requested.items():
+        artifact = get_v4_artifact(artifact_type=artifact_type, version_id=version_id, connection=connection)
+        if artifact["status"] != "approved":
+            raise ExperimentError(f"승인된 {artifact_type} artifact version이 필요합니다")
+        result[artifact_type] = (artifact["version_id"], artifact["content_hash"])
+    return result
+
+
 def _parse_spec(value: dict) -> MeasurementSpec:
     return MeasurementSpec(**value)
+
+
+def _public_policy_option_label(policy_option_id: str) -> str:
+    return "D′" if policy_option_id == "D_PRIME" else policy_option_id
+
+
+def _public_policy_option(option: dict) -> dict:
+    public_option = dict(option)
+    public_option["label"] = _public_policy_option_label(public_option["policy_option_id"])
+    return public_option
 
 
 def _parse_options(values: list[dict]) -> tuple[PolicyOptionDefinition, ...]:
@@ -1375,6 +1703,10 @@ def create_experiment(
     capacity: int,
     created_by: str,
     procedure_version: str = "v1",
+    event_kind: str = "live",
+    source_bundle_version_id: str | None = None,
+    constraint_set_version_id: str | None = None,
+    taxonomy_version_id: str | None = None,
 ) -> dict:
     """승인 전 설정을 저장한다. 수집은 항상 닫힌 상태로 시작한다."""
     if not title.strip() or not question_text.strip() or not consent_version.strip() or not consent_text.strip() or not created_by.strip():
@@ -1387,14 +1719,23 @@ def create_experiment(
         option_set_version=option_set_version,
     )
     options = _parse_options(policy_options)
+    if event_kind not in {"live", "review"}:
+        raise ExperimentError("event_kind은 live 또는 review여야 합니다")
     if procedure_version == "v1":
         procedure_config = LEGACY_PROCEDURE_CONFIG
     elif procedure_version == "v2":
         procedure_config = V2_PROCEDURE_CONFIG
     elif procedure_version == "v3":
         procedure_config = PROCEDURE_CONFIG
+    elif procedure_version == "v4":
+        procedure_config = V4_PROCEDURE_CONFIG
     else:
-        raise ExperimentError("procedure_version은 v1, v2 또는 v3여야 합니다")
+        raise ExperimentError("procedure_version은 v1, v2, v3 또는 v4여야 합니다")
+    if procedure_version == "v4":
+        if not all((source_bundle_version_id, constraint_set_version_id, taxonomy_version_id)):
+            raise ExperimentError("v4 행사에는 승인된 세 artifact version id가 필요합니다")
+    elif any((source_bundle_version_id, constraint_set_version_id, taxonomy_version_id)):
+        raise ExperimentError("artifact version id는 v4 행사에서만 사용할 수 있습니다")
     option_records = []
     for supplied, option in zip(policy_options, options, strict=True):
         if not isinstance(supplied, dict):
@@ -1411,16 +1752,27 @@ def create_experiment(
     experiment_id = _id("xp")
     credential_key_id = _active_credential_key_id()
     admission_credentials: list[str] = []
-    while len(admission_credentials) < capacity:
-        candidate = _new_admission_code()
-        if candidate not in admission_credentials:
-            admission_credentials.append(candidate)
+    if event_kind == "live":
+        while len(admission_credentials) < capacity:
+            candidate = _new_admission_code()
+            if candidate not in admission_credentials:
+                admission_credentials.append(candidate)
     with db._conn() as connection:
+        bindings = ({"source_bundle": (None, None), "constraint_set": (None, None), "issue_taxonomy": (None, None)}
+                    if procedure_version != "v4" else _approved_v4_bindings(
+                        source_bundle_version_id=source_bundle_version_id,
+                        constraint_set_version_id=constraint_set_version_id,
+                        taxonomy_version_id=taxonomy_version_id,
+                        connection=connection))
+        source_binding = bindings["source_bundle"]
+        constraint_binding = bindings["constraint_set"]
+        taxonomy_binding = bindings["issue_taxonomy"]
         connection.execute(
             "INSERT INTO aipol_experiments(id,title,experiment_version,session_id,measurement_spec,"
             "question_text,policy_options,freeze_manifest,consent_version,consent_text,"
-            "admission_code_hash,capacity,created_by,credential_key_id,procedure_config,created_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "admission_code_hash,capacity,created_by,credential_key_id,procedure_config,event_kind,created_at,"
+            "source_bundle_version_id,constraint_set_version_id,taxonomy_version_id,source_bundle_hash,"
+            "constraint_set_hash,taxonomy_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 experiment_id,
                 title.strip(),
@@ -1437,10 +1789,14 @@ def create_experiment(
                 created_by.strip(),
                 credential_key_id,
                 _json(procedure_config),
+                event_kind,
                 time.time(),
+                source_binding[0], constraint_binding[0], taxonomy_binding[0],
+                source_binding[1], constraint_binding[1], taxonomy_binding[1],
             ),
         )
-        connection.executemany(
+        if admission_credentials:
+            connection.executemany(
             "INSERT INTO aipol_admission_seats(id,experiment_id,code_hash,created_at) "
             "VALUES(?,?,?,?)",
             [
@@ -1455,7 +1811,7 @@ def create_experiment(
                 )
                 for credential in admission_credentials
             ],
-        )
+            )
         _queue_experiment_audit(
             connection, actor=created_by, action="experiment.created",
             experiment_id=experiment_id,
@@ -1478,6 +1834,7 @@ def get_experiment(experiment_id: str, connection=None) -> dict:
         if not row:
             raise KeyError(experiment_id)
         result = _row_experiment(row)
+        result.setdefault("event_kind", "legacy_unclassified")
         if result.get("freeze_manifest_anchor_id"):
             if result.get("freeze_manifest") is not None:
                 raise ImmutableRecordConflict(
@@ -1504,6 +1861,7 @@ def get_experiment(experiment_id: str, connection=None) -> dict:
         spec = _parse_spec(result["measurement_spec"])
         result["collection_enabled"] = bool(
             inventory_ready
+            and result["event_kind"] == "live"
             and
             manifest
             and manifest.permits_real_collection(
@@ -2614,6 +2972,8 @@ def _m2_aggregate_snapshot(connection, experiment_id: str) -> dict:
     experiment = get_experiment(experiment_id, connection)
     is_v2_procedure = _procedure_version(experiment) == V2_PROCEDURE_CONFIG["version"]
     is_current_procedure = _uses_current_procedure(experiment)
+    is_v4_procedure = _uses_v4_procedure(experiment)
+    uses_structured_m2 = is_current_procedure or is_v4_procedure
     rows = connection.execute(
         "SELECT p.pseudonym,m.choice,m.stance,m.reason,m.submitted_at FROM aipol_measurements m "
         "JOIN aipol_participants p ON p.id=m.participant_id "
@@ -2627,7 +2987,7 @@ def _m2_aggregate_snapshot(connection, experiment_id: str) -> dict:
     cutoff_at = max((row["submitted_at"] for row in rows), default=None)
     stance_counts = {"accept": 0, "conditional": 0, "reject": 0}
     assessment_payloads: dict[str, list[dict[str, str]]] = {}
-    if is_current_procedure:
+    if uses_structured_m2:
         assessment_rows = connection.execute(
             "SELECT p.pseudonym,a.option_id,a.stance,a.reason "
             "FROM aipol_m2_option_assessments a "
@@ -2657,7 +3017,7 @@ def _m2_aggregate_snapshot(connection, experiment_id: str) -> dict:
                 raise ImmutableRecordConflict(
                     "M2 selected assessment no longer matches the measurement snapshot"
                 )
-    if is_v2_procedure or is_current_procedure:
+    if is_v2_procedure or uses_structured_m2:
         for row in rows:
             if row["stance"] in stance_counts:
                 stance_counts[row["stance"]] += 1
@@ -2673,7 +3033,7 @@ def _m2_aggregate_snapshot(connection, experiment_id: str) -> dict:
                     "choice": row["choice"],
                     **(
                         {"option_assessments": assessment_payloads[row["pseudonym"]]}
-                        if is_current_procedure
+                        if uses_structured_m2
                         else {
                             "stance": row["stance"],
                             "reason_hash": content_hash(row["reason"] or ""),
@@ -2686,7 +3046,7 @@ def _m2_aggregate_snapshot(connection, experiment_id: str) -> dict:
             for row in rows
         ],
     }
-    if is_v2_procedure or is_current_procedure:
+    if is_v2_procedure or uses_structured_m2:
         payload["stance_counts"] = stance_counts
     return {**payload, "aggregate_hash": content_hash(payload)}
 
@@ -2945,20 +3305,41 @@ def list_pending_m2_reason_classifications(experiment_id: str, *, classifier: st
         experiment = get_experiment(experiment_id, connection)
         if experiment["registration_open"]:
             raise CollectionDisabled("수집 마감 뒤에만 M2 사유를 분류할 수 있습니다")
-        rows = connection.execute(
-            "SELECT p.pseudonym,a.option_id,a.reason FROM aipol_m2_option_assessments a "
-            "JOIN aipol_participants p ON p.id=a.participant_id "
-            "JOIN aipol_research_profiles r ON r.participant_id=p.id AND r.decision='accepted' "
-            "LEFT JOIN aipol_m2_reason_classification_drafts d "
-            "ON d.participant_id=a.participant_id AND d.option_id=a.option_id "
-            "WHERE p.experiment_id=? AND p.participant_type='real' AND d.id IS NULL "
-            "ORDER BY p.pseudonym,a.option_id",
-            (experiment_id,),
-        ).fetchall()
-        result = [{
-            "participant_pseudonym": row["pseudonym"], "option_id": row["option_id"],
-            "reason": row["reason"], "reason_hash": content_hash(row["reason"]),
-        } for row in rows]
+        taxonomy = None
+        if _uses_v4_procedure(experiment):
+            scope = _v4_classification_scope(experiment, connection)
+            taxonomy = scope["taxonomy"]
+            rows = connection.execute(
+                "SELECT p.pseudonym,a.option_id,a.reason FROM aipol_m2_option_assessments a "
+                "JOIN aipol_participants p ON p.id=a.participant_id "
+                "JOIN aipol_demographics g ON g.participant_id=p.id "
+                "JOIN aipol_measurements m ON m.participant_id=p.id AND m.measurement_id='M2' "
+                "LEFT JOIN aipol_m2_reason_classification_drafts d "
+                "ON d.participant_id=a.participant_id AND d.option_id=a.option_id "
+                "WHERE p.experiment_id=? AND p.participant_type=? AND d.id IS NULL "
+                "ORDER BY p.pseudonym,a.option_id",
+                (experiment_id, scope["participant_type"]),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT p.pseudonym,a.option_id,a.reason FROM aipol_m2_option_assessments a "
+                "JOIN aipol_participants p ON p.id=a.participant_id "
+                "JOIN aipol_research_profiles r ON r.participant_id=p.id AND r.decision='accepted' "
+                "LEFT JOIN aipol_m2_reason_classification_drafts d "
+                "ON d.participant_id=a.participant_id AND d.option_id=a.option_id "
+                "WHERE p.experiment_id=? AND p.participant_type='real' AND d.id IS NULL "
+                "ORDER BY p.pseudonym,a.option_id",
+                (experiment_id,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = {
+                "participant_pseudonym": row["pseudonym"], "option_id": row["option_id"],
+                "reason": row["reason"], "reason_hash": content_hash(row["reason"]),
+            }
+            if taxonomy is not None:
+                item["taxonomy"] = taxonomy
+            result.append(item)
         _queue_experiment_audit(
             connection, actor=classifier, action="experiment.m2_reason_classification.pending_read",
             experiment_id=experiment_id, payload={"record_count": len(result)},
@@ -2976,42 +3357,130 @@ def register_m2_reason_classification_draft(
         not isinstance(topic_codes, list)
         or any(not isinstance(code, str) for code in topic_codes)
         or len(topic_codes) != len(set(topic_codes))
-        or set(topic_codes) - set(APPROVED_REASON_TOPIC_CODES)
     ):
         raise ExperimentError("사유 분류는 중복 없는 사전 승인 주제 코드만 포함해야 합니다")
-    canonical_topics = sorted(topic_codes)
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
         experiment = get_experiment(experiment_id, connection)
         if experiment["registration_open"]:
             raise CollectionDisabled("수집 마감 뒤에만 M2 사유 분류 초안을 등록할 수 있습니다")
-        row = connection.execute(
-            "SELECT p.id,a.reason FROM aipol_participants p "
-            "JOIN aipol_research_profiles r ON r.participant_id=p.id AND r.decision='accepted' "
-            "JOIN aipol_m2_option_assessments a "
-            "ON a.participant_id=p.id WHERE p.experiment_id=? AND p.pseudonym=? "
-            "AND p.participant_type='real' AND a.option_id=?",
-            (experiment_id, participant_pseudonym, option_id),
-        ).fetchone()
+        taxonomy = None
+        if _uses_v4_procedure(experiment):
+            scope = _v4_classification_scope(experiment, connection)
+            taxonomy = scope["taxonomy"]
+            allowed_codes = [topic["code"] for topic in taxonomy["topics"]]
+            if (
+                not topic_codes
+                or any(code not in allowed_codes for code in topic_codes)
+                or taxonomy["classification_mode"] == "single_label" and len(topic_codes) != 1
+            ):
+                raise ExperimentError("v4 사유 분류는 행사에 승인된 taxonomy 주제를 포함해야 합니다")
+            canonical_topics = [code for code in allowed_codes if code in topic_codes]
+            row = connection.execute(
+                "SELECT p.id,a.reason FROM aipol_participants p "
+                "JOIN aipol_demographics g ON g.participant_id=p.id "
+                "JOIN aipol_measurements m ON m.participant_id=p.id AND m.measurement_id='M2' "
+                "JOIN aipol_m2_option_assessments a ON a.participant_id=p.id "
+                "WHERE p.experiment_id=? AND p.pseudonym=? AND p.participant_type=? "
+                "AND a.option_id=?",
+                (experiment_id, participant_pseudonym, scope["participant_type"], option_id),
+            ).fetchone()
+        else:
+            if set(topic_codes) - set(APPROVED_REASON_TOPIC_CODES):
+                raise ExperimentError("사유 분류는 중복 없는 사전 승인 주제 코드만 포함해야 합니다")
+            canonical_topics = sorted(topic_codes)
+            row = connection.execute(
+                "SELECT p.id,a.reason FROM aipol_participants p "
+                "JOIN aipol_research_profiles r ON r.participant_id=p.id AND r.decision='accepted' "
+                "JOIN aipol_m2_option_assessments a "
+                "ON a.participant_id=p.id WHERE p.experiment_id=? AND p.pseudonym=? "
+                "AND p.participant_type='real' AND a.option_id=?",
+                (experiment_id, participant_pseudonym, option_id),
+            ).fetchone()
         if not row or reason_hash != content_hash(row["reason"]):
             raise ImmutableRecordConflict("분류 초안의 reason_hash가 원문과 일치하지 않습니다")
         draft_id = _id("m2d")
         created_at = datetime.now(timezone.utc).isoformat()
         connection.execute(
-            "INSERT INTO aipol_m2_reason_classification_drafts VALUES(?,?,?,?,?,?,?)",
-            (draft_id, row["id"], option_id, reason_hash, _json(canonical_topics), classified_by, created_at),
+            "INSERT INTO aipol_m2_reason_classification_drafts("
+            "id,participant_id,option_id,reason_hash,topic_codes,taxonomy_version_id,taxonomy_hash,"
+            "classified_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                draft_id, row["id"], option_id, reason_hash, _json(canonical_topics),
+                taxonomy["version_id"] if taxonomy else None,
+                taxonomy["content_hash"] if taxonomy else None,
+                classified_by, created_at,
+            ),
         )
         draft_envelope = {
             "draft_id": draft_id, "participant_pseudonym": participant_pseudonym,
             "option_id": option_id, "reason_hash": reason_hash,
             "topic_codes": canonical_topics, "classified_by": classified_by,
         }
+        if taxonomy is not None:
+            draft_envelope.update({
+                "taxonomy_version_id": taxonomy["version_id"],
+                "taxonomy_hash": taxonomy["content_hash"],
+            })
         draft_hash = content_hash(draft_envelope)
         _queue_experiment_audit(
             connection, actor=classified_by, action="experiment.m2_reason_classification.drafted",
             experiment_id=experiment_id, payload={**draft_envelope, "draft_hash": draft_hash},
         )
     return {**draft_envelope, "draft_hash": draft_hash, "created_at": created_at}
+
+
+def list_pending_m2_reason_classification_approvals(
+    experiment_id: str, *, approver: str,
+) -> list[dict]:
+    """Return immutable classifier drafts awaiting a separate human approval.
+
+    Raw reasons are deliberately excluded. The approver sees the reason hash,
+    frozen taxonomy binding and proposed topic codes covered by ``draft_hash``.
+    """
+    with db._conn() as connection:
+        experiment = get_experiment(experiment_id, connection)
+        if experiment["registration_open"]:
+            raise CollectionDisabled("수집 마감 뒤에만 M2 사유 분류를 승인할 수 있습니다")
+        taxonomy = None
+        if _uses_v4_procedure(experiment):
+            taxonomy = _v4_classification_scope(experiment, connection)["taxonomy"]
+        rows = connection.execute(
+            "SELECT d.*,p.pseudonym FROM aipol_m2_reason_classification_drafts d "
+            "JOIN aipol_participants p ON p.id=d.participant_id "
+            "LEFT JOIN aipol_m2_reason_classifications c ON c.draft_id=d.id "
+            "WHERE p.experiment_id=? AND c.id IS NULL ORDER BY d.created_at,d.id",
+            (experiment_id,),
+        ).fetchall()
+        result = []
+        for row in rows:
+            envelope = {
+                "draft_id": row["id"],
+                "participant_pseudonym": row["pseudonym"],
+                "option_id": row["option_id"],
+                "reason_hash": row["reason_hash"],
+                "topic_codes": json.loads(row["topic_codes"]),
+                "classified_by": row["classified_by"],
+            }
+            if taxonomy is not None:
+                if (
+                    row["taxonomy_version_id"] != taxonomy["version_id"]
+                    or row["taxonomy_hash"] != taxonomy["content_hash"]
+                ):
+                    raise ImmutableRecordConflict(
+                        "분류 초안의 taxonomy가 행사 승인본과 일치하지 않습니다"
+                    )
+                envelope.update({
+                    "taxonomy_version_id": taxonomy["version_id"],
+                    "taxonomy_hash": taxonomy["content_hash"],
+                })
+            result.append({
+                **envelope,
+                "draft_hash": content_hash(envelope),
+                "created_at": row["created_at"],
+                "self_approval_blocked": row["classified_by"] == approver,
+            })
+        return result
 
 
 def approve_m2_reason_classification(
@@ -3021,6 +3490,7 @@ def approve_m2_reason_classification(
     """Approve an immutable classifier draft with a separately authenticated actor."""
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
         draft = connection.execute(
             "SELECT d.*,p.pseudonym FROM aipol_m2_reason_classification_drafts d "
             "JOIN aipol_participants p ON p.id=d.participant_id "
@@ -3035,6 +3505,26 @@ def approve_m2_reason_classification(
             "topic_codes": json.loads(draft["topic_codes"]),
             "classified_by": draft["classified_by"],
         }
+        taxonomy = None
+        if _uses_v4_procedure(experiment):
+            taxonomy = _v4_classification_scope(experiment, connection)["taxonomy"]
+            if (
+                draft["taxonomy_version_id"] != taxonomy["version_id"]
+                or draft["taxonomy_hash"] != taxonomy["content_hash"]
+            ):
+                raise ImmutableRecordConflict("분류 초안의 taxonomy가 행사 승인본과 일치하지 않습니다")
+            allowed_codes = [topic["code"] for topic in taxonomy["topics"]]
+            codes = envelope["topic_codes"]
+            if (
+                not codes
+                or any(code not in allowed_codes for code in codes)
+                or taxonomy["classification_mode"] == "single_label" and len(codes) != 1
+            ):
+                raise ImmutableRecordConflict("분류 초안의 주제 코드가 행사 승인본과 일치하지 않습니다")
+            envelope.update({
+                "taxonomy_version_id": taxonomy["version_id"],
+                "taxonomy_hash": taxonomy["content_hash"],
+            })
         if draft_hash != content_hash(envelope):
             raise ImmutableRecordConflict("승인 요청의 draft_hash가 분류 초안과 일치하지 않습니다")
         if draft["classified_by"] == approved_by:
@@ -3051,11 +3541,13 @@ def approve_m2_reason_classification(
         )
         connection.execute(
             "INSERT INTO aipol_m2_reason_classifications("
-            "id,participant_id,option_id,reason_hash,topic_codes,draft_id,draft_hash,classified_by,"
-            "approved_by,approval_id,approved_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "id,participant_id,option_id,reason_hash,topic_codes,taxonomy_version_id,taxonomy_hash,"
+            "draft_id,draft_hash,classified_by,approved_by,approval_id,approved_at,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 record_id, draft["participant_id"], draft["option_id"], draft["reason_hash"],
-                draft["topic_codes"], draft["id"], draft_hash, draft["classified_by"],
+                draft["topic_codes"], draft["taxonomy_version_id"], draft["taxonomy_hash"],
+                draft["id"], draft_hash, draft["classified_by"],
                 approved_by, approval_id, approved_at, approved_at,
             ),
         )
@@ -3066,6 +3558,148 @@ def approve_m2_reason_classification(
         )
     return {"id": record_id, **envelope, "draft_hash": draft_hash,
             "approved_by": approved_by, "approval_id": approval_id, "approved_at": approved_at}
+
+
+def v4_issue_aggregation_snapshot(experiment_id: str) -> dict:
+    """Return reproducible M1-interest and M2-reason counts with explicit denominators."""
+    with db._conn() as connection:
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("쟁점 집계 v1은 v4 행사에서만 사용할 수 있습니다")
+        if experiment["registration_open"]:
+            raise CollectionDisabled("수집 마감 뒤에만 쟁점 집계를 조회할 수 있습니다")
+        scope = _v4_classification_scope(experiment, connection)
+        taxonomy = scope["taxonomy"]
+        topic_order = [topic["code"] for topic in taxonomy["topics"]]
+        allowed_codes = set(topic_order)
+
+        m1_rows = connection.execute(
+            "SELECT p.id,i.taxonomy_version_id,i.taxonomy_hash,i.topic_codes_json "
+            "FROM aipol_participants p "
+            "JOIN aipol_demographics g ON g.participant_id=p.id "
+            "JOIN aipol_measurements m ON m.participant_id=p.id AND m.measurement_id='M1' "
+            "JOIN aipol_m1_issue_interests i ON i.participant_id=p.id "
+            "WHERE p.experiment_id=? AND p.participant_type=? ORDER BY p.id",
+            (experiment_id, scope["participant_type"]),
+        ).fetchall()
+        declared_by_topic = {code: set() for code in topic_order}
+        for row in m1_rows:
+            if (
+                row["taxonomy_version_id"] != taxonomy["version_id"]
+                or row["taxonomy_hash"] != taxonomy["content_hash"]
+            ):
+                raise ImmutableRecordConflict("1차 관심 쟁점의 taxonomy 결속이 일치하지 않습니다")
+            try:
+                codes = json.loads(row["topic_codes_json"])
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ImmutableRecordConflict("1차 관심 쟁점 기록이 손상되었습니다") from exc
+            if (
+                not isinstance(codes, list)
+                or not codes
+                or len(codes) != len(set(codes))
+                or any(code not in allowed_codes for code in codes)
+                or taxonomy["classification_mode"] == "single_label" and len(codes) != 1
+            ):
+                raise ImmutableRecordConflict("1차 관심 쟁점 기록이 승인된 taxonomy와 다릅니다")
+            for code in codes:
+                declared_by_topic[code].add(row["id"])
+
+        m2_rows = connection.execute(
+            "SELECT p.id FROM aipol_participants p "
+            "JOIN aipol_demographics g ON g.participant_id=p.id "
+            "JOIN aipol_measurements m ON m.participant_id=p.id AND m.measurement_id='M2' "
+            "WHERE p.experiment_id=? AND p.participant_type=? ORDER BY p.id",
+            (experiment_id, scope["participant_type"]),
+        ).fetchall()
+        valid_m2_ids = {row["id"] for row in m2_rows}
+        classified_people_by_topic = {code: set() for code in topic_order}
+        classified_records_by_topic = {code: 0 for code in topic_order}
+        approved_reason_records = 0
+        for participant_id in sorted(valid_m2_ids):
+            assessments = connection.execute(
+                "SELECT option_id,reason FROM aipol_m2_option_assessments "
+                "WHERE participant_id=? ORDER BY option_id",
+                (participant_id,),
+            ).fetchall()
+            if {row["option_id"] for row in assessments} != {"A", "B", "C"}:
+                raise ImmutableRecordConflict("v4 M2 안별 사유가 완전하지 않습니다")
+            reasons = {row["option_id"]: row["reason"] for row in assessments}
+            classifications = connection.execute(
+                "SELECT option_id,reason_hash,topic_codes,taxonomy_version_id,taxonomy_hash "
+                "FROM aipol_m2_reason_classifications WHERE participant_id=? ORDER BY option_id",
+                (participant_id,),
+            ).fetchall()
+            for row in classifications:
+                if row["option_id"] not in reasons:
+                    raise ImmutableRecordConflict("승인된 M2 사유 분류의 정책안이 유효하지 않습니다")
+                if row["reason_hash"] != content_hash(reasons[row["option_id"]]):
+                    raise ImmutableRecordConflict("승인된 M2 사유 분류가 원문 해시와 일치하지 않습니다")
+                if (
+                    row["taxonomy_version_id"] != taxonomy["version_id"]
+                    or row["taxonomy_hash"] != taxonomy["content_hash"]
+                ):
+                    raise ImmutableRecordConflict("승인된 M2 사유 분류의 taxonomy가 일치하지 않습니다")
+                try:
+                    codes = json.loads(row["topic_codes"])
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise ImmutableRecordConflict("승인된 M2 사유 분류가 손상되었습니다") from exc
+                if (
+                    not isinstance(codes, list)
+                    or not codes
+                    or len(codes) != len(set(codes))
+                    or any(code not in allowed_codes for code in codes)
+                    or taxonomy["classification_mode"] == "single_label" and len(codes) != 1
+                ):
+                    raise ImmutableRecordConflict("승인된 M2 사유 분류가 taxonomy 계약을 위반합니다")
+                approved_reason_records += 1
+                for code in codes:
+                    classified_people_by_topic[code].add(participant_id)
+                    classified_records_by_topic[code] += 1
+
+        expected_reason_records = len(valid_m2_ids) * 3
+        topics = [
+            {
+                **topic,
+                "declared_interest_participant_count": len(declared_by_topic[topic["code"]]),
+                "classified_reason_participant_count": len(
+                    classified_people_by_topic[topic["code"]]
+                ),
+                "classified_reason_record_count": classified_records_by_topic[topic["code"]],
+            }
+            for topic in taxonomy["topics"]
+        ]
+        payload = {
+            "aggregation_rules_version": "aipol-v4-issue-aggregation-v1",
+            "taxonomy": taxonomy,
+            "population": {
+                "event_kind": scope["event_kind"],
+                "participant_type": scope["participant_type"],
+            },
+            "denominators": {
+                "declared_interest_respondents": len(m1_rows),
+                "valid_m2_respondents": len(valid_m2_ids),
+                "expected_reason_records": expected_reason_records,
+                "approved_reason_records": approved_reason_records,
+                "missing_reason_records": expected_reason_records - approved_reason_records,
+            },
+            "definitions": {
+                "declared_interest_participant_count": (
+                    "유효 M1 응답자 중 해당 쟁점을 관심 쟁점으로 직접 선택한 고유 참가자 수"
+                ),
+                "classified_reason_participant_count": (
+                    "유효 M2 응답자 중 승인된 사유 분류에서 해당 쟁점이 한 번 이상 나온 고유 참가자 수"
+                ),
+                "classified_reason_record_count": (
+                    "승인된 A/B/C 사유 레코드 중 해당 쟁점으로 분류된 레코드 수"
+                ),
+            },
+            "multi_label_totals_may_exceed_denominator": (
+                taxonomy["classification_mode"] == "multi_label"
+            ),
+            "classification_complete": approved_reason_records == expected_reason_records,
+            "topics": topics,
+        }
+        return {**payload, "content_hash": content_hash(payload)}
 
 
 def acknowledge_t6_snapshot(
@@ -3663,6 +4297,162 @@ def register_public_audience_input(
         }
 
 
+_V4_D_CONTENT_KEYS = {
+    "title", "body", "lever_values", "public_summary", "deliberation_process",
+    "ai_draft", "approved_d", "expert_approval_diff", "approval_rationale",
+}
+_V4_D_FORBIDDEN_KEYS = {
+    "chain_of_thought", "chainOfThought", "cot", "hidden_reasoning", "raw_reason",
+    "raw_reasons", "raw_response", "participant_id", "participant_pseudonym",
+    "participant_token", "prompt", "system_prompt", "output_private", "outputPrivateJson",
+}
+
+
+def _reject_private_d_fields(value: object) -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if key in _V4_D_FORBIDDEN_KEYS:
+                raise ExperimentError("D안 공개 artifact에 비공개 추론·원문·식별정보를 넣을 수 없습니다")
+            _reject_private_d_fields(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            _reject_private_d_fields(nested)
+
+
+def _prepare_v4_ai_candidate_content(
+    *, experiment: dict, candidate_role: str, content: dict,
+    m2_aggregate_hash: str | None, issue_snapshot: dict | None,
+    connection: sqlite3.Connection,
+) -> tuple[dict, dict]:
+    """Canonicalize public D content and bind every approved generation input."""
+    if set(content) != _V4_D_CONTENT_KEYS:
+        raise ExperimentError("v4 D안에는 공개 요약·숙의 단계·AI 초안·전문가 수정·승인 사유가 필요합니다")
+    for field in ("title", "body", "public_summary", "approval_rationale"):
+        if not isinstance(content.get(field), str) or not content[field].strip():
+            raise ExperimentError(f"v4 D안의 {field} 값이 필요합니다")
+    process = content.get("deliberation_process")
+    if not isinstance(process, list) or not process:
+        raise ExperimentError("v4 D안에는 실제 실행에서 파생된 공개 숙의 단계가 필요합니다")
+    for step in process:
+        if (
+            not isinstance(step, dict) or set(step) != {"stage", "summary"}
+            or not isinstance(step.get("stage"), str) or not step["stage"].strip()
+            or not isinstance(step.get("summary"), str) or not step["summary"].strip()
+        ):
+            raise ExperimentError("공개 숙의 단계는 stage와 summary로 구성해야 합니다")
+    for field in ("ai_draft", "approved_d"):
+        value = content.get(field)
+        if not isinstance(value, dict) or set(value) != {"title", "body", "lever_values"}:
+            raise ExperimentError(f"v4 D안의 {field} 구조가 유효하지 않습니다")
+        if not str(value.get("title") or "").strip() or not str(value.get("body") or "").strip():
+            raise ExperimentError(f"v4 D안의 {field} 제목과 본문이 필요합니다")
+        _validate_policy_lever_values(experiment, value.get("lever_values"), label=field)
+    if content["approved_d"] != {
+        "title": content["title"], "body": content["body"],
+        "lever_values": content["lever_values"],
+    }:
+        raise ExperimentError("공개 D안과 전문가 승인본이 일치해야 합니다")
+    diff = content.get("expert_approval_diff")
+    if not isinstance(diff, list):
+        raise ExperimentError("전문가 수정 diff는 배열이어야 합니다")
+    for item in diff:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"field", "before", "after", "reason"}
+            or not isinstance(item.get("field"), str) or not item["field"].strip()
+            or not isinstance(item.get("reason"), str) or not item["reason"].strip()
+        ):
+            raise ExperimentError("전문가 수정 diff 항목이 유효하지 않습니다")
+    _reject_private_d_fields(content)
+
+    bound: dict[str, dict] = {}
+    for artifact_type, version_field, hash_field in (
+        ("source_bundle", "source_bundle_version_id", "source_bundle_hash"),
+        ("constraint_set", "constraint_set_version_id", "constraint_set_hash"),
+        ("issue_taxonomy", "taxonomy_version_id", "taxonomy_hash"),
+    ):
+        artifact = get_v4_artifact(
+            artifact_type=artifact_type, version_id=experiment[version_field], connection=connection
+        )
+        if artifact["status"] != "approved" or artifact["content_hash"] != experiment[hash_field]:
+            raise ImmutableRecordConflict(f"D안의 {artifact_type} 승인 입력이 행사 결속과 다릅니다")
+        bound[artifact_type] = artifact
+    source_documents = bound["source_bundle"]["content_json"].get("documents")
+    constraints = bound["constraint_set"]["content_json"].get("constraints")
+    if not isinstance(source_documents, list) or not source_documents:
+        raise ExperimentError("승인된 사전자료 묶음에 공개 가능한 문서 메타데이터가 없습니다")
+    if not isinstance(constraints, list) or not constraints:
+        raise ExperimentError("승인된 제약조건 묶음이 비어 있습니다")
+    public_sources = []
+    for item in source_documents:
+        if not isinstance(item, dict) or not all(
+            isinstance(item.get(key), str) and item[key].strip()
+            for key in ("document_id", "title", "content_hash")
+        ):
+            raise ExperimentError("사전자료 공개 메타데이터가 유효하지 않습니다")
+        public_sources.append({key: item[key] for key in ("document_id", "title", "content_hash")})
+    public_constraints = []
+    for item in constraints:
+        if not isinstance(item, dict) or not all(
+            isinstance(item.get(key), str) and item[key].strip()
+            for key in ("constraint_id", "description")
+        ):
+            raise ExperimentError("제약조건 공개 메타데이터가 유효하지 않습니다")
+        public_constraints.append({key: item[key] for key in ("constraint_id", "description")})
+
+    taxonomy = _v4_issue_taxonomy(experiment, connection)
+    if candidate_role == "primary":
+        if not issue_snapshot or not issue_snapshot.get("classification_complete"):
+            raise ExperimentError("primary D안에는 완료된 승인 쟁점 집계가 필요합니다")
+        issue_hash = issue_snapshot["content_hash"]
+        public_issue_aggregation = issue_snapshot
+    else:
+        issue_hash = None
+        public_issue_aggregation = {
+            "status": "preapproved_fallback",
+            "derived_from_participant_opinions": False,
+            "notice": "행사 의견 집계 전 승인된 대체 D안입니다.",
+        }
+    canonical_content = {
+        **content,
+        "source_bundle": {
+            "version_id": bound["source_bundle"]["version_id"],
+            "content_hash": bound["source_bundle"]["content_hash"],
+            "documents": public_sources,
+        },
+        "admin_constraints": {
+            "version_id": bound["constraint_set"]["version_id"],
+            "content_hash": bound["constraint_set"]["content_hash"],
+            "constraints": public_constraints,
+        },
+        "issue_taxonomy": taxonomy,
+        "issue_aggregation": public_issue_aggregation,
+    }
+    ai_draft_hash = content_hash(canonical_content["ai_draft"])
+    approved_d_hash = content_hash(canonical_content["approved_d"])
+    expert_diff_hash = content_hash(canonical_content["expert_approval_diff"])
+    input_manifest = {
+        "contract_version": "aipol-v4-d-generation-input-v1",
+        "candidate_role": candidate_role,
+        "source_bundle_version_id": bound["source_bundle"]["version_id"],
+        "source_bundle_hash": bound["source_bundle"]["content_hash"],
+        "constraint_set_version_id": bound["constraint_set"]["version_id"],
+        "constraint_set_hash": bound["constraint_set"]["content_hash"],
+        "taxonomy_version_id": taxonomy["version_id"],
+        "taxonomy_hash": taxonomy["content_hash"],
+        "m2_aggregate_hash": m2_aggregate_hash,
+        "issue_aggregation_hash": issue_hash,
+    }
+    lineage = {
+        **input_manifest,
+        "generation_input_hash": content_hash(input_manifest),
+        "ai_draft_hash": ai_draft_hash,
+        "approved_d_hash": approved_d_hash,
+        "expert_diff_hash": expert_diff_hash,
+    }
+    return canonical_content, lineage
+
+
 def _ai_candidate_approval_envelope(
     *,
     candidate_role: str,
@@ -3675,9 +4465,10 @@ def _ai_candidate_approval_envelope(
     generated_at: str,
     evidence_refs: list[str],
     m2_aggregate_hash: str | None,
+    lineage: dict | None = None,
 ) -> dict:
     """Canonical object covered by the human AI-candidate approval."""
-    return {
+    envelope = {
         "candidate_role": candidate_role,
         "artifact_id": artifact_id,
         "artifact_version": artifact_version,
@@ -3689,6 +4480,9 @@ def _ai_candidate_approval_envelope(
         "evidence_refs": evidence_refs,
         "m2_aggregate_hash": m2_aggregate_hash,
     }
+    if lineage is not None:
+        envelope["v4_lineage"] = lineage
+    return envelope
 
 
 def _validate_ai_candidate_row(
@@ -3697,11 +4491,98 @@ def _validate_ai_candidate_row(
 ) -> str:
     value = dict(row)
     try:
+        candidate_content = (
+            json.loads(value["content"])
+            if isinstance(value["content"], str)
+            else value["content"]
+        )
+        lineage = None
+        lineage_fields = (
+            "source_bundle_version_id", "source_bundle_hash",
+            "constraint_set_version_id", "constraint_set_hash",
+            "taxonomy_version_id", "taxonomy_hash", "issue_aggregation_hash",
+            "generation_input_hash", "ai_draft_hash", "approved_d_hash", "expert_diff_hash",
+        )
+        if value.get("generation_input_hash"):
+            lineage = {
+                "contract_version": "aipol-v4-d-generation-input-v1",
+                "candidate_role": value["candidate_role"],
+                "source_bundle_version_id": value["source_bundle_version_id"],
+                "source_bundle_hash": value["source_bundle_hash"],
+                "constraint_set_version_id": value["constraint_set_version_id"],
+                "constraint_set_hash": value["constraint_set_hash"],
+                "taxonomy_version_id": value["taxonomy_version_id"],
+                "taxonomy_hash": value["taxonomy_hash"],
+                "m2_aggregate_hash": value.get("m2_aggregate_hash"),
+                "issue_aggregation_hash": value.get("issue_aggregation_hash"),
+                "generation_input_hash": value["generation_input_hash"],
+                "ai_draft_hash": value["ai_draft_hash"],
+                "approved_d_hash": value["approved_d_hash"],
+                "expert_diff_hash": value["expert_diff_hash"],
+            }
+        elif any(value.get(field) for field in lineage_fields):
+            raise ImmutableRecordConflict("AI candidate v4 lineage is incomplete")
+        if connection is not None:
+            experiment = get_experiment(value["experiment_id"], connection)
+            if _uses_v4_procedure(experiment) and lineage is None:
+                raise ImmutableRecordConflict("v4 D안 provenance lineage가 없습니다")
+            if _uses_v4_procedure(experiment):
+                source_bundle = candidate_content.get("source_bundle") or {}
+                constraints = candidate_content.get("admin_constraints") or {}
+                taxonomy = candidate_content.get("issue_taxonomy") or {}
+                issue_aggregation = candidate_content.get("issue_aggregation") or {}
+                expected_bindings = (
+                    (source_bundle, "source_bundle_version_id", "source_bundle_hash"),
+                    (constraints, "constraint_set_version_id", "constraint_set_hash"),
+                    (taxonomy, "taxonomy_version_id", "taxonomy_hash"),
+                )
+                if any(
+                    embedded.get("version_id") != value[version_field]
+                    or embedded.get("content_hash") != value[hash_field]
+                    for embedded, version_field, hash_field in expected_bindings
+                ):
+                    raise ImmutableRecordConflict("v4 D안 공개 입력 결속이 provenance와 다릅니다")
+                if not hmac.compare_digest(
+                    content_hash(candidate_content.get("ai_draft")), str(value["ai_draft_hash"])
+                ):
+                    raise ImmutableRecordConflict("v4 D안 AI 초안 hash가 다릅니다")
+                if not hmac.compare_digest(
+                    content_hash(candidate_content.get("approved_d")), str(value["approved_d_hash"])
+                ):
+                    raise ImmutableRecordConflict("v4 D안 전문가 승인본 hash가 다릅니다")
+                if not hmac.compare_digest(
+                    content_hash(candidate_content.get("expert_approval_diff")),
+                    str(value["expert_diff_hash"]),
+                ):
+                    raise ImmutableRecordConflict("v4 D안 전문가 수정 diff hash가 다릅니다")
+                if value["candidate_role"] == "primary":
+                    if issue_aggregation.get("content_hash") != value["issue_aggregation_hash"]:
+                        raise ImmutableRecordConflict("v4 D안 쟁점 집계 hash가 다릅니다")
+                elif (
+                    value.get("issue_aggregation_hash") is not None
+                    or issue_aggregation.get("status") != "preapproved_fallback"
+                    or issue_aggregation.get("derived_from_participant_opinions") is not False
+                ):
+                    raise ImmutableRecordConflict("v4 fallback D안의 사전승인 표지가 다릅니다")
+                input_manifest = {
+                    key: lineage[key]
+                    for key in (
+                        "contract_version", "candidate_role",
+                        "source_bundle_version_id", "source_bundle_hash",
+                        "constraint_set_version_id", "constraint_set_hash",
+                        "taxonomy_version_id", "taxonomy_hash", "m2_aggregate_hash",
+                        "issue_aggregation_hash",
+                    )
+                }
+                if not hmac.compare_digest(
+                    content_hash(input_manifest), str(value["generation_input_hash"])
+                ):
+                    raise ImmutableRecordConflict("v4 D안 생성 입력 manifest hash가 다릅니다")
         envelope = _ai_candidate_approval_envelope(
             candidate_role=value["candidate_role"],
             artifact_id=value["artifact_id"],
             artifact_version=value["artifact_version"],
-            content=json.loads(value["content"]) if isinstance(value["content"], str) else value["content"],
+            content=candidate_content,
             model=value["model"],
             deployment=value["deployment"],
             prompt_version=value["prompt_version"],
@@ -3712,6 +4593,7 @@ def _validate_ai_candidate_row(
                 else value["evidence_refs"]
             ),
             m2_aggregate_hash=value.get("m2_aggregate_hash"),
+            lineage=lineage,
         )
         digest = content_hash(envelope)
         if not hmac.compare_digest(digest, str(value["content_hash"])):
@@ -3735,6 +4617,56 @@ def _validate_ai_candidate_row(
         raise ImmutableRecordConflict("AI candidate provenance record is malformed") from exc
 
 
+def _v4_ai_candidate_provenance(value: dict) -> dict | None:
+    if not value.get("generation_input_hash"):
+        return None
+    return {
+        "contract_version": "aipol-v4-d-generation-input-v1",
+        "source_bundle_version_id": value["source_bundle_version_id"],
+        "source_bundle_hash": value["source_bundle_hash"],
+        "constraint_set_version_id": value["constraint_set_version_id"],
+        "constraint_set_hash": value["constraint_set_hash"],
+        "taxonomy_version_id": value["taxonomy_version_id"],
+        "taxonomy_hash": value["taxonomy_hash"],
+        "m2_aggregate_hash": value["m2_aggregate_hash"],
+        "issue_aggregation_hash": value["issue_aggregation_hash"],
+        "generation_input_hash": value["generation_input_hash"],
+        "ai_draft_hash": value["ai_draft_hash"],
+        "approved_d_hash": value["approved_d_hash"],
+        "expert_diff_hash": value["expert_diff_hash"],
+        "model": value["model"],
+        "deployment": value["deployment"],
+        "prompt_version": value["prompt_version"],
+        "generated_at": value["generated_at"],
+        "approval_id": value["approval_id"],
+        "approved_by": value["approved_by"],
+        "approved_at": value["approved_at"],
+    }
+
+
+_V4_AI_CANDIDATE_LINEAGE_FIELDS = (
+    "source_bundle_version_id",
+    "source_bundle_hash",
+    "constraint_set_version_id",
+    "constraint_set_hash",
+    "taxonomy_version_id",
+    "taxonomy_hash",
+    "issue_aggregation_hash",
+    "generation_input_hash",
+    "ai_draft_hash",
+    "approved_d_hash",
+    "expert_diff_hash",
+)
+
+
+def _omit_empty_v4_ai_candidate_lineage(value: dict) -> None:
+    """Keep the exact legacy public contract stable for pre-v4 candidates."""
+    if value.get("generation_input_hash"):
+        return
+    for field in _V4_AI_CANDIDATE_LINEAGE_FIELDS:
+        value.pop(field, None)
+
+
 def set_ai_candidate(
     experiment_id: str,
     *,
@@ -3756,7 +4688,6 @@ def set_ai_candidate(
         raise ExperimentError("AI candidate_role은 primary 또는 fallback이어야 합니다")
     if (
         not isinstance(content, dict)
-        or set(content) not in ({"title", "body"}, {"title", "body", "lever_values"})
         or not str(content.get("title") or "").strip()
         or not str(content.get("body") or "").strip()
     ):
@@ -3800,26 +4731,44 @@ def set_ai_candidate(
     approval_id = approval_id.strip()
     approved_by = approved_by.strip()
     registered_by = registered_by.strip()
-    envelope = _ai_candidate_approval_envelope(
-        candidate_role=candidate_role,
-        artifact_id=artifact_id,
-        artifact_version=artifact_version,
-        content=content,
-        model=model,
-        deployment=deployment,
-        prompt_version=prompt_version,
-        generated_at=generated_at,
-        evidence_refs=evidence_refs,
-        m2_aggregate_hash=m2_aggregate_hash,
-    )
-    digest = content_hash(envelope)
+    issue_snapshot = None
+    with db._conn() as read_connection:
+        initial_experiment = get_experiment(experiment_id, read_connection)
+    if _uses_v4_procedure(initial_experiment) and candidate_role == "primary":
+        issue_snapshot = v4_issue_aggregation_snapshot(experiment_id)
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
         experiment = get_experiment(experiment_id, connection)
-        if _uses_current_procedure(experiment):
+        lineage = None
+        if _uses_v4_procedure(experiment):
+            content, lineage = _prepare_v4_ai_candidate_content(
+                experiment=experiment,
+                candidate_role=candidate_role,
+                content=content,
+                m2_aggregate_hash=m2_aggregate_hash,
+                issue_snapshot=issue_snapshot,
+                connection=connection,
+            )
+        elif _uses_current_procedure(experiment):
+            if set(content) != {"title", "body", "lever_values"}:
+                raise ExperimentError("v3 AI 후보는 title/body/lever_values 계약을 유지합니다")
             _validate_policy_lever_values(experiment, content.get("lever_values"), label="D")
         elif set(content) != {"title", "body"}:
             raise ExperimentError("v1/v2 AI 후보는 기존 title/body 계약을 유지합니다")
+        envelope = _ai_candidate_approval_envelope(
+            candidate_role=candidate_role,
+            artifact_id=artifact_id,
+            artifact_version=artifact_version,
+            content=content,
+            model=model,
+            deployment=deployment,
+            prompt_version=prompt_version,
+            generated_at=generated_at,
+            evidence_refs=evidence_refs,
+            m2_aggregate_hash=m2_aggregate_hash,
+            lineage=lineage,
+        )
+        digest = content_hash(envelope)
         if approved_by != registered_by:
             raise ExperimentError("approved_by는 서명된 승인자 계정과 일치해야 합니다")
         if candidate_role == "fallback" and experiment["freeze_manifest"]:
@@ -3857,12 +4806,27 @@ def set_ai_candidate(
             connection.execute(
                 "INSERT INTO aipol_ai_candidates(id,experiment_id,candidate_role,artifact_id,"
                 "artifact_version,content,content_hash,model,deployment,prompt_version,generated_at,"
-                "evidence_refs,m2_aggregate_hash,approval_id,approved_by,approved_at,registered_by,created_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "evidence_refs,m2_aggregate_hash,source_bundle_version_id,source_bundle_hash,"
+                "constraint_set_version_id,constraint_set_hash,taxonomy_version_id,taxonomy_hash,"
+                "issue_aggregation_hash,generation_input_hash,ai_draft_hash,approved_d_hash,"
+                "expert_diff_hash,approval_id,approved_by,approved_at,registered_by,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     _id("ac"), experiment_id, candidate_role, artifact_id, artifact_version,
                     _json(content), digest, model, deployment, prompt_version, generated_at,
-                    _json(evidence_refs), m2_aggregate_hash, approval_id, approved_by, approved_at,
+                    _json(evidence_refs), m2_aggregate_hash,
+                    lineage.get("source_bundle_version_id") if lineage else None,
+                    lineage.get("source_bundle_hash") if lineage else None,
+                    lineage.get("constraint_set_version_id") if lineage else None,
+                    lineage.get("constraint_set_hash") if lineage else None,
+                    lineage.get("taxonomy_version_id") if lineage else None,
+                    lineage.get("taxonomy_hash") if lineage else None,
+                    lineage.get("issue_aggregation_hash") if lineage else None,
+                    lineage.get("generation_input_hash") if lineage else None,
+                    lineage.get("ai_draft_hash") if lineage else None,
+                    lineage.get("approved_d_hash") if lineage else None,
+                    lineage.get("expert_diff_hash") if lineage else None,
+                    approval_id, approved_by, approved_at,
                     registered_by, time.time(),
                 ),
             )
@@ -3888,6 +4852,11 @@ def ai_candidate_public(experiment_id: str, candidate_role: str, *, include_cont
         result = dict(row)
         _validate_ai_candidate_row(result, connection)
     result["evidence_refs"] = json.loads(result["evidence_refs"])
+    provenance = _v4_ai_candidate_provenance(result)
+    if provenance:
+        result["provenance"] = provenance
+    else:
+        _omit_empty_v4_ai_candidate_lineage(result)
     if include_content:
         result["content"] = json.loads(result["content"])
     else:
@@ -3919,6 +4888,11 @@ def artifact_public(experiment_id: str, kind: str, *, include_content: bool) -> 
                 _require_freeze_artifact_digest(experiment, "E2_fallback", result["content_hash"])
             result["fallback_used"] = result["candidate_role"] == "fallback"
             result["evidence_refs"] = json.loads(result["evidence_refs"])
+            provenance = _v4_ai_candidate_provenance(result)
+            if provenance:
+                result["provenance"] = provenance
+            else:
+                _omit_empty_v4_ai_candidate_lineage(result)
         else:
             artifact = _parse_artifact(result, connection)
             binding_key = {
@@ -3937,9 +4911,11 @@ def artifact_public(experiment_id: str, kind: str, *, include_content: bool) -> 
 def _synthetic_review_experiment(experiment: dict) -> bool:
     manifest = experiment.get("freeze_manifest")
     return bool(
+        experiment.get("event_kind") == "review"
+        and
         isinstance(manifest, dict)
         and manifest.get("status") == "frozen"
-        and manifest.get("collection_enabled") is False
+        and experiment.get("collection_enabled") is False
     )
 
 
@@ -3960,6 +4936,11 @@ def _uses_current_procedure(experiment: dict) -> bool:
     return _procedure_version(experiment) == PROCEDURE_CONFIG["version"]
 
 
+def _uses_v4_procedure(experiment: dict) -> bool:
+    """Return true only for the canonical short v4 procedure."""
+    return _procedure_version(experiment) == V4_PROCEDURE_CONFIG["version"]
+
+
 def _validate_policy_lever_values(experiment: dict, lever_values: object, *, label: str) -> None:
     expected = {
         key
@@ -3973,7 +4954,6 @@ def _validate_policy_lever_values(experiment: dict, lever_values: object, *, lab
             raise ExperimentError(f"{label} 정책 항목 {key}의 값 형식이 유효하지 않습니다")
         if isinstance(value, str) and not value.strip():
             raise ExperimentError(f"{label} 정책 항목 {key}의 값이 비어 있습니다")
-
 
 def _synthetic_review_mode(experiment: dict, participant: dict) -> bool:
     """Return true only for synthetic rehearsals sealed against real collection."""
@@ -4032,7 +5012,7 @@ def _synthetic_review_artifact_public(
 ) -> dict:
     row, artifact = _synthetic_review_artifact(connection, experiment, participant, stage)
     value = dict(row)
-    return {
+    result = {
         "artifact_id": artifact.artifact_id,
         "artifact_version": artifact.artifact_version,
         "content_hash": artifact.content_hash,
@@ -4042,6 +5022,11 @@ def _synthetic_review_artifact_public(
         "approved_at": artifact.approval.approved_at,
         "fallback_used": artifact.fallback_used,
     }
+    if stage == "E2":
+        provenance = _v4_ai_candidate_provenance(value)
+        if provenance:
+            result["provenance"] = provenance
+    return result
 
 
 def register_participant(
@@ -4059,6 +5044,15 @@ def register_participant(
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
         experiment = get_experiment(experiment_id, connection)
+        event_kind = experiment.get("event_kind", "legacy_unclassified")
+        is_v4 = experiment.get("procedure_config", {}).get("version") == V4_PROCEDURE_CONFIG["version"]
+        if event_kind == "legacy_unclassified":
+            raise CollectionDisabled("event kind이 확인되지 않은 기존 행은 등록할 수 없습니다")
+        if is_v4 and (
+            (event_kind == "live" and participant_type_enum is not ParticipantType.REAL)
+            or (event_kind == "review" and participant_type_enum is not ParticipantType.SYNTHETIC)
+        ):
+            raise CollectionDisabled("live 이벤트는 real, review 이벤트는 synthetic 참가자만 허용합니다")
         if participant_type_enum is ParticipantType.SYNTHETIC:
             manifest = experiment.get("freeze_manifest")
             if not isinstance(manifest, dict) or manifest.get("status") != "frozen":
@@ -4074,13 +5068,19 @@ def register_participant(
                 key_id=credential_key_id,
             )
             previous = connection.execute(
-                "SELECT r.*,p.stage,p.state_revision,p.token_hash FROM aipol_registration_nonces r "
-                "JOIN aipol_participants p ON p.id=r.participant_id "
+                "SELECT r.*,p.stage,p.state_revision,p.token_hash,p.experiment_id AS participant_experiment_id "
+                "FROM aipol_registration_nonces r JOIN aipol_participants p ON p.id=r.participant_id "
+                "JOIN aipol_experiments e ON e.id=p.experiment_id AND e.id=r.experiment_id "
                 "WHERE r.experiment_id=? AND (r.nonce_hash=? OR r.idempotency_key=?)",
                 (experiment_id, nonce_hash, idempotency_key),
             ).fetchall()
             if previous:
-                if len(previous) != 1 or previous[0]["nonce_hash"] != nonce_hash or previous[0]["idempotency_key"] != idempotency_key:
+                if (
+                    len(previous) != 1
+                    or previous[0]["participant_experiment_id"] != experiment_id
+                    or previous[0]["nonce_hash"] != nonce_hash
+                    or previous[0]["idempotency_key"] != idempotency_key
+                ):
                     raise IdempotencyConflict("등록 nonce 또는 멱등 키가 다른 요청에 사용되었습니다")
                 replay_token = _participant_token(
                     experiment_id, registration_nonce, key_id=credential_key_id
@@ -4485,6 +5485,18 @@ def _build_public_result(
     cutoff: datetime,
     rules_version: str,
 ) -> dict:
+    experiment_row = connection.execute(
+        "SELECT procedure_config FROM aipol_experiments WHERE id=?",
+        (experiment_id,),
+    ).fetchone()
+    if experiment_row is None:
+        raise ExperimentError("공개 결과를 만들 행사를 찾을 수 없습니다")
+    procedure_config = json.loads(experiment_row["procedure_config"] or "{}")
+    m3_options = (
+        V4_M3_OPTIONS
+        if procedure_config.get("version") == V4_PROCEDURE_CONFIG["version"]
+        else None
+    )
     participant_sql = (
         "SELECT id FROM aipol_participants WHERE experiment_id=? AND participant_type=? "
         "AND created_at<=?" + (" AND id=?" if participant_type == "synthetic" else "")
@@ -4511,18 +5523,38 @@ def _build_public_result(
     assessments: list[DeidentifiedOptionAssessment] = []
     if result_stage in ("T5", "T10"):
         measurement_id = "M2" if result_stage == "T5" else "M3"
-        table = "aipol_m2_option_assessments" if result_stage == "T5" else "aipol_m3_option_assessments"
-        assessments = [
-            DeidentifiedOptionAssessment(
-                row["participant_id"], measurement_id, row["option_id"], row["stance"],
-                datetime.fromisoformat(row["created_at"]),
+        if result_stage == "T10" and m3_options is not None:
+            # v4 records only the selected option's stance.  Rejections for
+            # unselected options must never be inferred or manufactured.
+            assessments = [
+                DeidentifiedOptionAssessment(
+                    row["participant_id"], measurement_id, row["choice"], row["stance"],
+                    datetime.fromisoformat(row["submitted_at"]),
+                )
+                for row in connection.execute(
+                    f"SELECT participant_id,choice,stance,submitted_at FROM aipol_measurements "
+                    f"WHERE participant_id IN ({placeholders}) AND measurement_id='M3' "
+                    "AND choice IS NOT NULL AND stance IS NOT NULL",
+                    eligible,
+                ).fetchall()
+            ]
+        else:
+            table = (
+                "aipol_m2_option_assessments"
+                if result_stage == "T5"
+                else "aipol_m3_option_assessments"
             )
-            for row in connection.execute(
-                f"SELECT participant_id,option_id,stance,created_at FROM {table} "
-                f"WHERE participant_id IN ({placeholders})",
-                eligible,
-            ).fetchall()
-        ]
+            assessments = [
+                DeidentifiedOptionAssessment(
+                    row["participant_id"], measurement_id, row["option_id"], row["stance"],
+                    datetime.fromisoformat(row["created_at"]),
+                )
+                for row in connection.execute(
+                    f"SELECT participant_id,option_id,stance,created_at FROM {table} "
+                    f"WHERE participant_id IN ({placeholders})",
+                    eligible,
+                ).fetchall()
+            ]
     try:
         if result_stage == "T3":
             snapshot = build_t3_m1_results(
@@ -4535,10 +5567,14 @@ def _build_public_result(
                 rules_version=rules_version,
             ).to_dict()
         elif result_stage == "T10":
-            snapshot = build_t10_results(
-                measurements, assessments, eligible_participants=eligible, cutoff=cutoff,
-                rules_version=rules_version,
-            ).to_dict()
+            kwargs = {
+                "eligible_participants": eligible,
+                "cutoff": cutoff,
+                "rules_version": rules_version,
+            }
+            if m3_options is not None:
+                kwargs["m3_options"] = m3_options
+            snapshot = build_t10_results(measurements, assessments, **kwargs).to_dict()
         else:
             raise ExperimentError("공개 결과 단계는 T3, T5, T10 중 하나여야 합니다")
         return (
@@ -4615,8 +5651,10 @@ def release_public_result(
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
         experiment = get_experiment(experiment_id, connection)
-        if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
-            raise ExperimentError("공개 결과 단계는 v2 절차에서만 지원합니다")
+        if experiment["procedure_config"].get("version") not in {
+            PROCEDURE_CONFIG["version"], V4_PROCEDURE_CONFIG["version"],
+        }:
+            raise ExperimentError("공개 결과 단계는 v3 또는 v4 절차에서만 지원합니다")
         if experiment["registration_open"]:
             raise ExperimentError("실제 cohort 등록 마감 뒤에만 결과를 공개할 수 있습니다")
         existing = connection.execute(
@@ -4682,7 +5720,9 @@ def _pending_public_result(
     experiment: dict,
     participant: dict,
 ) -> tuple[str, sqlite3.Row | None] | None:
-    if experiment["procedure_config"].get("version") != PROCEDURE_CONFIG["version"]:
+    if experiment["procedure_config"].get("version") not in {
+        PROCEDURE_CONFIG["version"], V4_PROCEDURE_CONFIG["version"],
+    }:
         return None
     if participant["stage"] == ExperimentStage.WITHDRAWN.value:
         return None
@@ -4793,6 +5833,34 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
             "option_order": json.loads(participant["option_order"]),
             "procedure_version": experiment["procedure_config"].get("version", ""),
         }
+        if experiment.get("procedure_config", {}).get("version") == V4_PROCEDURE_CONFIG["version"]:
+            result["event_kind"] = experiment.get("event_kind", "legacy_unclassified")
+            for field in (
+                "source_bundle_version_id", "constraint_set_version_id", "taxonomy_version_id",
+                "source_bundle_hash", "constraint_set_hash", "taxonomy_hash",
+            ):
+                result[field] = experiment.get(field)
+            demographics_recorded = bool(connection.execute(
+                "SELECT 1 FROM aipol_demographics WHERE participant_id=?",
+                (participant["id"],),
+            ).fetchone())
+            # Labels intentionally remain the approved opaque IDs: this API
+            # must not invent numeric/default demographic values.
+            demographic_options = {
+                "gender_band_id": [{"id": value, "label": value} for value in GENDER_BAND_IDS],
+                "age_band_id": [{"id": value, "label": value} for value in AGE_BAND_IDS],
+                "monthly_personal_income_band_id": [
+                    {"id": value, "label": value} for value in MONTHLY_PERSONAL_INCOME_BAND_IDS
+                ],
+            }
+            result["demographics"] = {
+                "required": True,
+                "recorded": demographics_recorded,
+                "rules_version": RESEARCH_SEGMENT_RULES_VERSION,
+                "options": demographic_options,
+            }
+            result["demographics_required"] = True
+            result["demographics_recorded"] = demographics_recorded
         synthetic_review = _synthetic_review_mode(experiment, participant)
         if synthetic_review:
             result["synthetic_review"] = True
@@ -4803,7 +5871,11 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
             result["title"] = {
                 "T3": "1차 선택 결과",
                 "T5": "1·2차 선택 비교 결과",
-                "T10": "최종 선택과 변화 결과",
+                "T10": (
+                    "3차 선택과 변화 결과"
+                    if _uses_v4_procedure(experiment)
+                    else "최종 선택과 변화 결과"
+                ),
             }[result_stage]
             result["acknowledgement_required"] = True
             if snapshot_row is None:
@@ -4815,7 +5887,9 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
             result["consent_version"] = experiment["consent_version"]
             result["consent_text"] = experiment["consent_text"]
         elif stage is ExperimentStage.E0:
-            result["policy_options"] = experiment["policy_options"]
+            result["policy_options"] = [
+                _public_policy_option(option) for option in experiment["policy_options"]
+            ]
             result["content_hash"] = content_hash(experiment["policy_options"])
             result["title"] = "정책전문가 A·B·C안 비교"
             result["acknowledgement_required"] = True
@@ -4895,11 +5969,15 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
             result["measurement_id"] = stage.value
             result["question_id"] = experiment["measurement_spec"]["question_id"]
             result["question_text"] = experiment["question_text"]
+            if stage is ExperimentStage.M1 and _uses_v4_procedure(experiment):
+                result["issue_taxonomy"] = _v4_issue_taxonomy(experiment, connection)
+                result["issue_interests_required"] = True
             options = {option["policy_option_id"]: option for option in experiment["policy_options"]}
-            result["policy_options"] = [options[key] for key in result["option_order"]]
-            if (
-                stage is ExperimentStage.M2
-                and experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
+            result["policy_options"] = [
+                _public_policy_option(options[key]) for key in result["option_order"]
+            ]
+            if stage is ExperimentStage.M2 and (
+                _uses_current_procedure(experiment) or _uses_v4_procedure(experiment)
             ):
                 result["structured_option_assessment"] = True
             if stage is ExperimentStage.M3:
@@ -4920,14 +5998,14 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
                     )
                 )
                 if ai:
-                    if experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]:
+                    if _uses_current_procedure(experiment):
                         final_content = ai.get("content") or {}
                         final_levers = final_content.get("lever_values")
                         if not isinstance(final_levers, dict) or not final_levers:
                             raise ImmutableRecordConflict("승인된 D′ 비교 항목이 비어 있습니다")
                         result["policy_options"].append({
                             "policy_option_id": "D_PRIME",
-                            "label": final_content.get("title") or "수정 의견 D′",
+                            "label": _public_policy_option_label("D_PRIME"),
                             "policy_version": ai["artifact_version"],
                             "lever_values": final_levers,
                             "artifact_id": ai["artifact_id"],
@@ -4936,6 +6014,21 @@ def participant_current(experiment_id: str, participant_token: str) -> dict:
                         })
                         result["option_order"] = [*result["option_order"], "D_PRIME"]
                         result["structured_final_assessment"] = True
+                    elif _uses_v4_procedure(experiment):
+                        final_content = ai.get("content") or {}
+                        final_levers = final_content.get("lever_values")
+                        if not isinstance(final_levers, dict) or not final_levers:
+                            raise ImmutableRecordConflict("승인된 D안 비교 항목이 비어 있습니다")
+                        result["policy_options"].append({
+                            "policy_option_id": "D",
+                            "label": "D안",
+                            "policy_version": ai["artifact_version"],
+                            "lever_values": final_levers,
+                            "artifact_id": ai["artifact_id"],
+                            "artifact_version": ai["artifact_version"],
+                            "content_hash": ai["content_hash"],
+                        })
+                        result["option_order"] = [*result["option_order"], "D"]
                     else:
                         result["secondary_evaluation"] = {
                             "artifact_id": ai["artifact_id"],
@@ -5050,6 +6143,13 @@ def acknowledge_policy_options(
     payload = {"operation": "policy_options_ack", "content_hash": content_hash_value}
 
     def apply(connection, experiment, participant, session):
+        if experiment.get("procedure_config", {}).get("version") == V4_PROCEDURE_CONFIG["version"]:
+            recorded = connection.execute(
+                "SELECT 1 FROM aipol_demographics WHERE participant_id=?",
+                (participant["id"],),
+            ).fetchone()
+            if not recorded:
+                raise ExperimentError("E0 정책 확인 전에 인구통계 band를 먼저 기록해야 합니다")
         record = session.acknowledge_policy_options(
             participant["pseudonym"], content_hash_value=content_hash_value,
             expected_revision=expected_revision, idempotency_key=idempotency_key,
@@ -5065,6 +6165,62 @@ def acknowledge_policy_options(
         return {"stage": ExperimentStage.M1.value, "state_revision": record.state_revision}
 
     return _write_action(experiment_id, participant_token, idempotency_key, payload, apply)
+
+
+GENDER_BAND_IDS = ("female", "male", "non_binary", "no_answer")
+
+
+def record_demographics(
+    experiment_id: str,
+    participant_token: str,
+    *,
+    gender_band_id: str,
+    age_band_id: str,
+    monthly_personal_income_band_id: str,
+    expected_revision: int,
+    idempotency_key: str,
+    rules_version: str = RESEARCH_SEGMENT_RULES_VERSION,
+) -> dict:
+    """Record v4 band-only demographics exactly once, before the E0 ack."""
+    if not idempotency_key or rules_version != RESEARCH_SEGMENT_RULES_VERSION:
+        raise ExperimentError("인구통계 규칙 버전 또는 멱등 키가 유효하지 않습니다")
+    if gender_band_id not in GENDER_BAND_IDS:
+        raise ExperimentError("gender band가 허용 목록에 없습니다")
+    if age_band_id not in AGE_BAND_IDS or monthly_personal_income_band_id not in MONTHLY_PERSONAL_INCOME_BAND_IDS:
+        raise ExperimentError("age/income은 승인된 band ID만 허용합니다")
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment, participant = _load_participant(connection, experiment_id, participant_token)
+        if experiment.get("procedure_config", {}).get("version") != V4_PROCEDURE_CONFIG["version"]:
+            raise ExperimentError("인구통계 receipt는 v4 이벤트에서만 사용할 수 있습니다")
+        if participant["participant_type"] not in {"real", "synthetic"}:
+            raise ExperimentError("참가자 유형이 유효하지 않습니다")
+        if participant["stage"] != ExperimentStage.E0.value or participant["state_revision"] != expected_revision:
+            raise StateRevisionConflict("E0 단계와 state_revision이 인구통계 기록 요청과 다릅니다")
+        existing = connection.execute(
+            "SELECT * FROM aipol_demographics WHERE participant_id=?", (participant["id"],)
+        ).fetchone()
+        if existing:
+            same_record = (
+                existing["idempotency_key"] == idempotency_key
+                and existing["gender_band_id"] == gender_band_id
+                and existing["age_band_id"] == age_band_id
+                and existing["monthly_personal_income_band_id"] == monthly_personal_income_band_id
+                and existing["rules_version"] == rules_version
+                and existing["state_revision"] == expected_revision
+            )
+            if not same_record:
+                raise IdempotencyConflict("인구통계는 최초 기록 이후 변경할 수 없습니다")
+            return {"recorded": True, "required": True, "state_revision": expected_revision}
+        connection.execute(
+            "INSERT INTO aipol_demographics(id,participant_id,gender_band_id,age_band_id,"
+            "monthly_personal_income_band_id,rules_version,recorded_at,state_revision,idempotency_key) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (_id("demo"), participant["id"], gender_band_id, age_band_id,
+             monthly_personal_income_band_id, rules_version,
+             datetime.now(timezone.utc).isoformat(), expected_revision, idempotency_key),
+        )
+        return {"recorded": True, "required": True, "state_revision": expected_revision}
 
 
 def record_exposure_open(
@@ -5401,19 +6557,44 @@ def submit_measurement(
     secondary_evaluation: dict | None = None,
     stance: str | None = None,
     option_assessments: dict | None = None,
+    issue_interests: list[str] | None = None,
 ) -> dict:
     payload = {
         "operation": "measurement", "measurement_id": measurement_id, "choice": choice,
         "reason": reason, "confidence": confidence, "secondary_evaluation": secondary_evaluation,
         "stance": stance,
         "option_assessments": option_assessments,
+        "issue_interests": issue_interests,
     }
     if confidence is not None and (isinstance(confidence, bool) or not isinstance(confidence, int)):
         raise ExperimentError("confidence는 1~5 정수 또는 null이어야 합니다")
 
     def apply(connection, experiment, participant, session):
         is_current_procedure = _uses_current_procedure(experiment)
-        if secondary_evaluation is not None and (measurement_id != "M3" or is_current_procedure):
+        is_v4_procedure = _uses_v4_procedure(experiment)
+        uses_structured_m2 = is_current_procedure or is_v4_procedure
+        selected_issue_codes: list[str] | None = None
+        taxonomy: dict | None = None
+        if is_v4_procedure and measurement_id == "M1":
+            taxonomy = _v4_issue_taxonomy(experiment, connection)
+            if (
+                not isinstance(issue_interests, list)
+                or not issue_interests
+                or any(not isinstance(value, str) or not value for value in issue_interests)
+                or len(set(issue_interests)) != len(issue_interests)
+            ):
+                raise ExperimentError("1차 선택에서는 관심 쟁점을 하나 이상 중복 없이 선택해야 합니다")
+            allowed_codes = [topic["code"] for topic in taxonomy["topics"]]
+            if any(value not in allowed_codes for value in issue_interests):
+                raise ExperimentError("승인된 taxonomy에 없는 관심 쟁점입니다")
+            if taxonomy["classification_mode"] == "single_label" and len(issue_interests) != 1:
+                raise ExperimentError("이 행사의 관심 쟁점은 하나만 선택할 수 있습니다")
+            selected_issue_codes = [code for code in allowed_codes if code in issue_interests]
+        elif issue_interests is not None:
+            raise ExperimentError("관심 쟁점은 v4 1차 선택에서만 제출할 수 있습니다")
+        if secondary_evaluation is not None and (
+            measurement_id != "M3" or is_current_procedure or is_v4_procedure
+        ):
             raise ExperimentError("D/D′ 별도 평가는 M3에서만 제출할 수 있습니다")
         record = session.submit_measurement(
             participant["pseudonym"], measurement_id, choice=choice, reason=reason,
@@ -5434,7 +6615,20 @@ def submit_measurement(
                 record.submitted_at.isoformat(), record.state_revision, record.idempotency_key,
             ),
         )
-        if measurement_id in ("M2", "M3") and is_current_procedure:
+        if selected_issue_codes is not None and taxonomy is not None:
+            connection.execute(
+                "INSERT INTO aipol_m1_issue_interests VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    _id("m1i"), participant["id"], taxonomy["version_id"],
+                    taxonomy["content_hash"], _json(selected_issue_codes),
+                    record.submitted_at.isoformat(), record.state_revision,
+                    record.idempotency_key,
+                ),
+            )
+        if (
+            (measurement_id == "M2" and uses_structured_m2)
+            or (measurement_id == "M3" and is_current_procedure)
+        ):
             assert option_assessments is not None
             assessment_table = (
                 "aipol_m2_option_assessments"
@@ -5742,8 +6936,17 @@ def _hydrate(connection, experiment: dict, participant: dict) -> PensionExperime
         elif event_type == "measurement":
             assessments = None
             if (
-                value["measurement_id"] in ("M2", "M3")
-                and experiment["procedure_config"].get("version") == PROCEDURE_CONFIG["version"]
+                (
+                    value["measurement_id"] == "M2"
+                    and (
+                        _uses_current_procedure(experiment)
+                        or _uses_v4_procedure(experiment)
+                    )
+                )
+                or (
+                    value["measurement_id"] == "M3"
+                    and _uses_current_procedure(experiment)
+                )
             ):
                 assessment_table = (
                     "aipol_m2_option_assessments"
@@ -5786,6 +6989,17 @@ def _write_action(experiment_id, participant_token, idempotency_key, payload, ap
     with db._conn() as connection:
         connection.execute("BEGIN IMMEDIATE")
         experiment, participant = _load_participant(connection, experiment_id, participant_token)
+        if _procedure_version(experiment) == V4_PROCEDURE_CONFIG["version"]:
+            event_kind = experiment.get("event_kind", "legacy_unclassified")
+            participant_type = participant.get("participant_type")
+            valid_pair = (
+                (event_kind == "live" and participant_type == ParticipantType.REAL.value)
+                or (event_kind == "review" and participant_type == ParticipantType.SYNTHETIC.value)
+            )
+            if not valid_pair:
+                raise CollectionDisabled(
+                    "v4 event kind과 participant type 조합이 유효하지 않습니다"
+                )
         previous = connection.execute(
             "SELECT request_hash,response FROM aipol_idempotency WHERE participant_id=? AND idempotency_key=?",
             (participant["id"], idempotency_key),

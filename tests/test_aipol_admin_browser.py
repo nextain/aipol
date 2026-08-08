@@ -54,7 +54,9 @@ def _fill_experiment(page, procedure_version: str) -> None:
         page.locator(f"#label-{option}").fill(f"정책안 {option}")
         page.locator(f"#source-{option}").fill("KAPS 승인자료")
         page.locator(f"#approver-{option}").fill("approver")
-        page.locator(f"#lever-{option}").fill(f"승인 레버 {option}")
+        page.locator(f"#lever-age-{option}").fill("65세" if option == "A" else "68세 점진 상향")
+        page.locator(f"#lever-fund-{option}").fill("안정형 (5.5%)" if option != "C" else "적극형 (6%)")
+        page.locator(f"#lever-support-{option}").fill("매년 GDP 0.6%" if option == "A" else "국고지원 동결값")
 
 
 def _calculation_evidence() -> dict:
@@ -80,7 +82,8 @@ def _calculation_evidence() -> dict:
 
 def _measure(page, choice: str, *, structured: bool = False) -> None:
     page.locator(f'input[name="choice"][value="{choice}"]').check()
-    page.locator("#confidence").select_option("4")
+    if page.locator("#confidence").count():
+        page.locator("#confidence").select_option("4")
     if structured:
         option_ids = page.locator(".option-assessment-stance").evaluate_all(
             "nodes => nodes.map(node => node.dataset.optionId)"
@@ -94,7 +97,8 @@ def _measure(page, choice: str, *, structured: bool = False) -> None:
                 "조건과 재정 근거를 더 확인합니다." if selected else f"{option_id}안의 비용과 제약을 고려했습니다."
             )
     else:
-        page.locator("#reason").fill(f"{choice}안의 목표와 부담을 함께 고려했습니다.")
+        if page.locator("#reason").count():
+            page.locator("#reason").fill(f"{choice}안의 목표와 부담을 함께 고려했습니다.")
     page.locator("#step-submit").click()
 
 
@@ -346,6 +350,12 @@ def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkey
             participant.locator("#policy-options-check").check()
             participant.locator("#step-submit").click()
             participant.locator('input[name="choice"]').first.wait_for()
+            m1_text = participant.locator("#step-content").inner_text()
+            for heading in ("수급개시연령", "기금운용전략(수익률)", "국고투입(지원) 수준"):
+                assert heading in m1_text
+            assert participant.locator('input[name="choice"]').count() == 3
+            assert participant.locator("#reason").count() == 0
+            assert participant.locator("#confidence").count() == 0
             _measure(participant, "A")
 
             # AIPOL-STEP-03: a real cohort waits for an append-only T3 release.
@@ -375,6 +385,7 @@ def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkey
             participant.locator("#read-check").check()
             participant.locator("#step-submit").click()
             participant.locator('input[name="choice"]').first.wait_for()
+            assert "A·B·C 핵심값 비교" in participant.locator("#step-content").inner_text()
 
             # AIPOL-STEP-05: M2 records all A/B/C stances and reasons.
             _measure(participant, "B", structured=True)
@@ -464,6 +475,9 @@ def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkey
             assert "승인자 approver" in d_exposure
             assert "승인 시각" in d_exposure
             assert "대체안 미사용" in d_exposure
+            assert "AI 잠정 의견 D 핵심값" in d_exposure
+            assert "D 생성 근거" in d_exposure
+            assert "보험료율 18% 이하" in d_exposure
             participant.locator("#read-check").check()
             participant.locator("#step-submit").click()
             participant.locator("#step-content").filter(has_text="전문가 설명").wait_for()
@@ -500,7 +514,10 @@ def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkey
                     "approved_by": "approver", "fallback_used": False,
                     "content": {
                         "title": "수정 의견 D′", "body": "전문가 비용·제약과 공개 청중 의견을 반영했습니다.",
-                        "lever_values": {"approved_summary": "승인 레버 D′"},
+                        "lever_values": {
+                            "수급개시연령": "67세", "기금운용전략(운용수익률)": "균형형 (5.8%)",
+                            "국고투입(지원) 수준": "매년 GDP 0.5%",
+                        },
                         "d_artifact_id": d_artifact_id,
                         "d_content_hash": d_content_hash,
                         "m2_aggregate_hash": released["e2_m2_aggregate_hash"],
@@ -522,10 +539,17 @@ def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkey
             assert "승인자 approver" in d_prime_exposure
             assert "승인 시각" in d_prime_exposure
             assert "대체안 미사용" in d_prime_exposure
+            assert "수정 의견 D′ 핵심값" in d_prime_exposure
+            assert "D′ 수정 근거" in d_prime_exposure
+            assert "67세" in d_prime_exposure and "균형형 (5.8%)" in d_prime_exposure
             participant.locator("#read-check").check()
             participant.locator("#step-submit").click()
             participant.locator('input[name="choice"][value="D_PRIME"]').wait_for()
             assert participant.locator('input[name="choice"]').count() == 4
+            m3_text = participant.locator("#step-content").inner_text()
+            assert "A·B·C·D′ 최종 비교" in m3_text
+            for heading in ("수급개시연령", "기금운용전략(수익률)", "국고투입(지원) 수준"):
+                assert heading in m3_text
             _measure(participant, "D_PRIME", structured=True)
             participant.locator("#step-content").filter(has_text="최종 선택과 변화 결과").wait_for()
             _release_result(admin, experiment_id, "T10")

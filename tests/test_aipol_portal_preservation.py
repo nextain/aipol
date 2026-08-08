@@ -97,24 +97,27 @@ def test_aipol_participant_surface_has_portal_return_and_role_attribution() -> N
     assert (WEB / "favicon.svg").exists()
 
 
-def test_pension_case_discovers_the_two_ballot_scenario_and_built_app_returns_to_portal() -> None:
+def test_pension_case_hands_off_to_canonical_service_without_loading_vendor_baseline() -> None:
     case = BeautifulSoup((SITE / "cases" / "pension" / "index.html").read_text("utf-8"), "html.parser")
     experiment_path = SITE / "cases" / "pension" / "experiment" / "index.html"
     experiment = BeautifulSoup(experiment_path.read_text("utf-8"), "html.parser")
+    entry = (experiment_path.parent / "entry.js").read_text("utf-8")
     assert case.find(
-        "a", href="/cases/pension/experiment/", string=lambda value: value and "시나리오 검토 시작" in value
+        "a", href="/cases/pension/experiment/", string=lambda value: value and "참가자 화면 열기" in value
     )
     assert case.find(id="scenario-review")
-    assert experiment.find("a", href="/cases/pension/", string="프로젝트 소개")
     assert experiment.find("a", href="/", attrs={"aria-label": "AIPOL 홈"})
-    assert not experiment.find("img", alt="한국정책학회")
-    assert not experiment.find("img", alt="Nextain")
-    assert experiment.find("meta", attrs={"name": "aipol-source-commit"})["content"] == (
-        "fcbae3c0dab18476e2274f9e4ff91dadeb2db944"
+    assert experiment.find("nav", attrs={"aria-label": "주요 메뉴"})
+    assert not experiment.find("meta", attrs={"http-equiv": "refresh"})
+    assert experiment.find("script", src="/cases/pension/experiment/entry.js")
+    assert "https://session.aipol.kaps.or.kr/aipol.html" in entry
+    assert 'params.get("review")' in entry and 'params.get("experiment")' in entry
+    assert "aipol-pension-design-review.vercel.app" not in experiment_path.read_text("utf-8") + entry
+    assert experiment.find("link", href="/assets/site.css")
+    assert experiment.find("script", src="/assets/site.js")
+    assert not experiment.find(
+        "script", src=lambda value: value and value.startswith("/cases/pension/experiment/assets/")
     )
-    assert experiment.find("script", src=lambda value: value and value.startswith("/cases/pension/experiment/assets/"))
-    provenance = json.loads((experiment_path.parent / "provenance.json").read_text("utf-8"))
-    assert provenance["measurement_flow"].endswith("second final vote")
 
 
 def test_public_portal_uses_nextain_aipol_origin_and_records_kaps_transition() -> None:

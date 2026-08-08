@@ -32,7 +32,7 @@ def _default_private_env(root: Path) -> Path:
 
 DEFAULT_PRIVATE_ENV = _default_private_env(ROOT)
 ENDPOINT = "https://api.upstage.ai/v1/chat/completions"
-DEFAULT_MODEL = "solar-open2"
+DEFAULT_MODEL = "solar-pro4"
 MAX_SOURCE_CHARS = 24_000
 OUTPUT_FIELDS = {"title_ko", "summary_ko", "policy_use", "human_review", "relevance", "caveat"}
 FIELD_CHAR_LIMITS = {
@@ -90,7 +90,7 @@ def build_payload(packet: dict[str, str], model: str) -> dict:
             {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
         ],
         "temperature": 0.2,
-        # Solar Open2 uses this shared budget for hidden reasoning and visible
+        # Solar Pro 4 may use the same completion budget for hidden reasoning and visible
         # output. A 4K budget can end at ``finish_reason=length`` before any
         # contract JSON becomes visible for a bounded 24K-character source.
         "max_tokens": 16384,

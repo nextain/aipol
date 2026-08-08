@@ -43,7 +43,7 @@ def _editorial_draft():
             "caveat": "한계",
         },
         provider="solar",
-        model="solar-open2",
+        model="solar-pro4",
         generated_at="2026-07-31T00:00:00+00:00",
     )
 

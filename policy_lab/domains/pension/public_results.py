@@ -16,6 +16,7 @@ from typing import Iterable, Mapping, Sequence
 
 M1_M2_OPTIONS = ("A", "B", "C")
 M3_OPTIONS = ("A", "B", "C", "D_PRIME")
+V4_M3_OPTIONS = ("A", "B", "C", "D")
 STANCES = ("accept", "conditional", "reject")
 
 
@@ -200,20 +201,28 @@ def build_t10_results(
     eligible_participants: Iterable[str],
     cutoff: datetime,
     rules_version: str,
+    m3_options: Sequence[str] = M3_OPTIONS,
 ) -> T10Results:
     """Build M3 choice/stances and paired M2->M3 and M1->M3 transitions."""
 
     eligible = _eligible(eligible_participants)
     cutoff_text = _cutoff(cutoff)
-    records = _measurement_index(measurements, eligible, cutoff)
-    assessment_records = _assessment_index(assessments, eligible, cutoff)
-    m3 = _choice_distribution(records, "M3", M3_OPTIONS, eligible)
-    stances = _stance_distributions(assessment_records, "M3", M3_OPTIONS, eligible)
+    validated_m3_options = _m3_options(m3_options)
+    records = _measurement_index(
+        measurements, eligible, cutoff, m3_options=validated_m3_options
+    )
+    assessment_records = _assessment_index(
+        assessments, eligible, cutoff, m3_options=validated_m3_options
+    )
+    m3 = _choice_distribution(records, "M3", validated_m3_options, eligible)
+    stances = _stance_distributions(
+        assessment_records, "M3", validated_m3_options, eligible
+    )
     m2_to_m3 = _transition(
-        records, "M2", "M3", M1_M2_OPTIONS, M3_OPTIONS, eligible
+        records, "M2", "M3", M1_M2_OPTIONS, validated_m3_options, eligible
     )
     m1_to_m3 = _transition(
-        records, "M1", "M3", M1_M2_OPTIONS, M3_OPTIONS, eligible
+        records, "M1", "M3", M1_M2_OPTIONS, validated_m3_options, eligible
     )
     validated_rules = _rules(rules_version)
     payload = {
@@ -232,6 +241,13 @@ def _rules(value: str) -> str:
     if not value or not value.strip():
         raise PublicResultError("rules_version must not be empty")
     return value
+
+
+def _m3_options(value: Sequence[str]) -> tuple[str, ...]:
+    options = tuple(value)
+    if options not in {M3_OPTIONS, V4_M3_OPTIONS}:
+        raise PublicResultError("m3_options must match the legacy or v4 contract")
+    return options
 
 
 def _cutoff(value: datetime) -> str:
@@ -256,7 +272,8 @@ def _within_cutoff(submitted_at: datetime, cutoff: datetime) -> bool:
 
 
 def _measurement_index(
-    records: Iterable[DeidentifiedMeasurement], eligible: Sequence[str], cutoff: datetime
+    records: Iterable[DeidentifiedMeasurement], eligible: Sequence[str], cutoff: datetime,
+    *, m3_options: Sequence[str] = M3_OPTIONS,
 ) -> Mapping[tuple[str, str], DeidentifiedMeasurement]:
     result: dict[tuple[str, str], DeidentifiedMeasurement] = {}
     allowed = set(eligible)
@@ -267,7 +284,7 @@ def _measurement_index(
             raise PublicResultError("measurement contains an ineligible participant key")
         if record.measurement_id not in {"M1", "M2", "M3"}:
             raise PublicResultError("measurement_id must be M1, M2, or M3")
-        valid = M3_OPTIONS if record.measurement_id == "M3" else M1_M2_OPTIONS
+        valid = m3_options if record.measurement_id == "M3" else M1_M2_OPTIONS
         if record.choice is not None and record.choice not in valid:
             raise PublicResultError("measurement contains an invalid choice")
         key = (record.participant_key, record.measurement_id)
@@ -278,7 +295,8 @@ def _measurement_index(
 
 
 def _assessment_index(
-    records: Iterable[DeidentifiedOptionAssessment], eligible: Sequence[str], cutoff: datetime
+    records: Iterable[DeidentifiedOptionAssessment], eligible: Sequence[str], cutoff: datetime,
+    *, m3_options: Sequence[str] = M3_OPTIONS,
 ) -> Mapping[tuple[str, str, str], DeidentifiedOptionAssessment]:
     result: dict[tuple[str, str, str], DeidentifiedOptionAssessment] = {}
     allowed = set(eligible)
@@ -287,7 +305,7 @@ def _assessment_index(
             continue
         if record.participant_key not in allowed:
             raise PublicResultError("assessment contains an ineligible participant key")
-        valid_options = M3_OPTIONS if record.measurement_id == "M3" else M1_M2_OPTIONS
+        valid_options = m3_options if record.measurement_id == "M3" else M1_M2_OPTIONS
         if record.measurement_id not in {"M2", "M3"} or record.option_id not in valid_options:
             raise PublicResultError("assessment round or option is invalid")
         if record.stance is not None and record.stance not in STANCES:

@@ -785,6 +785,47 @@ def aipol_admin_experiments(x_admin_token: str = Header(default="")):
     return aipol_store.list_experiments()
 
 
+@app.get("/api/admin/aipol/artifacts")
+def aipol_admin_artifacts(artifact_type: str | None = None, x_admin_token: str = Header(default="")):
+    require_aipol_admin(x_admin_token, Action.READ)
+    return _aipol_call(aipol_store.list_v4_artifacts, artifact_type=artifact_type)
+
+
+@app.post("/api/admin/aipol/artifacts")
+def aipol_admin_create_artifact(body: dict, x_admin_token: str = Header(default="")):
+    actor = require_aipol_mutation(x_admin_token, Action.EDIT_KNOWLEDGE)
+    _require_exact_contract(body, {"artifact_type", "version_id", "content_json"}, set(), "v4 artifact creation")
+    return _aipol_call(
+        aipol_store.create_v4_artifact,
+        artifact_type=body["artifact_type"], version_id=body["version_id"],
+        content_json=body["content_json"], created_by=actor,
+    )
+
+
+@app.post("/api/admin/aipol/artifacts/{artifact_type}/{version_id}/approve")
+def aipol_admin_approve_artifact(artifact_type: str, version_id: str, body: dict,
+                                 x_admin_token: str = Header(default="")):
+    actor = require_aipol_mutation(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    _require_exact_contract(body, {"approval_id"}, set(), "v4 artifact approval")
+    return _aipol_call(
+        aipol_store.approve_v4_artifact,
+        artifact_type=artifact_type, version_id=version_id,
+        approved_by=actor, approval_id=body["approval_id"],
+    )
+
+
+@app.post("/api/admin/aipol/artifacts/{artifact_type}/{version_id}/reject")
+def aipol_admin_reject_artifact(artifact_type: str, version_id: str, body: dict,
+                                x_admin_token: str = Header(default="")):
+    actor = require_aipol_mutation(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    _require_exact_contract(body, {"approval_id"}, set(), "v4 artifact rejection")
+    return _aipol_call(
+        aipol_store.reject_v4_artifact,
+        artifact_type=artifact_type, version_id=version_id,
+        approved_by=actor, approval_id=body["approval_id"],
+    )
+
+
 @app.post("/api/admin/aipol/experiments")
 def aipol_admin_create(body: dict, x_admin_token: str = Header(default="")):
     created_by = require_aipol_mutation(x_admin_token, Action.EDIT_KNOWLEDGE)
@@ -793,9 +834,12 @@ def aipol_admin_create(body: dict, x_admin_token: str = Header(default="")):
         {
             "title", "experiment_version", "session_id", "consent_version",
             "consent_text", "question_id", "question_text", "option_set_version",
-            "policy_options", "capacity",
+            "policy_options", "capacity", "event_kind",
         },
-        {"procedure_version"},
+        {
+            "procedure_version", "source_bundle_version_id",
+            "constraint_set_version_id", "taxonomy_version_id",
+        },
         "experiment creation",
     )
     result = _aipol_call(
@@ -812,6 +856,10 @@ def aipol_admin_create(body: dict, x_admin_token: str = Header(default="")):
         capacity=body.get("capacity"),
         created_by=created_by,
         procedure_version=str(body.get("procedure_version") or "v1"),
+        event_kind=str(body.get("event_kind") or ""),
+        source_bundle_version_id=body.get("source_bundle_version_id"),
+        constraint_set_version_id=body.get("constraint_set_version_id"),
+        taxonomy_version_id=body.get("taxonomy_version_id"),
     )
     return _audit_experiment_mutation(created_by, "experiment.created", result["id"], result)
 
@@ -1088,6 +1136,14 @@ def aipol_admin_m2_aggregate(
     return _aipol_call(aipol_store.m2_aggregate_snapshot, experiment_id)
 
 
+@app.get("/api/admin/aipol/experiments/{experiment_id}/issue-aggregation")
+def aipol_admin_issue_aggregation(
+    experiment_id: str, x_admin_token: str = Header(default="")
+):
+    require_aipol_admin(x_admin_token, Action.READ)
+    return _aipol_call(aipol_store.v4_issue_aggregation_snapshot, experiment_id)
+
+
 @app.get("/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-pending")
 def aipol_admin_m2_reason_classification_pending(
     experiment_id: str, x_admin_token: str = Header(default="")
@@ -1123,6 +1179,18 @@ def aipol_admin_m2_reason_classification_draft(
     )
     return _audit_experiment_mutation(
         classified_by, "experiment.m2_reason_classification.drafted", experiment_id, result
+    )
+
+
+@app.get("/api/admin/aipol/experiments/{experiment_id}/m2-reason-classification-approvals")
+def aipol_admin_m2_reason_classification_approvals(
+    experiment_id: str, x_admin_token: str = Header(default="")
+):
+    approver = require_aipol_admin(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    return _aipol_call(
+        aipol_store.list_pending_m2_reason_classification_approvals,
+        experiment_id,
+        approver=approver,
     )
 
 
@@ -1667,6 +1735,45 @@ def aipol_research_profile(
     )
 
 
+@app.post("/api/aipol/experiments/{experiment_id}/demographics")
+def aipol_v4_demographics(
+    experiment_id: str, body: dict, x_participant_token: str = Header(default="")
+):
+    """Record the immutable, band-only demographic prerequisite for v4 M1."""
+    _require_exact_contract(
+        body,
+        {
+            "gender_band_id",
+            "age_band_id",
+            "monthly_personal_income_band_id",
+            "rules_version",
+            "expected_revision",
+            "idempotency_key",
+        },
+        set(),
+        "v4 demographics",
+    )
+    for field in (
+        "gender_band_id",
+        "age_band_id",
+        "monthly_personal_income_band_id",
+        "rules_version",
+    ):
+        if not isinstance(body.get(field), str) or not body[field].strip():
+            raise HTTPException(400, f"{field}는 비어 있지 않은 문자열이어야 합니다")
+    return _aipol_call(
+        aipol_store.record_demographics,
+        experiment_id,
+        x_participant_token,
+        gender_band_id=body["gender_band_id"],
+        age_band_id=body["age_band_id"],
+        monthly_personal_income_band_id=body["monthly_personal_income_band_id"],
+        rules_version=body["rules_version"],
+        expected_revision=_expected_revision(body),
+        idempotency_key=str(body.get("idempotency_key") or ""),
+    )
+
+
 @app.post("/api/aipol/experiments/{experiment_id}/t6-ack")
 def aipol_t6_ack(
     experiment_id: str, body: dict, x_participant_token: str = Header(default="")
@@ -1751,6 +1858,9 @@ def aipol_measurement(
     option_assessments = body.get("option_assessments")
     if option_assessments is not None and not isinstance(option_assessments, dict):
         raise HTTPException(400, "option_assessments는 JSON 객체 또는 null이어야 합니다")
+    issue_interests = body.get("issue_interests")
+    if issue_interests is not None and not isinstance(issue_interests, list):
+        raise HTTPException(400, "issue_interests는 문자열 배열 또는 null이어야 합니다")
     if isinstance(option_assessments, dict):
         for assessment in option_assessments.values():
             if not isinstance(assessment, dict):
@@ -1771,6 +1881,7 @@ def aipol_measurement(
         secondary_evaluation=secondary,
         stance=stance,
         option_assessments=option_assessments,
+        issue_interests=issue_interests,
     )
 
 
