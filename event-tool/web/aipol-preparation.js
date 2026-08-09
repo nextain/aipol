@@ -25,6 +25,16 @@ function prepJson(id, label) {
   }
 }
 
+function prepArray(id, label) {
+  try {
+    const value = JSON.parse($(id).value || "[]");
+    if (!Array.isArray(value)) throw new Error();
+    return value;
+  } catch (_) {
+    throw new Error(`${label}은 JSON 배열이어야 합니다.`);
+  }
+}
+
 function prepActor() {
   if (!actor) throw new Error("서명 계정 정보가 없습니다. 다시 로그인해 주세요.");
   return actor;
@@ -80,6 +90,8 @@ async function openV4Preparation(experiment) {
   const artifact = inputs.artifacts || {};
   const issueRun = inputs.generation_runs?.issue_classification || null;
   const councilRun = inputs.generation_runs?.ai_council || null;
+  const dInputDraft = inputs.d_input_draft || null;
+  const dInputSet = inputs.d_input_set || null;
   const issueRunCards = (issueRun?.issues || []).map((item) => `
     <article class="proposal-card"><strong>${esc(item.title)}</strong>
       <p>${esc(item.summary)}</p><p class="artifact-meta">실제 M1 의견 ${esc(item.opinion_count)}건 · ${esc(item.issue_id)}</p>
@@ -113,6 +125,10 @@ async function openV4Preparation(experiment) {
       ${field("freeze-prep-id", "동결표 ID", "text", "pension-v4-freeze")}
       <button type="button" id="freeze-preparation" class="btn-primary" ${requiredDocuments.length === 6 || experiment.collection_enabled ? "" : "disabled"}>${experiment.collection_enabled ? "수집 동결 완료" : "v4 정본 6종으로 수집 시작"}</button>
     </details>
+    <details open><summary>0-1. D안 공개 출처 묶음·제약조건 이중 승인</summary>
+      <p class="stage-note">승인된 정본 6종을 공개 출처 묶음으로 스냅샷하고 하드·소프트 제약조건을 함께 고정합니다. 실험 편집자가 초안을 만들고 별도 승인자가 같은 해시를 승인해야 합니다.</p>
+      ${dInputSet ? `<p class="artifact-meta">승인 완료 · ${esc(dInputSet.content_hash)} · ${esc(dInputSet.approved_by)} · ${esc(dInputSet.approved_at)}</p><pre class="artifact-meta">${esc(JSON.stringify({source_bundle:dInputSet.source_bundle, constraint_set:dInputSet.constraint_set}, null, 2))}</pre>` : dInputDraft ? `<p class="artifact-meta">편집자 초안 · ${esc(dInputDraft.content_hash)} · ${esc(dInputDraft.editor_by)} · ${esc(dInputDraft.drafted_at)}</p><pre class="artifact-meta">${esc(JSON.stringify({source_bundle:dInputDraft.source_bundle, constraint_set:dInputDraft.constraint_set}, null, 2))}</pre>${field("v4-d-input-approval", "별도 승인 ID", "text", "pension-v4-d-inputs-approval")}<button type="button" id="approve-v4-d-inputs" class="btn-primary">동일 해시 재검증 후 승인</button>` : `<fieldset ${isEditor ? "" : "disabled"}><legend>편집자 입력 초안</legend>${field("v4-source-version", "공개 출처 묶음 버전", "text", "pension-v4-sources-v1")}${field("v4-constraints-version", "제약조건 집합 버전", "text", "pension-v4-constraints-v1")}${prepTextarea("v4-hard-constraints", "하드 제약조건 JSON 배열", '[{"constraint_id":"hard-no-personal-calculation","title":"개인 연금 계산 금지","rule":"개인 예상 수령액이나 개인별 연금 계산을 생성하지 않는다."}]')}${prepTextarea("v4-soft-constraints", "소프트 제약조건 JSON 배열", '[{"constraint_id":"soft-balance","title":"급여와 부담의 균형","rule":"급여 적정성과 보험료 부담의 트레이드오프를 설명한다."}]')}<button type="button" id="draft-v4-d-inputs" class="btn-primary" ${requiredDocuments.length === 6 ? "" : "disabled"}>출처·제약 입력 초안 고정</button></fieldset>`}
+    </details>
     <details open><summary>1. 1차 숙의 녹음 요약 → 사람 검수</summary>
       <p class="stage-note">제도 이해와 개인 중심 혜택에 관한 현장 숙의를 요약합니다. 녹음 원문 또는 정리 파일 위치를 출처 메모로 남깁니다.</p>
       ${first ? `<p class="artifact-meta">검수 완료 · ${esc(first.reviewed_by)} · ${esc(first.reviewed_at)} · ${esc(first.content_hash)}</p><p>${esc(first.summary)}</p>` : `${prepTextarea("v4-first-summary", "사람이 검수한 1차 숙의 요약")}${field("v4-first-source", "녹음·AI 요약·사람 검수 출처 메모")}<button type="button" id="save-v4-first" class="btn-primary">1차 숙의 검수본 고정</button>`}
@@ -128,13 +144,13 @@ async function openV4Preparation(experiment) {
       <p class="stage-note">M1 결과 그래프와 5대 쟁점에 대한 전문가 리딩 뒤 진행한 숙의를 기록합니다.</p>
       ${second ? `<p class="artifact-meta">검수 완료 · ${esc(second.reviewed_by)} · ${esc(second.reviewed_at)} · ${esc(second.content_hash)}</p><p>${esc(second.summary)}</p>` : `${prepTextarea("v4-second-summary", "사람이 검수한 2차 숙의 요약")}${field("v4-second-source", "녹음·AI 요약·사람 검수 출처 메모")}<button type="button" id="save-v4-second" class="btn-primary">2차 숙의 검수본 고정</button>`}
     </details>
-    <details open><summary>4. M1·숙의1·M2·숙의2 기반 3-AI 협의 D안 → 사람 승인</summary>
-      <p class="stage-note">M2 ${inputs.m2.participant_count}명. 네 입력 해시는 서버가 실제 데이터에서 계산하며 수동 변경할 수 없습니다. ${dReady ? "D안 승인 입력 준비 완료" : "두 숙의 검수본과 M1/M2 완료 필요"}</p>
+    <details open><summary>4. 승인 출처·제약·5대 쟁점·투표·숙의 기반 3-AI 협의 D안 → 사람 승인</summary>
+      <p class="stage-note">M2 ${inputs.m2.participant_count}명. 일곱 입력 해시는 서버가 실제 승인 원장에서 계산하며 수동 변경할 수 없습니다. ${dReady ? "D안 승인 입력 준비 완료" : "출처·제약·5대 쟁점과 두 숙의·M1/M2 승인 필요"}</p>
       <pre class="artifact-meta">${esc(JSON.stringify(hashes, null, 2))}</pre>
       ${artifact.ai_opinion ? `<p class="artifact-meta">D안 승인 완료 · ${esc(artifact.ai_opinion.content_hash)} · ${esc(artifact.ai_opinion.approved_by)}</p>` : `
-        <button type="button" id="run-v4-council" class="btn-primary" ${dReady ? "" : "disabled"}>${councilRun ? "현재 네 입력으로 3-AI 협의 다시 실행" : "3-AI 제안→상호검토→수정 실행"}</button>
+        <button type="button" id="run-v4-council" class="btn-primary" ${dReady ? "" : "disabled"}>${councilRun ? "현재 일곱 입력으로 3-AI 협의 다시 실행" : "3-AI 제안→상호검토→수정 실행"}</button>
         ${councilRun ? `<p class="artifact-meta">서버 실행 ${esc(councilRun.run_id)} · ${esc(councilRun.generated_at)} · ${esc(councilRun.content_hash)}</p>${councilRunCards}
-          <article class="proposal-card"><strong>${esc(councilRun.final_content.title)}</strong><p>${esc(councilRun.final_content.body)}</p><p class="stage-note">한계와 의의: ${esc(councilRun.final_content.limitations)}</p></article>
+          <article class="proposal-card"><strong>${esc(councilRun.final_content.title)}</strong><p>${esc(councilRun.final_content.body)}</p><p class="stage-note">한계와 의의: ${esc(councilRun.final_content.limitations)}</p><pre class="artifact-meta">${esc(JSON.stringify(councilRun.final_content.constraint_verdicts || [], null, 2))}</pre></article>
           ${field("v4-d-id", "D안 자료 ID", "text", "pension-council-d")}${field("v4-d-version", "D안 버전", "text", experiment.experiment_version)}${field("v4-d-approval", "사람 승인 ID")}<button type="button" id="approve-v4-d" class="btn-primary">이 3-AI 협의 결과를 사람 승인</button>` : ""}`}
     </details>
     <details open><summary>5. 전문가 D안 설명·한계·질의응답 안내 승인</summary>
@@ -151,10 +167,26 @@ async function openV4Preparation(experiment) {
   if ($("save-v4-first")) $("save-v4-first").onclick = () => saveV4Deliberation("first");
   if ($("save-v4-second")) $("save-v4-second").onclick = () => saveV4Deliberation("second");
   if ($("run-v4-issues")) $("run-v4-issues").onclick = runV4Issues;
+  if ($("draft-v4-d-inputs")) $("draft-v4-d-inputs").onclick = draftV4DInputs;
+  if ($("approve-v4-d-inputs")) $("approve-v4-d-inputs").onclick = () => approveV4DInputs(dInputDraft.content_hash);
   if ($("approve-v4-issues")) $("approve-v4-issues").onclick = () => approveV4Issues(issueRun.run_id);
   if ($("run-v4-council")) $("run-v4-council").onclick = runV4Council;
   if ($("approve-v4-d")) $("approve-v4-d").onclick = () => approveV4D(councilRun.run_id);
   if ($("save-v4-expert")) $("save-v4-expert").onclick = saveV4Expert;
+}
+
+async function draftV4DInputs() {
+  try {
+    await api(`/api/admin/aipol/experiments/${selected.id}/v4-d-inputs/draft`, {method: "POST", body: JSON.stringify({source_bundle_version: $("v4-source-version").value.trim(), constraint_set_version: $("v4-constraints-version").value.trim(), hard_constraints: prepArray("v4-hard-constraints", "하드 제약조건"), soft_constraints: prepArray("v4-soft-constraints", "소프트 제약조건")})});
+    await refreshPreparation();
+  } catch (error) { $("admin-error").textContent = error.message; }
+}
+
+async function approveV4DInputs(contentHash) {
+  try {
+    await api(`/api/admin/aipol/experiments/${selected.id}/v4-d-inputs/approve`, {method: "POST", body: JSON.stringify({declared_content_hash: contentHash, approval_id: $("v4-d-input-approval").value.trim()})});
+    await refreshPreparation();
+  } catch (error) { $("admin-error").textContent = error.message; }
 }
 
 async function saveV4Deliberation(roundId) {

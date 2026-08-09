@@ -103,7 +103,15 @@ V4_PROCEDURE_CONFIG = {
     "m3_primary_option_ids": ["A", "B", "C"],
     "m3_secondary_evaluation": "D_acceptability_and_opinion",
     "issue_source": "ai_classification_of_m1_opinions_with_human_approval",
-    "d_generation_inputs": ["M1", "M2", "deliberation_1", "deliberation_2"],
+    "d_generation_inputs": [
+        "approved_source_bundle",
+        "approved_constraint_set",
+        "M1",
+        "deliberation_1",
+        "approved_five_issues",
+        "M2",
+        "deliberation_2",
+    ],
     "option_order": "stable-per-participant",
     "d_release": "human-approved-after-three-ai-collaboration",
 }

@@ -973,6 +973,64 @@ def aipol_admin_v4_inputs(
     return _aipol_call(aipol_store.v4_admin_inputs, experiment_id)
 
 
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-d-inputs/draft")
+def aipol_admin_v4_d_inputs_draft(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    editor_by = require_aipol_mutation(x_admin_token, Action.EDIT_KNOWLEDGE)
+    _require_exact_contract(
+        body,
+        {
+            "source_bundle_version", "constraint_set_version",
+            "hard_constraints", "soft_constraints",
+        },
+        set(),
+        "v4 D input draft",
+    )
+    if not isinstance(body.get("source_bundle_version"), str) or not isinstance(
+        body.get("constraint_set_version"), str
+    ):
+        raise HTTPException(400, "D안 자료 묶음·제약조건 버전은 문자열이어야 합니다")
+    if not isinstance(body.get("hard_constraints"), list) or not isinstance(
+        body.get("soft_constraints"), list
+    ):
+        raise HTTPException(400, "D안 하드·소프트 제약조건은 배열이어야 합니다")
+    result = _aipol_call(
+        aipol_store.draft_v4_d_input_set,
+        experiment_id,
+        source_bundle_version=body["source_bundle_version"],
+        constraint_set_version=body["constraint_set_version"],
+        hard_constraints=body["hard_constraints"],
+        soft_constraints=body["soft_constraints"],
+        editor_by=editor_by,
+    )
+    return _audit_experiment_mutation(
+        editor_by, "experiment.v4_d_inputs.drafted", experiment_id, result
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-d-inputs/approve")
+def aipol_admin_v4_d_inputs_approve(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    approved_by = require_aipol_mutation(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    _require_exact_contract(
+        body, {"declared_content_hash", "approval_id"}, set(), "v4 D input approval"
+    )
+    if not all(isinstance(body.get(key), str) for key in body):
+        raise HTTPException(400, "D안 입력 승인 필드는 문자열이어야 합니다")
+    result = _aipol_call(
+        aipol_store.approve_v4_d_input_set,
+        experiment_id,
+        declared_content_hash=body["declared_content_hash"],
+        approval_id=body["approval_id"],
+        approved_by=approved_by,
+    )
+    return _audit_experiment_mutation(
+        approved_by, "experiment.v4_d_inputs.approved", experiment_id, result
+    )
+
+
 @app.post("/api/admin/aipol/experiments/{experiment_id}/v4-deliberations/{round_id}")
 def aipol_admin_v4_deliberation(
     experiment_id: str,

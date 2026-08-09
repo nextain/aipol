@@ -3299,6 +3299,54 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
         approval["category"] for approval in frozen.json()["freeze_manifest"]["approvals"]
     } == set(v4_categories)
 
+    hard_constraints = [{
+        "constraint_id": "hard-no-personal-calculation",
+        "title": "개인 연금 계산 금지",
+        "rule": "개인 예상 수령액이나 개인별 연금 계산을 생성하지 않는다.",
+    }]
+    soft_constraints = [{
+        "constraint_id": "soft-balance",
+        "title": "급여와 부담의 균형",
+        "rule": "급여 적정성과 보험료 부담 사이의 트레이드오프를 설명한다.",
+    }]
+    d_input_draft = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-d-inputs/draft",
+        headers=editor_headers,
+        json={
+            "source_bundle_version": "pension-v4-sources-v1",
+            "constraint_set_version": "pension-v4-constraints-v1",
+            "hard_constraints": hard_constraints,
+            "soft_constraints": soft_constraints,
+        },
+    )
+    assert d_input_draft.status_code == 200, d_input_draft.text
+    assert d_input_draft.json()["source_bundle"]["publicity"] == "public"
+    assert len(d_input_draft.json()["source_bundle"]["materials"]) == 6
+    assert all(
+        material["approval_id"] and material["approved_by"] and material["approved_at"]
+        for material in d_input_draft.json()["source_bundle"]["materials"]
+    )
+    wrong_d_input_approval = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-d-inputs/approve",
+        headers=headers,
+        json={
+            "declared_content_hash": "0" * 64,
+            "approval_id": "v4-d-inputs-wrong-hash",
+        },
+    )
+    assert wrong_d_input_approval.status_code == 400
+    assert "서버 초안과 다릅니다" in wrong_d_input_approval.text
+    d_input_set = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-d-inputs/approve",
+        headers=headers,
+        json={
+            "declared_content_hash": d_input_draft.json()["content_hash"],
+            "approval_id": "v4-d-inputs-approval",
+        },
+    )
+    assert d_input_set.status_code == 200, d_input_set.text
+    assert d_input_set.json()["approved_by"] == "hong"
+
     rejected_calculator = client.post(
         f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
         headers=headers,
@@ -3497,6 +3545,10 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
     ).json()
     assert inputs["m2"]["participant_count"] == 1
     assert all(inputs["required_d_input_hashes"].values())
+    assert set(inputs["required_d_input_hashes"]) == {
+        "source_bundle", "constraints", "m1", "deliberation_1",
+        "five_issues", "m2", "deliberation_2",
+    }
     manually_pasted_d = client.post(
         f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
         headers=headers,
@@ -3506,7 +3558,7 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
             "artifact_version": "v1",
             "content": {
                 "title": "3개 AI 협의 D안",
-                "body": "승인된 네 입력만 사용해 합성한 절충안과 한계",
+                "body": "승인된 일곱 입력만 사용해 합성한 절충안과 한계",
                 "input_hashes": inputs["required_d_input_hashes"],
                 "ai_council": [
                     {"role": "재정 검토", "output": "장기 재정 제약을 반영"},
@@ -3521,9 +3573,14 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
         },
     )
     assert manually_pasted_d.status_code == 400
-    assert "서버가 실행한 3-AI 협의 기록" in manually_pasted_d.text
+    assert "공개 입력 스냅샷" in manually_pasted_d.text
 
     def fake_council(source: dict) -> dict:
+        assert source["source_bundle"]["publicity"] == "public"
+        assert len(source["source_bundle"]["materials"]) == 6
+        assert source["constraints"]["hard"] == hard_constraints
+        assert source["constraints"]["soft"] == soft_constraints
+        assert len(source["five_issues"]["content"]["issues"]) == 5
         proposal = {
             "title": "D안 초안", "body": "시민 의견을 반영한 초안",
             "limitations": "장기 재정 추계의 불확실성",
@@ -3537,11 +3594,21 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
         }
         revision = {
             "title": "3개 AI 협의 D안",
-            "body": "승인된 네 입력만 사용해 합성한 절충안과 반영 근거",
+            "body": "승인된 일곱 입력만 사용해 합성한 절충안과 반영 근거",
             "limitations": "장기 재정 추계와 경제 가정의 불확실성",
             "reflection_map": ["M1·M2 실제 의견", "사람이 검수한 1·2차 숙의"],
             "tradeoffs": ["급여 적정성과 보험료 부담"],
             "unaddressed": ["세부 시행령과 전환 일정"],
+            "constraint_verdicts": [
+                {
+                    "constraint_id": "hard-no-personal-calculation", "level": "hard",
+                    "satisfied": True, "explanation": "개인별 계산을 포함하지 않았다.",
+                },
+                {
+                    "constraint_id": "soft-balance", "level": "soft",
+                    "satisfied": True, "explanation": "급여와 부담의 균형을 설명했다.",
+                },
+            ],
         }
         base_hash = source["input_hash"]
         proposal_hash = content_hash(proposal)
@@ -3580,6 +3647,26 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
         }
 
     monkeypatch.setattr(server.aipol_v4_ai, "generate_council", fake_council)
+    def fake_hard_constraint_failure(source: dict) -> dict:
+        result = fake_council(source)
+        revision = result["steps"][-1]["output"]
+        revision["constraint_verdicts"][0]["satisfied"] = False
+        revision["constraint_verdicts"][0]["explanation"] = "개인별 계산을 포함해 위반했다."
+        result["steps"][-1]["output_hash"] = content_hash(revision)
+        result["final_content"] = revision
+        return result
+
+    monkeypatch.setattr(
+        server.aipol_v4_ai, "generate_council", fake_hard_constraint_failure
+    )
+    rejected_council = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-council/run",
+        headers=headers,
+        json={},
+    )
+    assert rejected_council.status_code == 400
+    assert "하드 제약조건" in rejected_council.text
+    monkeypatch.setattr(server.aipol_v4_ai, "generate_council", fake_council)
     council_run_response = client.post(
         f"/api/admin/aipol/experiments/{experiment_id}/v4-council/run",
         headers=headers,
@@ -3602,6 +3689,13 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
         },
     )
     assert d_artifact.status_code == 200, d_artifact.text
+    assert {
+        item["constraint_id"]
+        for item in d_artifact.json()["content"]["constraint_verdicts"]
+    } == {"hard-no-personal-calculation", "soft-balance"}
+    assert d_artifact.json()["content"]["input_snapshot"]["source_bundle"]["publicity"] == "public"
+    assert d_artifact.json()["content"]["input_snapshot"]["constraint_set"]["hard"] == hard_constraints
+    assert len(d_artifact.json()["content"]["input_snapshot"]["five_issues"]["content"]["issues"]) == 5
     expert = client.post(
         f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
         headers=headers,
@@ -3656,6 +3750,20 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
             "SELECT COUNT(*) FROM aipol_v4_council_generation_runs WHERE experiment_id=?",
             (experiment_id,),
         ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM aipol_v4_d_input_sets WHERE experiment_id=?",
+            (experiment_id,),
+        ).fetchone()[0] == 1
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute(
+                "UPDATE aipol_v4_d_input_drafts SET content_hash=? WHERE experiment_id=?",
+                ("0" * 64, experiment_id),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute(
+                "UPDATE aipol_v4_d_input_sets SET content_hash=? WHERE experiment_id=?",
+                ("0" * 64, experiment_id),
+            )
         council_steps = connection.execute(
             "SELECT s.phase,s.company FROM aipol_v4_council_steps s "
             "JOIN aipol_v4_council_generation_runs r ON r.id=s.run_id "

@@ -512,6 +512,31 @@ CREATE TABLE IF NOT EXISTS aipol_v4_deliberation_inputs (
   FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
 );
 
+CREATE TABLE IF NOT EXISTS aipol_v4_d_input_drafts (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL UNIQUE,
+  source_bundle TEXT NOT NULL,
+  constraint_set TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  editor_by TEXT NOT NULL,
+  drafted_at TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_v4_d_input_sets (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL UNIQUE,
+  source_bundle TEXT NOT NULL,
+  constraint_set TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  approval_id TEXT NOT NULL,
+  approved_by TEXT NOT NULL,
+  approved_at TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
 CREATE TABLE IF NOT EXISTS aipol_v4_issue_classification_runs (
   id TEXT PRIMARY KEY,
   experiment_id TEXT NOT NULL,
@@ -884,6 +909,14 @@ CREATE TRIGGER IF NOT EXISTS aipol_canonical_drafts_no_update
 BEFORE UPDATE ON aipol_canonical_drafts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_canonical_drafts_no_delete
 BEFORE DELETE ON aipol_canonical_drafts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_d_input_drafts_no_update
+BEFORE UPDATE ON aipol_v4_d_input_drafts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_d_input_drafts_no_delete
+BEFORE DELETE ON aipol_v4_d_input_drafts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_d_input_sets_no_update
+BEFORE UPDATE ON aipol_v4_d_input_sets BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_d_input_sets_no_delete
+BEFORE DELETE ON aipol_v4_d_input_sets BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_ai_candidates_no_update
 BEFORE UPDATE ON aipol_ai_candidates BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_ai_candidates_no_delete
@@ -3058,6 +3091,192 @@ def record_v4_issue_classification(
     return _v4_issue_run_public(row)
 
 
+def _v4_d_input_set_public(
+    row: sqlite3.Row | dict, connection: sqlite3.Connection | None = None
+) -> dict:
+    value = dict(row)
+    source_bundle = json.loads(value["source_bundle"])
+    constraint_set = json.loads(value["constraint_set"])
+    source_payload = dict(source_bundle)
+    source_digest = str(source_payload.pop("content_hash", ""))
+    constraint_payload = dict(constraint_set)
+    constraint_digest = str(constraint_payload.pop("content_hash", ""))
+    if (
+        not hmac.compare_digest(content_hash(source_payload), source_digest)
+        or not hmac.compare_digest(content_hash(constraint_payload), constraint_digest)
+        or not hmac.compare_digest(
+            content_hash({"source_bundle": source_bundle, "constraint_set": constraint_set}),
+            str(value["content_hash"]),
+        )
+    ):
+        raise ImmutableRecordConflict("D안 입력 스냅샷이 승인 해시와 다릅니다")
+    if connection is not None and value.get("approval_id"):
+        _validate_approval_event(
+            connection,
+            experiment_id=value["experiment_id"],
+            object_type="v4_d_input_set",
+            object_id="d_generation_inputs",
+            digest=value["content_hash"],
+            approval_id=value["approval_id"],
+            approved_by=value["approved_by"],
+            approved_at=value["approved_at"],
+        )
+    return {
+        "source_bundle": source_bundle,
+        "constraint_set": constraint_set,
+        "content_hash": value["content_hash"],
+        **{
+            key: value[key]
+            for key in ("approval_id", "approved_by", "approved_at")
+            if key in value.keys()
+        },
+        **{
+            key: value[key]
+            for key in ("editor_by", "drafted_at")
+            if key in value.keys()
+        },
+    }
+
+
+def _normalize_v4_constraints(items: object, *, level: str) -> list[dict]:
+    if not isinstance(items, list) or not items:
+        raise ExperimentError(f"D안 {level} 제약조건을 하나 이상 등록해야 합니다")
+    normalized = []
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"constraint_id", "title", "rule"}:
+            raise ExperimentError("D안 제약조건은 constraint_id·title·rule만 포함해야 합니다")
+        value = {key: str(item[key]).strip() for key in ("constraint_id", "title", "rule")}
+        if not all(value.values()) or value["constraint_id"] in seen:
+            raise ExperimentError("D안 제약조건 ID·제목·규칙은 필수이며 ID는 중복될 수 없습니다")
+        seen.add(value["constraint_id"])
+        normalized.append(value)
+    return normalized
+
+
+def draft_v4_d_input_set(
+    experiment_id: str,
+    *,
+    source_bundle_version: str,
+    constraint_set_version: str,
+    hard_constraints: list[dict],
+    soft_constraints: list[dict],
+    editor_by: str,
+) -> dict:
+    """Snapshot approved source documents and editor-authored D constraints."""
+    if not source_bundle_version.strip() or not constraint_set_version.strip():
+        raise ExperimentError("D안 자료 묶음과 제약조건 버전은 필수입니다")
+    hard = _normalize_v4_constraints(hard_constraints, level="하드")
+    soft = _normalize_v4_constraints(soft_constraints, level="소프트")
+    if {item["constraint_id"] for item in hard} & {item["constraint_id"] for item in soft}:
+        raise ExperimentError("D안 하드·소프트 제약조건 ID는 서로 중복될 수 없습니다")
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("D안 입력 스냅샷은 v4 절차에서만 등록할 수 있습니다")
+        if experiment["created_by"] != editor_by:
+            raise ExperimentError("실험 생성 편집자만 D안 입력 초안을 등록할 수 있습니다")
+        required = _required_freeze_approvals(experiment)
+        rows = connection.execute(
+            "SELECT * FROM aipol_canonical_documents WHERE experiment_id=? ORDER BY category",
+            (experiment_id,),
+        ).fetchall()
+        documents = [_validate_canonical_row(connection, row) for row in rows]
+        if {item["category"] for item in documents} != required:
+            raise ExperimentError("승인된 v4 정본 6종이 모두 있어야 D안 자료 묶음을 고정할 수 있습니다")
+        materials = [
+            {
+                key: document[key]
+                for key in (
+                    "category", "document_id", "document_version", "body", "evidence",
+                    "content_hash", "approval_id", "approved_by", "approved_at",
+                )
+            }
+            for document in documents
+        ]
+        source_bundle = {
+            "version": source_bundle_version.strip(),
+            "publicity": "public",
+            "materials": materials,
+        }
+        source_bundle["content_hash"] = content_hash(source_bundle)
+        constraint_set = {
+            "version": constraint_set_version.strip(),
+            "hard": hard,
+            "soft": soft,
+        }
+        constraint_set["content_hash"] = content_hash(constraint_set)
+        envelope = {"source_bundle": source_bundle, "constraint_set": constraint_set}
+        digest = content_hash(envelope)
+        drafted_at = datetime.now(timezone.utc).isoformat()
+        try:
+            connection.execute(
+                "INSERT INTO aipol_v4_d_input_drafts(id,experiment_id,source_bundle,"
+                "constraint_set,content_hash,editor_by,drafted_at,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    _id("vdi"), experiment_id, _json(source_bundle), _json(constraint_set),
+                    digest, editor_by, drafted_at, time.time(),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ImmutableRecordConflict("D안 입력 초안은 실험별로 한 번만 등록할 수 있습니다") from exc
+        _queue_experiment_audit(
+            connection, actor=editor_by, action="experiment.v4_d_inputs.drafted",
+            experiment_id=experiment_id, payload={"content_hash": digest},
+        )
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_d_input_drafts WHERE experiment_id=?", (experiment_id,)
+        ).fetchone()
+    return _v4_d_input_set_public(row)
+
+
+def approve_v4_d_input_set(
+    experiment_id: str,
+    *,
+    declared_content_hash: str,
+    approval_id: str,
+    approved_by: str,
+) -> dict:
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("D안 입력 스냅샷은 v4 절차에서만 승인할 수 있습니다")
+        draft = connection.execute(
+            "SELECT * FROM aipol_v4_d_input_drafts WHERE experiment_id=?", (experiment_id,)
+        ).fetchone()
+        if not draft or not hmac.compare_digest(str(draft["content_hash"]), declared_content_hash):
+            raise ExperimentError("승인할 D안 입력 초안 해시가 서버 초안과 다릅니다")
+        _v4_d_input_set_public(draft)
+        approved_at = _server_approval(
+            connection, experiment, object_type="v4_d_input_set", object_id="d_generation_inputs",
+            digest=declared_content_hash, approval_id=approval_id, approved_by=approved_by,
+        )
+        try:
+            connection.execute(
+                "INSERT INTO aipol_v4_d_input_sets(id,experiment_id,source_bundle,constraint_set,"
+                "content_hash,approval_id,approved_by,approved_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    _id("vdis"), experiment_id, draft["source_bundle"], draft["constraint_set"],
+                    declared_content_hash, approval_id, approved_by, approved_at, time.time(),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ImmutableRecordConflict("승인된 D안 입력은 교체할 수 없습니다") from exc
+        _queue_experiment_audit(
+            connection, actor=approved_by, action="experiment.v4_d_inputs.approved",
+            experiment_id=experiment_id,
+            payload={"content_hash": declared_content_hash, "approval_id": approval_id},
+        )
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_d_input_sets WHERE experiment_id=?", (experiment_id,)
+        ).fetchone()
+        public = _v4_d_input_set_public(row, connection)
+    return public
+
+
 def v4_admin_inputs(experiment_id: str) -> dict:
     """Return the only approved inputs that v4 issue and D generation may bind."""
     with db._conn() as connection:
@@ -3075,17 +3294,34 @@ def v4_admin_inputs(experiment_id: str) -> dict:
         ).fetchall():
             artifacts[row["kind"]] = dict(row)
         issue_run, council_run = _v4_latest_generation_runs(connection, experiment_id)
+        input_draft = connection.execute(
+            "SELECT * FROM aipol_v4_d_input_drafts WHERE experiment_id=?", (experiment_id,)
+        ).fetchone()
+        input_set = connection.execute(
+            "SELECT * FROM aipol_v4_d_input_sets WHERE experiment_id=?", (experiment_id,)
+        ).fetchone()
+        input_draft_public = _v4_d_input_set_public(input_draft) if input_draft else None
+        input_set_public = _v4_d_input_set_public(input_set, connection) if input_set else None
     by_round = {row["round_id"]: row for row in deliberations}
     return {
         "m1": m1,
         "m2": m2,
         "deliberations": deliberations,
         "required_d_input_hashes": {
+            "source_bundle": (
+                json.loads(input_set["source_bundle"])["content_hash"] if input_set else None
+            ),
+            "constraints": (
+                json.loads(input_set["constraint_set"])["content_hash"] if input_set else None
+            ),
             "m1": m1["aggregate_hash"],
             "deliberation_1": by_round.get("first", {}).get("content_hash"),
+            "five_issues": artifacts.get(ArtifactKind.ISSUE_DELIBERATION.value, {}).get("content_hash"),
             "m2": m2["aggregate_hash"],
             "deliberation_2": by_round.get("second", {}).get("content_hash"),
         },
+        "d_input_draft": input_draft_public,
+        "d_input_set": input_set_public,
         "artifacts": artifacts,
         "generation_runs": {
             "issue_classification": issue_run,
@@ -3104,15 +3340,36 @@ def _v4_required_d_inputs(connection: sqlite3.Connection, experiment_id: str) ->
         raise ExperimentError("1·2차 투표가 모두 집계된 뒤 D안 협의를 실행할 수 있습니다")
     if set(deliberations) != {"first", "second"}:
         raise ExperimentError("사람이 검수한 1·2차 숙의 요약을 모두 등록해야 합니다")
+    input_row = connection.execute(
+        "SELECT * FROM aipol_v4_d_input_sets WHERE experiment_id=?", (experiment_id,)
+    ).fetchone()
+    if not input_row:
+        raise ExperimentError("승인된 D안 자료 묶음·제약조건 스냅샷이 필요합니다")
+    input_set = _v4_d_input_set_public(input_row, connection)
+    issue_row = connection.execute(
+        "SELECT * FROM aipol_artifacts WHERE experiment_id=? AND kind=?",
+        (experiment_id, ArtifactKind.ISSUE_DELIBERATION.value),
+    ).fetchone()
+    if not issue_row:
+        raise ExperimentError("사람이 승인한 5대 쟁점 자료가 필요합니다")
+    _parse_artifact(issue_row, connection)
+    issue = dict(issue_row)
+    issue["content"] = json.loads(issue["content"])
     hashes = {
+        "source_bundle": input_set["source_bundle"]["content_hash"],
+        "constraints": input_set["constraint_set"]["content_hash"],
         "m1": m1["aggregate_hash"],
         "deliberation_1": deliberations["first"]["content_hash"],
+        "five_issues": issue["content_hash"],
         "m2": m2["aggregate_hash"],
         "deliberation_2": deliberations["second"]["content_hash"],
     }
     return hashes, {
+        "source_bundle": input_set["source_bundle"],
+        "constraints": input_set["constraint_set"],
         "m1": m1,
         "deliberation_1": deliberations["first"],
+        "five_issues": issue,
         "m2": m2,
         "deliberation_2": deliberations["second"],
     }
@@ -3153,6 +3410,9 @@ def v4_council_generation_input(experiment_id: str) -> dict:
         "input_hashes": hashes,
         "input_hash": content_hash(hashes),
         "aggregates": {"m1": approved_inputs["m1"], "m2": approved_inputs["m2"]},
+        "source_bundle": approved_inputs["source_bundle"],
+        "constraints": approved_inputs["constraints"],
+        "five_issues": approved_inputs["five_issues"],
         "deliberations": {
             "first": approved_inputs["deliberation_1"],
             "second": approved_inputs["deliberation_2"],
@@ -3160,6 +3420,58 @@ def v4_council_generation_input(experiment_id: str) -> dict:
         "m1_opinions": [dict(row) for row in m1_rows],
         "m2_opinions": list(m2_by_participant.values()),
     }
+
+
+def _v4_d_input_snapshot(approved_inputs: dict) -> dict:
+    issue = approved_inputs["five_issues"]
+    return {
+        "source_bundle": approved_inputs["source_bundle"],
+        "constraint_set": approved_inputs["constraints"],
+        "five_issues": {
+            key: issue[key]
+            for key in (
+                "artifact_id", "artifact_version", "content", "content_hash",
+                "approval_id", "approved_by", "approved_at",
+            )
+        },
+    }
+
+
+def _validate_v4_constraint_verdicts(final_content: dict, constraints: dict) -> None:
+    verdicts = final_content.get("constraint_verdicts")
+    if not isinstance(verdicts, list):
+        raise ExperimentError("D안 최종안에는 승인된 제약조건별 판정이 필요합니다")
+    expected = {
+        item["constraint_id"]: level
+        for level in ("hard", "soft")
+        for item in constraints[level]
+    }
+    normalized: dict[str, dict] = {}
+    for verdict in verdicts:
+        if not isinstance(verdict, dict) or set(verdict) != {
+            "constraint_id", "level", "satisfied", "explanation"
+        }:
+            raise ExperimentError("제약 판정은 ID·수준·충족 여부·설명만 포함해야 합니다")
+        constraint_id = str(verdict.get("constraint_id") or "").strip()
+        level = str(verdict.get("level") or "").strip()
+        explanation = str(verdict.get("explanation") or "").strip()
+        if (
+            constraint_id not in expected
+            or constraint_id in normalized
+            or level != expected[constraint_id]
+            or not isinstance(verdict.get("satisfied"), bool)
+            or not explanation
+        ):
+            raise ExperimentError("D안 제약 판정이 승인된 제약조건 집합과 다릅니다")
+        normalized[constraint_id] = verdict
+    if set(normalized) != set(expected):
+        raise ExperimentError("D안은 승인된 모든 하드·소프트 제약조건을 판정해야 합니다")
+    if any(
+        not normalized[constraint_id]["satisfied"]
+        for constraint_id, level in expected.items()
+        if level == "hard"
+    ):
+        raise ExperimentError("하드 제약조건을 충족하지 못한 D안은 저장할 수 없습니다")
 
 
 def record_v4_council_generation(
@@ -3213,7 +3525,7 @@ def record_v4_council_generation(
         experiment = get_experiment(experiment_id, connection)
         if not _uses_v4_procedure(experiment):
             raise ExperimentError("D안 AI 협의는 v4 절차에서만 실행할 수 있습니다")
-        expected_hashes, _ = _v4_required_d_inputs(connection, experiment_id)
+        expected_hashes, approved_inputs = _v4_required_d_inputs(connection, experiment_id)
         if set(input_hashes) != set(expected_hashes) or any(
             not isinstance(input_hashes.get(key), str)
             or not hmac.compare_digest(input_hashes[key], value)
@@ -3235,6 +3547,7 @@ def record_v4_council_generation(
             for step, expected in zip(normalized_steps, expected_step_hashes, strict=True)
         ):
             raise ExperimentError("D안 AI 협의의 입력·출력 해시 체인이 끊어졌습니다")
+        _validate_v4_constraint_verdicts(final_content, approved_inputs["constraints"])
         envelope = {
             "input_hash": base_hash,
             "prompt_version": prompt_version,
@@ -3344,7 +3657,7 @@ def approve_v4_council_generation(
         if not row:
             raise ExperimentError("승인할 D안 AI 협의 실행 기록을 찾을 수 없습니다")
         run = _v4_council_run_public(connection, row)
-        input_hashes, _ = _v4_required_d_inputs(connection, experiment_id)
+        input_hashes, approved_inputs = _v4_required_d_inputs(connection, experiment_id)
         if not hmac.compare_digest(content_hash(input_hashes), run["input_hash"]):
             raise ExperimentError("D안 생성 뒤 투표·숙의 입력이 변경되어 승인할 수 없습니다")
     final = run["final_content"]
@@ -3352,7 +3665,9 @@ def approve_v4_council_generation(
         "title": str(final.get("title") or "").strip(),
         "body": str(final.get("body") or "").strip(),
         "limitations": str(final.get("limitations") or "").strip(),
+        "constraint_verdicts": final.get("constraint_verdicts"),
         "input_hashes": input_hashes,
+        "input_snapshot": _v4_d_input_snapshot(approved_inputs),
         "council_run_id": run["run_id"],
         "council_run_hash": run["content_hash"],
         "prompt_version": run["prompt_version"],
@@ -4197,31 +4512,16 @@ def set_artifact(
             if not all(isinstance(item, dict) and item.get("role") and item.get("output") for item in members):
                 raise ExperimentError("각 AI 협의 기록에는 역할과 출력이 필요합니다")
             required_inputs = content.get("input_hashes")
-            if not isinstance(required_inputs, dict) or set(required_inputs) != {
-                "m1", "deliberation_1", "m2", "deliberation_2"
-            }:
-                raise ExperimentError("D안은 1·2차 투표와 1·2차 숙의 입력 해시를 모두 포함해야 합니다")
-            m1_snapshot = _v4_m1_aggregate_snapshot(connection, experiment_id)
-            m2_snapshot = _m2_aggregate_snapshot(connection, experiment_id)
-            deliberations = {
-                row["round_id"]: row for row in _v4_deliberation_rows(connection, experiment_id)
-            }
-            if not m1_snapshot["participant_count"] or not m2_snapshot["participant_count"]:
-                raise ExperimentError("1·2차 투표가 모두 집계된 뒤 D안을 승인할 수 있습니다")
-            if set(deliberations) != {"first", "second"}:
-                raise ExperimentError("사람이 검수한 1·2차 숙의 요약을 모두 등록해야 합니다")
-            expected_inputs = {
-                "m1": m1_snapshot["aggregate_hash"],
-                "deliberation_1": deliberations["first"]["content_hash"],
-                "m2": m2_snapshot["aggregate_hash"],
-                "deliberation_2": deliberations["second"]["content_hash"],
-            }
-            if any(
+            expected_inputs, approved_inputs = _v4_required_d_inputs(connection, experiment_id)
+            if not isinstance(required_inputs, dict) or set(required_inputs) != set(expected_inputs) or any(
                 not isinstance(required_inputs.get(key), str)
                 or not hmac.compare_digest(required_inputs[key], value)
                 for key, value in expected_inputs.items()
             ):
-                raise ExperimentError("D안 입력 해시가 실제 투표 집계·숙의 검수본과 다릅니다")
+                raise ExperimentError("D안 일곱 입력 해시가 승인된 생성 입력과 다릅니다")
+            if content.get("input_snapshot") != _v4_d_input_snapshot(approved_inputs):
+                raise ExperimentError("D안 공개 입력 스냅샷이 승인된 출처·제약·5대 쟁점과 다릅니다")
+            _validate_v4_constraint_verdicts(content, approved_inputs["constraints"])
             if content.get("human_reviewed") is not True:
                 raise ExperimentError("D안은 어드민 사람 검수 뒤에만 승인할 수 있습니다")
             run_id = str(content.get("council_run_id") or "")
@@ -4250,6 +4550,7 @@ def set_artifact(
                 or content.get("title") != final.get("title")
                 or content.get("body") != final.get("body")
                 or content.get("limitations") != final.get("limitations")
+                or content.get("constraint_verdicts") != final.get("constraint_verdicts")
                 or content.get("prompt_version") != run["prompt_version"]
                 or content.get("generated_at") != run["generated_at"]
             ):

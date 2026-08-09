@@ -1,7 +1,7 @@
 {
   "work": "pension-20260808-flow-recovery",
   "status": "in_progress",
-  "current_phase": "d_input_provenance_recovery",
+  "current_phase": "expert_diff_and_review_isolation",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
   "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2",
   "started_at": "2026-08-09T09:00:00+09:00",
@@ -27,11 +27,17 @@
     "The first DEV revision later entered a restart loop because its legacy plain-text writer lease survived on Azure Files; the replacement wrapper permits only same-replica dead-process recovery and keeps cross-replica overlap fail-closed.",
     "Post-fix full repository regression passed: 438 passed, 6 skipped; Python compilation, Bicep compilation, git diff checks, and explicit session binding verification also passed.",
     "The exact stale operational lease artifact event-tool.writer-lease/owner and its now-empty directory were removed after all old revisions were inactive; no database, participant data, or production resource was removed.",
-    "Final remote browser verification against revision ca-aipol-event-tool-dev--review-bb9fa64 passed with HTTP 200, ten steps, five issues, three AI council records, D acceptability 4.1, no personal-calculator stage, no localStorage writes, and no console or page errors; exactly one healthy DEV revision is active."
+    "Final remote browser verification against revision ca-aipol-event-tool-dev--review-bb9fa64 passed with HTTP 200, ten steps, five issues, three AI council records, D acceptability 4.1, no personal-calculator stage, no localStorage writes, and no console or page errors; exactly one healthy DEV revision is active.",
+    "D generation now binds exactly seven immutable inputs: the publicly marked six-document source bundle, separately approved hard/soft constraint set, M1 aggregate, reviewed first deliberation, human-approved five-issue artifact, M2 aggregate, and reviewed second deliberation. Each source, constraint, and envelope hash is revalidated against the append-only approval ledger before generation and release.",
+    "The three-company proposal-review-revision run rejects missing or mismatched input hashes, incomplete constraint verdicts, and every final proposal that fails an approved hard constraint. The participant E2 surface exposes the approved source provenance, constraints, and verdict explanations without exposing hidden reasoning.",
+    "D-input phase validation passed: Python compilation, JavaScript syntax checks, git diff checks, and 56 event-tool, web-asset, and pension-v4 tests passed. Focused coverage proves wrong approval hashes, hard-constraint failures, manual D injection, and mutation of either D-input ledger fail closed."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
     "event-tool/server.py",
+    "event-tool/aipol_store.py",
+    "event-tool/aipol_v4_ai.py",
+    "event-tool/web/aipol-preparation.js",
     "event-tool/aipol_process_review.py",
     "event-tool/web/aipol-process-review.html",
     "event-tool/web/aipol.html",
@@ -55,5 +61,5 @@
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-10T03:30:08+09:00"
+  "updated_at": "2026-08-10T04:18:44+09:00"
 }

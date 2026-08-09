@@ -12,7 +12,7 @@ from aipol_store import content_hash
 
 
 ISSUE_PROMPT_VERSION = "aipol-pension-v4-issues-2026-08-08-r1"
-COUNCIL_PROMPT_VERSION = "aipol-pension-v4-council-2026-08-08-r1"
+COUNCIL_PROMPT_VERSION = "aipol-pension-v4-council-2026-08-08-r2"
 
 
 def _now() -> str:
@@ -92,7 +92,9 @@ def generate_council(source: dict) -> dict:
     models = _active_unique_company_models()
     base_hash = source["input_hash"]
     shared_rule = (
-        "제공된 M1·M2 실제 의견과 사람이 검수한 1·2차 숙의 요약만 근거로 사용한다. "
+        "제공된 승인 출처 묶음, 승인된 5대 쟁점, M1·M2 실제 의견, 사람이 검수한 1·2차 "
+        "숙의 요약만 근거로 사용한다. 승인된 하드 제약은 모두 충족하고 소프트 제약은 가능한 "
+        "범위에서 충족한다. 최종안은 모든 제약을 constraint_id별로 판정하고 근거를 설명한다. "
         "A/B/C와 구분되는 D안을 만들되 개인 연금 계산·개인 예상 수령액을 만들지 않는다. "
         "반영한 의견, 트레이드오프, 미반영 의견과 한계를 숨기지 않는다. JSON 객체만 반환한다."
     )
@@ -101,7 +103,9 @@ def generate_council(source: dict) -> dict:
         system=(
             "너는 3-AI 협의의 제안 담당이다. " + shared_rule +
             ' 형식: {"title":"...","body":"...","limitations":"...",'
-            '"reflection_map":["..."],"tradeoffs":["..."],"unaddressed":["..."]}'
+            '"reflection_map":["..."],"tradeoffs":["..."],"unaddressed":["..."],'
+            '"constraint_verdicts":[{"constraint_id":"...","level":"hard|soft",'
+            '"satisfied":true,"explanation":"..."}]}'
         ),
         payload={"prompt_version": COUNCIL_PROMPT_VERSION, "phase": "proposal", "source": source},
         temperature=0.35,
@@ -137,7 +141,9 @@ def generate_council(source: dict) -> dict:
             "최종 D안을 작성하라. 근거 없는 수치를 추가하지 말고, 한계와 의의를 전문가가 설명할 수 "
             "있게 명시하라. " + shared_rule +
             ' 형식: {"title":"...","body":"...","limitations":"...",'
-            '"reflection_map":["..."],"tradeoffs":["..."],"unaddressed":["..."]}'
+            '"reflection_map":["..."],"tradeoffs":["..."],"unaddressed":["..."],'
+            '"constraint_verdicts":[{"constraint_id":"...","level":"hard|soft",'
+            '"satisfied":true,"explanation":"..."}]}'
         ),
         payload={
             "prompt_version": COUNCIL_PROMPT_VERSION,

@@ -410,7 +410,11 @@ function renderV4Exposure() {
     detail += `<div class="option-list">${issues.map((issue) => `<article class="option-choice"><span><strong>${esc(issue.title)}</strong><small>1차 투표 의견 ${esc(issue.opinion_count)}건 · ${esc(issue.issue_id)}</small></span></article>`).join("")}</div><p class="stage-note">이 다섯 쟁점은 1차 투표 의견을 AI가 분류·집계하고 사람이 검수한 결과입니다. 전문가 설명과 청중 2차 숙의를 진행하며, 녹음 요약은 사람 검수 후 D안 입력에 사용합니다.</p>`;
     notice = "5대 쟁점과 2차 숙의 안내를 확인했습니다.";
   } else if (current.stage === "E2") {
-    detail += `<h3>3개 AI 협의 기록</h3>${(content.ai_council || []).map((member) => `<article class="proposal-card"><strong>${esc(member.role)}</strong><p>${esc(member.output)}</p></article>`).join("")}<p class="stage-note">D안은 A·B·C와 별도인 네 번째 투표 선택지가 아닙니다. 마지막 단계에서 D안 수용도와 의견을 별도로 묻습니다.</p>`;
+    const snapshot = content.input_snapshot || {};
+    const sourceBundle = snapshot.source_bundle || {};
+    const constraintSet = snapshot.constraint_set || {};
+    const verdicts = content.constraint_verdicts || [];
+    detail += `<h3>승인된 공개 출처</h3><p class="artifact-meta">묶음 버전 ${esc(sourceBundle.version || "-")} · 해시 ${esc(sourceBundle.content_hash || "-")}</p><div class="option-list">${(sourceBundle.materials || []).map((material) => `<article class="option-choice"><span><strong>${esc(material.category)} · ${esc(material.document_version)}</strong><small>해시 ${esc(material.content_hash)} · 승인 ${esc(material.approval_id)} / ${esc(material.approved_by)}</small></span></article>`).join("")}</div><h3>승인 제약조건과 최종 판정</h3><p class="artifact-meta">제약 버전 ${esc(constraintSet.version || "-")} · 해시 ${esc(constraintSet.content_hash || "-")}</p>${verdicts.map((verdict) => `<article class="proposal-card"><strong>${esc(verdict.level)} · ${esc(verdict.constraint_id)} · ${verdict.satisfied ? "충족" : "미충족"}</strong><p>${esc(verdict.explanation)}</p></article>`).join("")}<h3>3개 AI 협의 기록</h3>${(content.ai_council || []).map((member) => `<article class="proposal-card"><strong>${esc(member.role)}</strong><pre class="artifact-meta">${esc(JSON.stringify(member.output, null, 2))}</pre></article>`).join("")}<p class="stage-note">D안은 A·B·C와 별도인 네 번째 투표 선택지가 아닙니다. 마지막 단계에서 D안 수용도와 의견을 별도로 묻습니다.</p>`;
     notice = "D안과 AI 협의 근거를 확인했습니다.";
   } else if (current.stage === "E1b") {
     detail += `<p class="stage-note">전문가가 D안의 의의·한계와 AI 협의 과정을 설명한 뒤 간단한 청중 질의응답을 진행합니다.</p>`;
