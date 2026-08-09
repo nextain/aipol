@@ -1,7 +1,7 @@
 {
   "work": "pension-20260808-flow-recovery",
   "status": "in_progress",
-  "current_phase": "interactive_review_end_to_end",
+  "current_phase": "interactive_review_regression",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
   "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2",
   "started_at": "2026-08-09T09:00:00+09:00",
@@ -41,7 +41,8 @@
     "The approved review id now resolves server-side to one append-only fixture binding in the isolated review database. Startup creates or reuses a frozen v4 experiment plus independently approved E1a, E2, and E1b artifacts, validates their hashes on every restart, and never accepts a client-selected experiment id or database path.",
     "POST /api/aipol/process-reviews/{review_id}/session now registers a short-lived synthetic participant only in the review database and returns a signed wrapper capability. The wrapper reached the same participant current handler with REVIEW/SYNTHETIC DATA headers while operational experiment and participant counts remained zero; 18 process-review, nested-route, portal-preservation, and browser tests passed.",
     "The canonical review query now starts an interactive session only from the approved review id, accepts the experiment id exclusively from the signed server response, and enters the unchanged participant current handler. Review capability and idempotency state use sessionStorage only; localStorage remains empty, the URL never gains an experiment selector, and the REVIEW/SYNTHETIC DATA boundary remains visible across participant states.",
-    "The client discards malformed, expired, or unauthorized review sessions, presents an in-place retry after issuance failure, restores a valid session after reload, and keeps the static ten-step evidence available before session start. Focused process-review, web-asset, route-preview, and Playwright validation passed 18 tests including a forced 503 followed by successful retry and reload restoration."
+    "The client discards malformed, expired, or unauthorized review sessions, presents an in-place retry after issuance failure, restores a valid session after reload, and keeps the static ten-step evidence available before session start. Focused process-review, web-asset, route-preview, and Playwright validation passed 18 tests including a forced 503 followed by successful retry and reload restoration.",
+    "The interactive review now exercises the unchanged v4 participant handlers from consent through demographics, E0, M1, E1a, M2, E2, E1b, M3, and completion. This exposed and corrected a real client/server contract drift: v4 M3 had sent an empty primary reason even though the server requires the ABC vote and D acceptability/comment to remain separate. The focused full-flow browser test and 20 related process-review, route-preview, web-asset, and v4 domain tests passed."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",

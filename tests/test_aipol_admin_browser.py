@@ -227,6 +227,67 @@ def test_process_review_query_renders_stored_read_only_synthetic_event(tmp_path,
             page.locator("#state-step").filter(has_text="참여 동의").wait_for()
             assert "REVIEW · SYNTHETIC DATA" in page.locator("#review-mode-banner").inner_text()
             assert page.evaluate("localStorage.length") == 0
+
+            # The review entrypoint must exercise the same participant handlers
+            # through the entire v4 procedure, rather than stopping at a static
+            # snapshot or a consent-only demonstration.
+            page.locator("#consent-check").check()
+            page.locator("#step-submit").click()
+            page.locator("#demographic-gender").wait_for()
+            page.locator("#demographic-gender").select_option("prefer_not")
+            page.locator("#demographic-age").select_option("30_39")
+            page.locator("#demographic-income").select_option("2m_4m")
+            page.locator("#demographic-check").check()
+            page.locator("#step-submit").click()
+            page.locator("#policy-options-check").wait_for()
+            page.locator("#policy-options-check").check()
+            page.locator("#step-submit").click()
+
+            page.locator('input[name="choice"][value="A"]').wait_for()
+            page.locator('input[name="choice"][value="A"]').check()
+            page.locator("#stance").select_option("accept")
+            page.locator("#reason").fill("합성 검토용 1차 의견입니다.")
+            page.locator("#step-submit").click()
+
+            page.locator("#step-content").filter(has_text="5대 핵심 쟁점").wait_for()
+            assert page.locator(
+                "#step-content .option-list > article.option-choice"
+            ).count() == 5
+            page.locator("#read-check").check()
+            page.locator("#step-submit").click()
+
+            page.locator('input[name="choice"][value="B"]').wait_for()
+            page.locator('input[name="choice"][value="B"]').check()
+            for option_id in ("A", "B", "C"):
+                page.locator(f"#assessment-{option_id}").select_option(
+                    "accept" if option_id == "B" else "reject"
+                )
+                page.locator(f"#assessment-reason-{option_id}").fill(
+                    f"합성 검토용 {option_id}안 판단 이유입니다."
+                )
+            page.locator("#step-submit").click()
+            page.locator("#step-content h2").filter(has_text="AI 협의 D안").wait_for()
+            assert page.locator("#step-error").inner_text() == ""
+            assert "3개 AI 협의 기록" in page.locator("#step-content").inner_text()
+            assert "D안은 A·B·C와 별도" in page.locator("#step-content").inner_text()
+            page.locator("#read-check").check()
+            page.locator("#step-submit").click()
+
+            page.locator("#step-content").filter(has_text="전문가").wait_for()
+            assert "전문가 수정 전후" in page.locator("#step-content").inner_text()
+            page.locator("#read-check").check()
+            page.locator("#step-submit").click()
+
+            page.locator('input[name="choice"][value="C"]').wait_for()
+            assert page.locator('input[name="choice"]').count() == 3
+            page.locator('input[name="choice"][value="C"]').check()
+            page.locator("#secondary").select_option("4")
+            page.locator("#secondary-reason").fill("D안의 조건과 한계를 함께 검토했습니다.")
+            page.locator("#step-submit").click()
+            page.locator("#state-done").wait_for()
+            assert "패널 총평과 마무리" in page.locator("#state-done").inner_text()
+            assert "REVIEW · SYNTHETIC DATA" in page.locator("#review-mode-banner").inner_text()
+            assert page.evaluate("localStorage.length") == 0
             assert console_errors == []
             assert page_errors == []
             browser.close()

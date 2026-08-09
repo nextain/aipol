@@ -586,8 +586,8 @@ function renderV4Measurement() {
     const secondary = isM3 ? {artifact_id:current.secondary_evaluation?.artifact_id, acceptance:Number($("secondary")?.value), reason:$("secondary-reason")?.value.trim()} : undefined;
     return submitAction(`measurements/${current.stage}`, {
       choice:choice?.value || null,
-      stance:$("stance")?.value || null,
-      reason:$("reason")?.value.trim() || "",
+      stance:current.stage === "M1" ? ($("stance")?.value || null) : null,
+      reason:current.stage === "M1" ? ($("reason")?.value.trim() || "") : null,
       confidence:null,
       ...(isM2 ? {option_assessments:assessments} : {}),
       ...(isM3 ? {secondary_evaluation:secondary} : {}),
