@@ -12,6 +12,7 @@
     "3차 투표에서 A/B/C 재투표와 D안 수용성·의견을 별도 입력으로 수집",
     "별도 리뷰 앱이 아닌 실제 서비스 핸들러·어드민과 격리 리뷰 데이터 저장소를 사용하는 리뷰 URL 배포",
     "프로세스 리뷰 URL의 Discord DM 전달",
+    "격리 DEV 리뷰 서비스가 비정상 종료 뒤에도 같은 replica의 죽은 writer lease만 안전하게 회수하여 재기동하도록 배포 래퍼 보강",
     "활성 공개 이벤트·상태 안내에 남은 2회 투표 문구를 v4 절차로 정정",
     "기존 모놀리스에 대한 사용자 승인 기반 한시적 복잡도 플래그와 교차검토 증거 기록"
   ],
@@ -23,6 +24,7 @@
     "UI에 하드코딩한 목 데이터만으로 리뷰 기능을 흉내 내는 별도 Vercel 앱",
     "실제 참가자 개인정보·원본 녹음·미검수 전사문·실제 집계의 리뷰 환경 복제",
     "헌장 파일·핵심 방어장치 또는 이 작업과 무관한 루트 워크스페이스 변경",
+    "PROD 서비스·데이터·배포 설정 변경",
     "격리된 드리프트 커밋의 전체 병합"
   ],
   "success_criteria": [
@@ -32,11 +34,13 @@
     "D안은 3개 AI의 제안·상호 검토·수정과 사람 승인 이력을 남기고, 참가자 화면에는 숨은 사고과정이 아닌 검토 가능한 협의 요약·한계만 노출한다.",
     "M3는 A/B/C 재투표와 D안 수용성·서술 의견을 별도 필드로 저장한다.",
     "리뷰 URL이 실제 참가자·어드민 라우트와 서비스 코드를 사용하되 서버가 선택한 격리 리뷰 데이터베이스와 승인된 결정론적 픽스처만 조회한다.",
+    "DEV 배포 래퍼는 같은 replica의 종료된 프로세스가 남긴 writer lease만 자동 회수하고, 살아 있는 프로세스 또는 다른 replica의 lease는 계속 fail-closed 처리한다.",
     "프로세스·어드민 연동 계약 테스트, 전체 관련 회귀 테스트, 브라우저 흐름 테스트와 빌드가 통과한다.",
     "검증된 리뷰 URL이 사용자 Discord DM으로 전달되고 전달 증거가 진행 기록에 남는다."
   ],
   "allowed_paths": [
     "docs/**",
+    "deploy/azure/event-tool-dev/**",
     "event-tool/**",
     "policy_lab/domains/pension/**",
     "scripts/**",
@@ -50,6 +54,7 @@
   ],
   "target_ownership": [
     "docs/**",
+    "deploy/azure/event-tool-dev/**",
     "event-tool/**",
     "policy_lab/domains/pension/**",
     "scripts/**",
@@ -73,6 +78,7 @@
     "nextain/aipol#7 최신 정정: 실제 API 핸들러·서비스와 서버 선택형 격리 리뷰 DB 사용",
     "clean baseline f182596 (origin/feat/pension-deliberation-v2)",
     "drift quarantine 15bf0c7 on local branch quarantine/pension-v4-drift-20260809",
+    "2026-08-09 DEV 장애 증거: /data/event-tool.writer-lease 잔존으로 serialized_app.py가 FileExistsError 후 재기동 실패",
     "USR-012 사용자 원문: 자동 복잡도 경고, 사유·기한이 있는 제한적 플래그, 후속 코드 대조 요구"
   ],
   "allowed_shell_commands": [
@@ -80,14 +86,19 @@
     "git diff --check",
     "pytest -q",
     "python scripts/build_site_i18n.py",
+    "az acr build",
+    "az containerapp revision deactivate",
+    "az containerapp update",
+    "az storage file delete",
+    "az storage directory delete",
     "node .claude/hooks/sync-entry-points.js --check"
   ],
   "session_bindings": [
     {
       "session_id": "019fe3a8-0664-7752-820a-6aa826bdb2b7",
-      "contract_digest": "4333b54b60ab1e64d8eceb49872bd80743bd508c97aad80bb546dfe7c72b3a67"
+      "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2"
     }
   ],
   "progress_file": ".agents/progress/pension-20260808-flow-recovery-2026-08-09.json",
-  "contract_digest": "4333b54b60ab1e64d8eceb49872bd80743bd508c97aad80bb546dfe7c72b3a67"
+  "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2"
 }

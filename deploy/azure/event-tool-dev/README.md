@@ -409,9 +409,10 @@ The last command must print `0`. Only then run the reviewed Bicep deployment. Th
 atomic writer-lease directory on `/data` before importing `server.py`; an overlapping revision fails startup rather
 than opening the `nolock` database.
 
-After an unclean container exit, a stale `event-tool.writer-lease` intentionally blocks restart. Confirm that Azure
-reports zero active revisions, inspect the lease owner file, then remove the stale directory through an approved
-Azure Files data-plane identity. Never remove it while any revision is active.
+After an unclean process exit, the same Container Apps replica may reclaim its lease only when the recorded Linux
+PID plus process-start marker is no longer live. A different replica or revision still fails closed. For that case,
+confirm that Azure reports zero active revisions, inspect the JSON lease owner file, then remove the stale directory
+through an approved Azure Files data-plane identity. Never remove it while any revision is active.
 
 Rollback has two independent parts:
 

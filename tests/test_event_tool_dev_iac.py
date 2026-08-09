@@ -297,6 +297,66 @@ def test_deployment_wrapper_serializes_http_requests_and_blocks_second_writer(
     module.release_writer_lease()
 
 
+def test_deployment_wrapper_reclaims_dead_same_replica_lease(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setitem(sys.modules, "server", types.SimpleNamespace(app=object()))
+    monkeypatch.setenv("EVENT_DB_PATH", str(tmp_path / "event.db"))
+    lease_path = tmp_path / "writer-lease"
+    monkeypatch.setenv("EVENT_WRITER_LEASE_PATH", str(lease_path))
+    monkeypatch.setenv("HOSTNAME", "review-replica")
+    lease_path.mkdir()
+    (lease_path / "owner").write_text(
+        json.dumps({
+            "version": 1,
+            "identity": "review-replica",
+            "process_marker": "linux:999999:1",
+            "token": "dead-process",
+        }),
+        encoding="utf-8",
+    )
+
+    spec = importlib.util.spec_from_file_location(
+        "event_tool_dev_serialized_app_restart", UNIT / "serialized_app.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    owner = json.loads((lease_path / "owner").read_text(encoding="utf-8"))
+    assert owner["identity"] == "review-replica"
+    assert owner["token"] != "dead-process"
+    module.release_writer_lease()
+
+
+def test_deployment_wrapper_does_not_reclaim_other_replica_lease(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setitem(sys.modules, "server", types.SimpleNamespace(app=object()))
+    monkeypatch.setenv("EVENT_DB_PATH", str(tmp_path / "event.db"))
+    lease_path = tmp_path / "writer-lease"
+    monkeypatch.setenv("EVENT_WRITER_LEASE_PATH", str(lease_path))
+    monkeypatch.setenv("HOSTNAME", "replacement-replica")
+    lease_path.mkdir()
+    (lease_path / "owner").write_text(
+        json.dumps({
+            "version": 1,
+            "identity": "old-replica",
+            "process_marker": "linux:999999:1",
+            "token": "old-process",
+        }),
+        encoding="utf-8",
+    )
+
+    spec = importlib.util.spec_from_file_location(
+        "event_tool_dev_serialized_app_other_replica", UNIT / "serialized_app.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with pytest.raises(RuntimeError, match="writer lease already exists"):
+        spec.loader.exec_module(module)
+
+
 def test_deployment_wrapper_fails_closed_when_data_mount_is_not_writable(
     monkeypatch, tmp_path: Path
 ) -> None:

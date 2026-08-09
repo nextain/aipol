@@ -3,7 +3,7 @@
   "status": "in_progress",
   "current_phase": "process_review_ready",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
-  "contract_digest": "4333b54b60ab1e64d8eceb49872bd80743bd508c97aad80bb546dfe7c72b3a67",
+  "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2",
   "started_at": "2026-08-09T09:00:00+09:00",
   "evidence": [
     "Drifted tracked and selected untracked outputs preserved in local quarantine commit 15bf0c7.",
@@ -11,6 +11,7 @@
     "Recovery branch fix/pension-20260808-flow-recovery starts at clean baseline f182596.",
     "Bounded complexity flags are backed by immutable human source USR-012 and expire on 2026-09-07; they remain REVIEW_REQUIRED rather than auto-clean.",
     "Session contract ownership was expanded to site/events/** and site/status/** so stale public two-ballot copy could be corrected under explicit authority.",
+    "Session contract ownership was narrowly expanded to deploy/azure/event-tool-dev/** after the isolated DEV review outage proved that a stale same-replica writer lease prevented restart; PROD remains an explicit non-goal.",
     "The active v4 contract removes the personal pension calculation and personal-impact stages, derives exactly five issues from M1 opinions with human approval, binds both reviewed deliberation summaries and M1/M2 aggregates into a three-AI D proposal, and stores M3 ABC choice separately from D acceptability and comment.",
     "The same event-tool service now exposes the canonical query review at /aipol.html?review=process&dataset=pension-v4-20260808-r1; /aipol-process-review.html is redirect-only, and /aipol-preparation.html plus the ordinary /aipol.html participant path remain available for the later real admin-linked rehearsal.",
     "The process review snapshot is append-only, read-only mock data in /data/aipol-process-review.db, physically separate from the participant/admin /data/event.db; the Azure Files connection follows EVENT_SQLITE_NOLOCK=true.",
@@ -19,7 +20,9 @@
     "Two superseded deployment attempts exposed and proved the wrong Docker build context and Azure Files SQLite locking gaps; neither failed revision remains active, and both gaps are covered by repository tests and the corrected deployment contract.",
     "The immutable review image acraipolevtmxajhqb4i5p4o.azurecr.io/aipol/event-tool@sha256:ef6158ecda9e4c0fa3a1afd203d643990e4620f4ec2a99c99ea3128196eac9f2 is deployed only to the isolated DEV Container App as revision ca-aipol-event-tool-dev--review-4b1fdd9; collection, demo, chatbot, batch, and receipt verification remain disabled.",
     "Remote browser verification of the canonical query review passed with HTTP 200, ten steps, exactly five M1-derived issues, three AI council records, D acceptability 4.1, no localStorage writes, and no console or page errors; healthz and readyz returned HTTP 200, and exactly one healthy DEV revision is active.",
-    "Discord DM delivery was confirmed with HTTP 200 through the one authorized AIPOL DM binding resolved from the matching configured participant and its single durable channel projection; message id 1535824598715863130."
+    "Discord DM delivery was confirmed with HTTP 200 through the one authorized AIPOL DM binding resolved from the matching configured participant and its single durable channel projection; message id 1535824598715863130.",
+    "The first DEV revision later entered a restart loop because its legacy plain-text writer lease survived on Azure Files; the replacement wrapper permits only same-replica dead-process recovery and keeps cross-replica overlap fail-closed.",
+    "Post-fix full repository regression passed: 438 passed, 6 skipped; Python compilation, Bicep compilation, git diff checks, and explicit session binding verification also passed."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -44,5 +47,5 @@
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-09T10:38:44+09:00"
+  "updated_at": "2026-08-09T10:56:43+09:00"
 }
