@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import importlib
+import hashlib
+import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -14,7 +17,7 @@ EVENT_TOOL = Path(__file__).parents[1] / "event-tool"
 MODULES = (
     "server", "db", "aipol_store", "aipol_v4_ai", "aipol_process_review", "aipol_admin_store",
     "aipol_audit_checkpoint", "aipol_chat", "aipol_batch", "aipol_receipt",
-    "ai_config", "deliberate", "llm",
+    "ai_config", "deliberate", "llm", "sqlite_backup",
 )
 
 
@@ -145,6 +148,97 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
                     "UPDATE aipol_process_review_bindings SET fixture_version='drift' WHERE review_id=?",
                     (snapshot["review_id"],),
                 )
+    finally:
+        for name in MODULES:
+            sys.modules.pop(name, None)
+
+
+def test_process_review_backup_is_verified_retained_and_operationally_invisible(
+    tmp_path, monkeypatch,
+):
+    event_db_path = tmp_path / "data" / "event.db"
+    review_db_path = tmp_path / "review-data" / "aipol-process-review.db"
+    monkeypatch.setenv("EVENT_ENV", "development")
+    monkeypatch.setenv("EVENT_DB_PATH", str(event_db_path))
+    monkeypatch.setenv("EVENT_SESSION_SECRET", "s" * 48)
+    monkeypatch.setenv("EVENT_ADMIN_USERS_JSON", json.dumps({"admin": "admin-password-123456"}))
+    monkeypatch.setenv("EVENT_ADMIN_ROLES_JSON", json.dumps({"admin": ["admin"]}))
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_DB_PATH", str(review_db_path))
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_SESSION_SECRET", "r" * 48)
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_BACKUP_RETENTION_DAYS", "7")
+    monkeypatch.syspath_prepend(str(EVENT_TOOL))
+    for name in MODULES:
+        sys.modules.pop(name, None)
+    server = importlib.import_module("server")
+
+    old_review_backup = review_db_path.parent / "process-review-backups" / (
+        "aipol-process-review-20000101T000000Z-deadbeef.db"
+    )
+    old_review_backup.parent.mkdir(parents=True)
+    old_review_backup.write_bytes(b"expired-review-backup")
+    old = 946_684_800
+    os.utime(old_review_backup, (old, old))
+    operational_backup = event_db_path.parent / "backups" / "event-20000101T000000Z.db"
+    operational_backup.parent.mkdir(parents=True)
+    operational_backup.write_bytes(b"operational-backup-must-survive")
+    os.utime(operational_backup, (old, old))
+
+    try:
+        with TestClient(server.app) as client:
+            login = client.post(
+                "/api/admin/login",
+                json={"username": "admin", "password": "admin-password-123456"},
+            )
+            assert login.status_code == 200
+            response = client.post(
+                "/api/admin/aipol/process-reviews/maintenance/backup",
+                headers={"X-Admin-Token": login.json()["token"]},
+            )
+            assert response.status_code == 200
+            assert response.headers["x-aipol-data-class"] == "synthetic-review"
+            report = response.json()
+            backup = Path(report["path"])
+            assert backup.parent == review_db_path.parent / "process-review-backups"
+            assert backup.name.startswith("aipol-process-review-")
+            assert backup.stat().st_size == report["bytes"] > 0
+            assert hashlib.sha256(backup.read_bytes()).hexdigest() == report["sha256"]
+            assert report["restore_check"] == "ok"
+            assert report["retention_days"] == 7
+            assert report["pruned_backups"] == 1
+            assert report["review_id"] == "pension-v4-20260808-r1"
+            assert report["data_class"] == "synthetic_review"
+            assert not old_review_backup.exists()
+            assert operational_backup.read_bytes() == b"operational-backup-must-survive"
+
+            readiness = client.get("/readyz")
+            assert readiness.status_code == 200
+            assert readiness.json()["process_review_backup_ready"] is True
+            assert readiness.json()["process_review_backup_store"] == "isolated-review"
+
+        with sqlite3.connect(backup) as connection:
+            assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_process_review_events"
+            ).fetchone()[0] == 1
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_experiments WHERE id NOT LIKE 'review-xp-%'"
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_participants WHERE id NOT LIKE 'review-ap-%'"
+            ).fetchone()[0] == 0
+        with sqlite3.connect(event_db_path) as connection:
+            tables = {
+                row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            assert not tables.intersection({
+                "aipol_process_review_events", "aipol_process_review_inputs",
+                "aipol_process_review_steps", "aipol_process_review_bindings",
+            })
+            assert connection.execute("SELECT COUNT(*) FROM aipol_experiments").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM aipol_participants").fetchone()[0] == 0
     finally:
         for name in MODULES:
             sys.modules.pop(name, None)

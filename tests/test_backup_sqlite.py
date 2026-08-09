@@ -108,3 +108,17 @@ def test_backup_allows_closed_anchored_collection_manifest(tmp_path: Path) -> No
         )
     report = sqlite_backup.create_verified_backup(source)
     assert Path(report["path"]).is_file()
+
+
+def test_process_review_backup_refuses_operational_database_path(tmp_path: Path) -> None:
+    source = tmp_path / "event.db"
+    source.touch()
+
+    with pytest.raises(ValueError, match="physically isolated"):
+        sqlite_backup.create_verified_isolated_review_backup(
+            source,
+            operational_source=source,
+            retention_days=7,
+        )
+
+    assert not (tmp_path / "process-review-backups").exists()

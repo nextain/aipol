@@ -417,8 +417,22 @@ data-plane identity and verify the checksum outside Azure before continuing. A r
 are in progress is not a backup.
 
 The process-review share's 7-day soft delete protects deletion of the share; it is not an application-consistent
-SQLite backup. Do not copy the review DB through this operational endpoint. A dedicated review backup/restore check
-is a separate release gate and must remain isolated from `/data` and operational backup artifacts.
+SQLite backup. Do not copy the review DB through the operational endpoint above. Use the dedicated review endpoint,
+which backs up only `/review-data/aipol-process-review.db`, performs a copy-based restore and integrity check, verifies
+the synthetic-review fixture and identifier namespace, and prunes only expired review backup artifacts:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri 'https://<reviewed-host>/api/admin/aipol/process-reviews/maintenance/backup' `
+  -Headers @{ 'X-Admin-Token' = $AipolAdminToken }
+```
+
+Record its path, SHA-256, byte count, `content_hash`, `restore_check`, `retention_days`, and `pruned_backups`. The
+artifact must remain under `/review-data/process-review-backups`; never restore it into `/data`. Before accepting the
+release gate, require `/readyz` to report `process_review_backup_ready=true` and
+`process_review_backup_store=isolated-review`. `AIPOL_PROCESS_REVIEW_BACKUP_RETENTION_DAYS` defaults to 7 and accepts
+1 through 30 days independently of operational backup retention.
 
 Before deploying a new image or pinned secret version, explicitly deactivate the old revision and wait for zero
 active revisions:

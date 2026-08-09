@@ -235,6 +235,8 @@ def test_process_review_is_opt_in_with_isolated_storage_secret_and_retention() -
     assert "aipol-process-review-session-secret/${processReviewSessionSecretVersion}" in bicep
     assert "AIPOL_PROCESS_REVIEW_ENABLED', value: 'false'" in bicep
     assert "AIPOL_PROCESS_REVIEW_SESSION_MAX_TTL_SECONDS" in bicep
+    assert "param processReviewBackupRetentionDays int = 7" in bicep
+    assert "AIPOL_PROCESS_REVIEW_BACKUP_RETENTION_DAYS" in bicep
     assert "output processReviewConfigured bool" in bicep
 
 

@@ -104,6 +104,11 @@ param processReviewSessionMaxTtlSeconds int = 1800
 param processReviewShareRetentionDays int = 7
 
 @minValue(1)
+@maxValue(30)
+@description('Retention for verified process-review SQLite backup artifacts only.')
+param processReviewBackupRetentionDays int = 7
+
+@minValue(1)
 @maxValue(20)
 @description('Azure Files share quota in GiB. Five GiB is sufficient for the development SQLite state.')
 param fileShareQuotaGiB int = 5
@@ -621,6 +626,7 @@ var processReviewRuntimeEnvironment = processReviewEnabled ? [
   { name: 'AIPOL_PROCESS_REVIEW_DB_PATH', value: '/review-data/aipol-process-review.db' }
   { name: 'AIPOL_PROCESS_REVIEW_SESSION_SECRET', secretRef: 'aipol-process-review-session-secret' }
   { name: 'AIPOL_PROCESS_REVIEW_SESSION_MAX_TTL_SECONDS', value: string(processReviewSessionMaxTtlSeconds) }
+  { name: 'AIPOL_PROCESS_REVIEW_BACKUP_RETENTION_DAYS', value: string(processReviewBackupRetentionDays) }
 ] : [
   { name: 'AIPOL_PROCESS_REVIEW_ENABLED', value: 'false' }
 ]

@@ -389,8 +389,13 @@ def readyz():
     receipt_ready = aipol_store.completion_receipt_configured()
     admission_status = aipol_store.admission_readiness()
     checkpoint_status = aipol_admin_store.reconcile_external_checkpoint()
+    review_backup_status = aipol_process_review.backup_readiness()
+    service_ready = bool(
+        (not checkpoint_status["configured"] or checkpoint_status["ready"])
+        and (not review_backup_status["configured"] or review_backup_status["ready"])
+    )
     payload = {
-        "ready": True,
+        "ready": service_ready,
         "collection_ready": bool(
             credential_status["ready"] and receipt_ready and admission_status["ready"]
             and checkpoint_status["ready"]
@@ -407,8 +412,10 @@ def readyz():
         "audit_checkpoint_store": checkpoint_status["store"],
         "audit_checkpoint_sequence": checkpoint_status["sequence"],
         "backup_recovery_ready": not PRODUCTION,
+        "process_review_backup_ready": review_backup_status["ready"],
+        "process_review_backup_store": review_backup_status["store"],
     }
-    if checkpoint_status["configured"] and not checkpoint_status["ready"]:
+    if not service_ready:
         return JSONResponse(payload, status_code=503)
     return payload
 
@@ -1704,6 +1711,45 @@ def aipol_admin_backup(x_admin_token: str = Header(default="")):
         resource_id="event.db", payload=result,
     )
     return result
+
+
+@app.post("/api/admin/aipol/process-reviews/maintenance/backup")
+def aipol_admin_process_review_backup(x_admin_token: str = Header(default="")):
+    """Back up only the isolated synthetic-review repository."""
+    actor = require_aipol_mutation(x_admin_token, Action.MAINTAIN_SERVICE)
+    resource_id = "aipol-process-review.db"
+    aipol_admin_store.append_external_audit(
+        actor=actor,
+        action="process_review.backup.requested",
+        resource_type="synthetic_review_database",
+        resource_id=resource_id,
+        payload={},
+    )
+    try:
+        result = aipol_process_review.create_verified_backup()
+    except Exception as exc:
+        aipol_admin_store.append_external_audit(
+            actor=actor,
+            action="process_review.backup.failed",
+            resource_type="synthetic_review_database",
+            resource_id=resource_id,
+            payload={"reason": type(exc).__name__},
+        )
+        raise HTTPException(503, "프로세스 리뷰 백업을 검증할 수 없습니다") from exc
+    aipol_admin_store.append_external_audit(
+        actor=actor,
+        action="process_review.backup.completed",
+        resource_type="synthetic_review_database",
+        resource_id=resource_id,
+        payload=result,
+    )
+    return JSONResponse(
+        result,
+        headers={
+            "Cache-Control": "no-store",
+            "X-AIPOL-Data-Class": "synthetic-review",
+        },
+    )
 
 
 def _check_chat_rate(request: Request) -> None:

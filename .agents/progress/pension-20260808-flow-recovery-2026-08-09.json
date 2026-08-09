@@ -1,7 +1,7 @@
 {
   "work": "pension-20260808-flow-recovery",
   "status": "in_progress",
-  "current_phase": "review_isolation_operations_gap_audit",
+  "current_phase": "review_isolated_backup_regression",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
   "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2",
   "started_at": "2026-08-09T09:00:00+09:00",
@@ -46,7 +46,9 @@
     "Post-fix full repository regression passed 441 tests with 6 skipped. The only emitted warnings are upstream websockets/uvicorn deprecations from the Playwright server fixture; no product test failed.",
     "Review repository binding now carries a request-local review ID namespace as well as the isolated database path. Review experiments and participants are structurally prefixed review-xp-* and review-ap-* while ordinary requests retain the production namespace; existing non-namespaced review fixtures fail closed instead of being silently reused. Focused process-review tests passed 3 tests.",
     "The DEV deployment contract now keeps process review opt-in and assigns it a separate Azure storage account key, file share, /review-data mount, seven-day share soft-delete policy, and independently version-pinned session-signing secret. The operational /data share cannot address the review database. Bicep compilation, parameter JSON parsing, diff checks, and all 17 DEV-IaC tests passed; no Azure deployment was performed.",
-    "The runbook now permits sharing only /cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1, explicitly forbids the host root and legacy pension URL, and records that share soft delete is not an application-consistent review SQLite backup."
+    "The runbook now permits sharing only /cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1, explicitly forbids the host root and legacy pension URL, and records that share soft delete is not an application-consistent review SQLite backup.",
+    "The process-review repository now has a dedicated admin-only backup endpoint that reads only the isolated review DB, creates an atomic artifact under /review-data/process-review-backups, performs copy-based restore and integrity checks, validates the synthetic fixture plus review-only identifier namespaces, and prunes only review backups older than the independently configured 1-30 day retention.",
+    "The review backup path refuses collision with the operational DB, never uses the operational quiescence/backup directory, and exposes its isolated readiness in /readyz. Focused backup, process-review, and DEV-IaC validation passed 27 tests; Python compilation, Bicep compilation, parameter JSON parsing, and git diff checks passed. No Azure deployment was performed."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -55,6 +57,7 @@
     "event-tool/aipol_v4_ai.py",
     "event-tool/web/aipol-preparation.js",
     "event-tool/aipol_process_review.py",
+    "event-tool/sqlite_backup.py",
     "event-tool/web/aipol-process-review.html",
     "event-tool/web/aipol.html",
     "event-tool/web/aipol.js",
@@ -80,5 +83,5 @@
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-10T06:20:00+09:00"
+  "updated_at": "2026-08-10T06:21:00+09:00"
 }

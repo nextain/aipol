@@ -198,13 +198,19 @@ def verify_session_token(token: str, *, now: int | None = None) -> dict:
     return payload
 
 
-def _conn() -> sqlite3.Connection:
-    path = database_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if os.environ.get("EVENT_SQLITE_NOLOCK", "false").lower() == "true":
-        connection = sqlite3.connect(f"file:{path}?mode=rwc&nolock=1", uri=True, timeout=30)
+def _conn(path: Path | None = None, *, read_only: bool = False) -> sqlite3.Connection:
+    path = path or database_path()
+    if read_only:
+        uri = f"file:{path}?mode=ro"
+        if os.environ.get("EVENT_SQLITE_NOLOCK", "false").lower() == "true":
+            uri += "&nolock=1"
+        connection = sqlite3.connect(uri, uri=True, timeout=30)
     else:
-        connection = sqlite3.connect(path, timeout=30)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if os.environ.get("EVENT_SQLITE_NOLOCK", "false").lower() == "true":
+            connection = sqlite3.connect(f"file:{path}?mode=rwc&nolock=1", uri=True, timeout=30)
+        else:
+            connection = sqlite3.connect(path, timeout=30)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")
     return connection
@@ -216,6 +222,75 @@ def _canonical(value: object) -> str:
 
 def _digest(value: object) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+def backup_retention_days() -> int:
+    try:
+        value = int(os.environ.get("AIPOL_PROCESS_REVIEW_BACKUP_RETENTION_DAYS", "7"))
+    except ValueError as exc:
+        raise RuntimeError("process review backup retention is invalid") from exc
+    if value < 1 or value > 30:
+        raise RuntimeError("process review backup retention is outside the allowed range")
+    return value
+
+
+def backup_readiness() -> dict[str, object]:
+    """Report the isolated review backup boundary without touching either database."""
+    if not enabled():
+        return {"configured": False, "ready": True, "store": "disabled"}
+    import db
+
+    try:
+        review_path = database_path().resolve()
+        retention_days = backup_retention_days()
+        ready = review_path != db.DB_PATH.resolve() and review_path.is_file()
+    except (OSError, RuntimeError):
+        return {"configured": True, "ready": False, "store": "isolated-review"}
+    return {
+        "configured": True,
+        "ready": ready,
+        "store": "isolated-review",
+        "retention_days": retention_days,
+    }
+
+
+def create_verified_backup() -> dict[str, object]:
+    """Create, restore-check, and semantically verify an isolated review backup."""
+    if not enabled():
+        raise RuntimeError("process review is disabled")
+    import db
+    import sqlite_backup
+
+    review_path = database_path().resolve()
+    operational_path = db.DB_PATH.resolve()
+    result = sqlite_backup.create_verified_isolated_review_backup(
+        review_path,
+        operational_source=operational_path,
+        retention_days=backup_retention_days(),
+    )
+    backup_path = Path(str(result["path"]))
+    try:
+        snapshot = get(REVIEW_ID, source_path=backup_path)
+        with sqlite3.connect(backup_path) as connection:
+            invalid_experiments = connection.execute(
+                "SELECT COUNT(*) FROM aipol_experiments WHERE id NOT LIKE 'review-xp-%'"
+            ).fetchone()[0]
+            invalid_participants = connection.execute(
+                "SELECT COUNT(*) FROM aipol_participants WHERE id NOT LIKE 'review-ap-%'"
+            ).fetchone()[0]
+        if invalid_experiments or invalid_participants:
+            raise RuntimeError(
+                "process review backup contains a non-review identifier namespace"
+            )
+    except Exception:
+        backup_path.unlink(missing_ok=True)
+        raise
+    return {
+        **result,
+        "review_id": REVIEW_ID,
+        "content_hash": snapshot["content_hash"],
+        "data_class": "synthetic_review",
+    }
 
 
 def _seed_event() -> tuple[dict, dict[str, dict], list[dict]]:
@@ -566,10 +641,10 @@ def init() -> None:
     _ensure_interactive_fixture(event, inputs, steps)
 
 
-def get(review_id: str) -> dict:
+def get(review_id: str, *, source_path: Path | None = None) -> dict:
     if not enabled():
         raise KeyError("process review is disabled")
-    with _conn() as connection:
+    with _conn(source_path, read_only=source_path is not None) as connection:
         event_row = connection.execute("SELECT * FROM aipol_process_review_events WHERE id=? AND cohort_type='synthetic_review'", (review_id,)).fetchone()
         input_rows = connection.execute("SELECT * FROM aipol_process_review_inputs WHERE review_id=? ORDER BY input_key", (review_id,)).fetchall()
         step_rows = connection.execute("SELECT * FROM aipol_process_review_steps WHERE review_id=? ORDER BY step_number", (review_id,)).fetchall()
