@@ -69,6 +69,36 @@ def _restore_check(backup: Path, required_tables: frozenset[str]) -> None:
                 raise RuntimeError(f"restored backup is missing tables: {', '.join(missing)}")
 
 
+def _validate_isolated_review_semantics(backup: Path) -> None:
+    """Reject a review backup containing operational identifiers or data classes."""
+    with closing(_connect_read_only(backup)) as connection:
+        checks = (
+            ("aipol_process_review_events", "cohort_type!='synthetic_review'"),
+            ("aipol_experiments", "id NOT LIKE 'review-xp-%'"),
+            ("aipol_participants", "id NOT LIKE 'review-ap-%'"),
+            ("aipol_v4_issue_classification_runs", "id NOT LIKE 'review-vir-%'"),
+            ("aipol_v4_council_generation_runs", "id NOT LIKE 'review-vcr-%'"),
+            ("aipol_v4_council_steps", "id NOT LIKE 'review-vcs-%'"),
+            ("aipol_v4_ai_council_runs", "id NOT LIKE 'review-vc-%'"),
+        )
+        for table, invalid_where in checks:
+            invalid = connection.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE {invalid_where}"
+            ).fetchone()[0]
+            if invalid:
+                raise RuntimeError(
+                    f"isolated review backup contains invalid rows in {table}"
+                )
+        if connection.execute(
+            "SELECT COUNT(*) FROM aipol_process_review_events"
+        ).fetchone()[0] < 1:
+            raise RuntimeError("isolated review backup contains no review event")
+        if connection.execute(
+            "SELECT COUNT(*) FROM aipol_v4_ai_council_runs"
+        ).fetchone()[0] < 1:
+            raise RuntimeError("isolated review backup contains no AI council run evidence")
+
+
 def _create_verified_backup(
     source: Path,
     *,
@@ -147,8 +177,17 @@ def create_verified_isolated_review_backup(
             "aipol_process_review_bindings",
             "aipol_experiments",
             "aipol_participants",
+            "aipol_v4_issue_classification_runs",
+            "aipol_v4_council_generation_runs",
+            "aipol_v4_council_steps",
+            "aipol_v4_ai_council_runs",
         }),
     )
+    try:
+        _validate_isolated_review_semantics(Path(str(result["path"])))
+    except Exception:
+        Path(str(result["path"])).unlink(missing_ok=True)
+        raise
     cutoff = time.time() - retention_days * 86_400
     pruned = 0
     for candidate in backup_dir.glob("aipol-process-review-*.db"):

@@ -458,9 +458,20 @@ def _insert_fixture_artifacts(experiment_id: str, fixture: dict) -> None:
             )
         }
         for kind, content in fixture["artifacts"].items():
-            if kind in existing:
-                continue
             digest = _digest(content)
+            if kind in existing:
+                row = connection.execute(
+                    "SELECT content_hash,content FROM aipol_artifacts "
+                    "WHERE experiment_id=? AND kind=?",
+                    (experiment_id, kind),
+                ).fetchone()
+                if (
+                    not row
+                    or row["content_hash"] != digest
+                    or json.loads(row["content"]) != content
+                ):
+                    raise RuntimeError(f"process review artifact fixture mismatch: {kind}")
+                continue
             approval_id = f"review-artifact:{REVIEW_ID}:{kind}:v1"
             connection.execute(
                 "INSERT INTO aipol_approval_events(id,experiment_id,object_type,object_id,"
@@ -482,10 +493,43 @@ def _insert_fixture_artifacts(experiment_id: str, fixture: dict) -> None:
                     approval_id, "process-review-approver", approved_at, 0, time.time(),
                 ),
             )
+        ai_opinion = fixture["artifacts"]["ai_opinion"]
+        council_run = connection.execute(
+            "SELECT id,input_hash,members,synthesis,content_hash,approved_by,approved_at "
+            "FROM aipol_v4_ai_council_runs WHERE experiment_id=?",
+            (experiment_id,),
+        ).fetchone()
+        expected_council = {
+            "id": f"review-vc-{REVIEW_ID}",
+            "input_hash": _digest(ai_opinion["input_hashes"]),
+            "members": ai_opinion["council"],
+            "synthesis": ai_opinion["body"],
+            "content_hash": _digest(ai_opinion),
+            "approved_by": "process-review-approver",
+            "approved_at": approved_at,
+        }
+        if council_run:
+            actual_council = dict(council_run)
+            actual_council["members"] = json.loads(actual_council["members"])
+            if actual_council != expected_council:
+                raise RuntimeError("process review AI council run fixture mismatch")
+        else:
+            connection.execute(
+                "INSERT INTO aipol_v4_ai_council_runs(id,experiment_id,input_hash,members,"
+                "synthesis,content_hash,approved_by,approved_at,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    expected_council["id"], experiment_id, expected_council["input_hash"],
+                    _canonical(expected_council["members"]), expected_council["synthesis"],
+                    expected_council["content_hash"], expected_council["approved_by"],
+                    expected_council["approved_at"], time.time(),
+                ),
+            )
 
 
 def _validate_interactive_fixture(experiment_id: str, fixture: dict) -> None:
     import aipol_store
+    import db
 
     experiment = aipol_store.get_experiment(experiment_id)
     manifest = experiment.get("freeze_manifest") or {}
@@ -507,6 +551,22 @@ def _validate_interactive_fixture(experiment_id: str, fixture: dict) -> None:
             or artifact.get("content") != expected_content
         ):
             raise RuntimeError(f"process review artifact fixture mismatch: {kind}")
+    with db._conn() as connection:
+        council_run = connection.execute(
+            "SELECT id,input_hash,members,synthesis,content_hash FROM aipol_v4_ai_council_runs "
+            "WHERE experiment_id=?",
+            (experiment_id,),
+        ).fetchone()
+    ai_opinion = fixture["artifacts"]["ai_opinion"]
+    if (
+        not council_run
+        or council_run["id"] != f"review-vc-{REVIEW_ID}"
+        or council_run["input_hash"] != _digest(ai_opinion["input_hashes"])
+        or json.loads(council_run["members"]) != ai_opinion["council"]
+        or council_run["synthesis"] != ai_opinion["body"]
+        or council_run["content_hash"] != _digest(ai_opinion)
+    ):
+        raise RuntimeError("process review AI council run fixture mismatch")
 
 
 def _ensure_interactive_fixture(event: dict, inputs: dict[str, dict], steps: list[dict]) -> None:
@@ -569,6 +629,10 @@ def _ensure_interactive_fixture(event: dict, inputs: dict[str, dict], steps: lis
                         datetime.now(timezone.utc).isoformat(),
                     ),
                 )
+        if binding:
+            # Backfill deterministic run evidence for already-bound review
+            # repositories, while rejecting drift in immutable artifacts.
+            _insert_fixture_artifacts(experiment_id, fixture)
         _validate_interactive_fixture(experiment_id, fixture)
 
 

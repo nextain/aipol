@@ -113,6 +113,9 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
             })
             assert connection.execute("SELECT COUNT(*) FROM aipol_experiments").fetchone()[0] == 0
             assert connection.execute("SELECT COUNT(*) FROM aipol_participants").fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_v4_ai_council_runs"
+            ).fetchone()[0] == 0
 
         with sqlite3.connect(review_db_path) as connection:
             row = connection.execute(
@@ -133,6 +136,11 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
                 (snapshot["review_id"],),
             ).fetchone()[0] == 1
             assert connection.execute("SELECT COUNT(*) FROM aipol_participants").fetchone()[0] == 0
+            council_run = connection.execute(
+                "SELECT id,experiment_id FROM aipol_v4_ai_council_runs"
+            ).fetchone()
+            assert council_run[0] == "review-vc-pension-v4-20260808-r1"
+            assert council_run[1].startswith("review-xp-")
             with pytest.raises(sqlite3.IntegrityError, match="append-only"):
                 connection.execute(
                     "UPDATE aipol_process_review_events SET contract_version='drift' WHERE id=?",
@@ -227,6 +235,13 @@ def test_process_review_backup_is_verified_retained_and_operationally_invisible(
             assert connection.execute(
                 "SELECT COUNT(*) FROM aipol_participants WHERE id NOT LIKE 'review-ap-%'"
             ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_v4_ai_council_runs "
+                "WHERE id NOT LIKE 'review-vc-%'"
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_v4_ai_council_runs"
+            ).fetchone()[0] == 1
         with sqlite3.connect(event_db_path) as connection:
             tables = {
                 row[0] for row in connection.execute(
@@ -239,6 +254,9 @@ def test_process_review_backup_is_verified_retained_and_operationally_invisible(
             })
             assert connection.execute("SELECT COUNT(*) FROM aipol_experiments").fetchone()[0] == 0
             assert connection.execute("SELECT COUNT(*) FROM aipol_participants").fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_v4_ai_council_runs"
+            ).fetchone()[0] == 0
     finally:
         for name in MODULES:
             sys.modules.pop(name, None)
@@ -368,7 +386,11 @@ def test_server_issues_session_only_for_approved_isolated_fixture(tmp_path, monk
             missing = client.post("/api/aipol/process-reviews/not-approved/session")
             assert missing.status_code == 404
 
-            # Startup/retry reuses the append-only binding instead of creating drift.
+            # Simulate a repository created before deterministic run evidence was
+            # introduced. Startup backfills it without replacing the binding.
+            with sqlite3.connect(review_db_path) as connection:
+                connection.execute("DROP TRIGGER aipol_v4_ai_council_runs_no_delete")
+                connection.execute("DELETE FROM aipol_v4_ai_council_runs")
             server.aipol_process_review.init()
 
         with sqlite3.connect(event_db_path) as connection:
@@ -386,6 +408,9 @@ def test_server_issues_session_only_for_approved_isolated_fixture(tmp_path, monk
                 "SELECT id FROM aipol_participants"
             ).fetchone()[0]
             assert participant_id.startswith("review-ap-")
+            assert connection.execute(
+                "SELECT id FROM aipol_v4_ai_council_runs"
+            ).fetchone()[0] == "review-vc-pension-v4-20260808-r1"
     finally:
         for name in MODULES:
             sys.modules.pop(name, None)
