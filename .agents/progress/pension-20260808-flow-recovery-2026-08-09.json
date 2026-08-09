@@ -1,7 +1,7 @@
 {
   "work": "pension-20260808-flow-recovery",
   "status": "in_progress",
-  "current_phase": "deployment_evidence_pending_authorization",
+  "current_phase": "isolated_dev_deployed_and_verified",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
   "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2",
   "started_at": "2026-08-09T09:00:00+09:00",
@@ -52,7 +52,14 @@
     "Post-backup-lifecycle full repository regression passed 444 tests with 6 skipped. The only warnings are the pre-existing websockets/uvicorn deprecations emitted by the Playwright server fixture; no product test failed.",
     "The deterministic review fixture now persists the approved three-AI council evidence as review-vc-pension-v4-20260808-r1, validates its exact input, member, synthesis, approval, and content hashes on every startup, and backfills repositories created before the run-evidence row without replacing their append-only binding.",
     "Review backup restore validation now rejects operational identifiers in experiments, participants, issue-classification runs, council-generation runs, council steps, and approved AI-council runs. Focused process-review and SQLite backup validation passed 10 tests, including legacy binding backfill and proof that the operational database contains no council run.",
-    "Post-run-namespace full repository regression passed 444 tests with 6 skipped. The only warnings are the same pre-existing websockets/uvicorn deprecations; no product test failed. No deployment or external review-pass was performed because deployment authorization is absent and the user explicitly disabled the harness."
+    "Post-run-namespace full repository regression passed 444 tests with 6 skipped. The only warnings are the same pre-existing websockets/uvicorn deprecations; no product test failed. No deployment or external review-pass was performed at that checkpoint because deployment authorization was then absent and the user explicitly disabled the harness.",
+    "After explicit deployment authorization, ACR build dee produced immutable DEV image acraipolevtmxajhqb4i5p4o.azurecr.io/aipol/event-tool@sha256:7655d472d150ce45afad73e5b7123c285df1d516125e991b84a4fe87e2d59e7d from commit 42f436740073; PROD was not targeted.",
+    "The operational event-tool-state Azure Files share was protected by snapshots 2026-08-09T22:15:48.0000000Z and, after all revisions were inactive, 2026-08-09T22:16:06.0000000Z before the deployment mutation.",
+    "Deployment startup validation exposed two stale DEV configuration facts rather than product-code defects: the removed planning-review account remained in the users and roles secrets without a TOTP binding, and the declared credential/audit key IDs no longer matched the active keysets. The stale account was removed from newly versioned DEV secrets while previous versions remained recoverable, and the deployment was rebound to review-credential-2026-08 and review-audit-2026-08.",
+    "Azure deployment aipol-event-tool-dev-app succeeded at 2026-08-09T22:54:58.097886+00:00. Exactly one revision, ca-aipol-event-tool-dev--0000005, is active and healthy with one replica and the immutable image digest sha256:7655d472d150ce45afad73e5b7123c285df1d516125e991b84a4fe87e2d59e7d.",
+    "The isolated process-review database is mounted from a separate storage account and share at /review-data with seven-day share soft delete. The Container App identity has exactly ten named-secret Key Vault scopes and no vault-wide scope.",
+    "Post-deployment HTTP validation passed: /healthz and /readyz returned 200, process_review_backup_ready is true, the canonical pension review URL returned 200, the host root remained the service homepage, and /aipol.html returned a 308 redirect to /cases/pension/experiment/.",
+    "Playwright validated the exact canonical review URL at network idle with the ten-step process, no console errors, no page errors, and no failed requests. Starting a synthetic participant session reached the unchanged consent flow with the review boundary visible."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -76,16 +83,21 @@
   "deployment": {
     "attempted": true,
     "environment": "isolated_dev",
-    "review_url": "https://ca-aipol-event-tool-dev.agreeabledune-0d70826c.koreacentral.azurecontainerapps.io/aipol.html?review=process&dataset=pension-v4-20260808-r1",
-    "review_url_status": "superseded_wrong_path; historical deployment evidence only",
+    "review_url": "https://ca-aipol-event-tool-dev.agreeabledune-0d70826c.koreacentral.azurecontainerapps.io/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1",
+    "review_url_status": "deployed_and_browser_verified",
     "canonical_review_path": "/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1",
-    "image_digest": "sha256:7d74ad511a3a2be53bce9e44fd3a9e9439dd2a0b55c29f234035b9f3bce19243",
-    "revision": "ca-aipol-event-tool-dev--review-bb9fa64",
+    "image_digest": "sha256:7655d472d150ce45afad73e5b7123c285df1d516125e991b84a4fe87e2d59e7d",
+    "revision": "ca-aipol-event-tool-dev--0000005",
+    "deployment_name": "aipol-event-tool-dev-app",
+    "deployed_at": "2026-08-09T22:54:58.097886+00:00",
+    "healthz_status": 200,
+    "readyz_status": 200,
+    "production_touched": false,
     "discord_dm": {
       "sent": true,
       "state": "confirmed",
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-10T06:41:08+09:00"
+  "updated_at": "2026-08-10T08:14:01+09:00"
 }
