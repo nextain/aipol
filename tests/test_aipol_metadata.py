@@ -280,10 +280,10 @@ def test_event_page_is_rehearsal_only_and_uses_confirmed_schedule() -> None:
     source = events_path.read_text(encoding="utf-8")
     assert "2026년 8월 12일 14:30–16:10" in parsed.text
     assert "광주 국립아시아문화전당 국제회의실 B2F · 1분과" in parsed.text
-    assert "모바일 투표 2회 예정" in parsed.text
-    assert "1차 모바일 투표" in parsed.text and "2차 모바일 투표" in parsed.text
-    assert "3차 모바일 투표" not in parsed.text
-    assert 'href="/cases/pension/experiment/"' in (
+    assert "A/B/C 모바일 투표 3회 예정" in parsed.text
+    assert "1차 모바일 투표" in parsed.text
+    assert "2차 숙의와 투표" in parsed.text and "D안 설명과 3차 투표" in parsed.text
+    assert 'href="https://session.aipol.kaps.or.kr/aipol-process-review.html"' in (
         SITE / "cases" / "pension" / "index.html"
     ).read_text(encoding="utf-8")
     assert "session.policylab.nextain.io" not in source
@@ -294,35 +294,29 @@ def test_public_copy_scopes_observed_change_and_keeps_logo_approval_gate() -> No
     home = _parse(SITE / "index.html").text
     rehearsal_path = SITE / "cases" / "pension" / "experiment"
     rehearsal = _parse(rehearsal_path / "index.html").text
-    integration_shell = (rehearsal_path / "integration-shell.js").read_text(encoding="utf-8")
+    migration_html = (rehearsal_path / "index.html").read_text(encoding="utf-8")
     assert "대한민국 최초" not in home
-    assert "연금개혁-AI 숙의민주주의 정책실험" in rehearsal
-    assert "1·2차 국민숙의 시나리오" in integration_shell
-    assert "M1→M2" not in rehearsal + integration_shell
-    assert "M2→M3" not in rehearsal + integration_shell
-    assert "두 차례 현장 모바일 투표" in _parse(SITE / "status" / "index.html").text
+    assert "실제 서비스의 프로세스 리뷰" in rehearsal
+    assert "aipol-pension-design-review.vercel.app" not in migration_html
+    assert "A/B/C 현장 모바일 투표 3회와 별도 D안 평가" in _parse(SITE / "status" / "index.html").text
     assert (SITE / "assets" / "partners" / "kaps-logo.svg").exists()
     assert (SITE / "assets" / "partners" / "nextain-logo-light.png").exists()
     provenance = (SITE / "cases" / "pension" / "experiment" / "provenance.json").read_text(
         encoding="utf-8"
     )
-    assert "first vote -> AI diagnosis and small-group discussion -> second final vote" in provenance
-    assert "fcbae3c0dab18476e2274f9e4ff91dadeb2db944" in provenance
+    assert "M3 ABC plus separate D acceptability" in provenance
+    assert '"contract_version": "4.0"' in provenance
 
 
 def test_pension_experiment_uses_local_csp_compatible_fonts() -> None:
     experiment = SITE / "cases" / "pension" / "experiment"
     html = (experiment / "index.html").read_text(encoding="utf-8")
-    css_href = re.search(r'href="(/cases/pension/experiment/assets/[^"]+\.css)"', html)
-    assert css_href is not None
-    css = (SITE / css_href.group(1).lstrip("/")).read_text(encoding="utf-8")
+    assert 'href="/assets/site.css"' in html
+    assert "/cases/pension/experiment/assets/" not in html
     source = (
         ROOT / "integrations" / "kaps-pension-experiment" / "vendor" / "src" / "index.css"
     ).read_text(encoding="utf-8")
-    assert "fonts.googleapis.com" not in css
     assert "fonts.googleapis.com" not in source
-    assert '"Apple SD Gothic Neo"' in css
-    assert '"Malgun Gothic"' in css
 
 
 def test_public_deployment_requires_dev_same_sha_and_browser_gate_before_prod() -> None:

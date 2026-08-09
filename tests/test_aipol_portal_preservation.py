@@ -97,24 +97,30 @@ def test_aipol_participant_surface_has_portal_return_and_role_attribution() -> N
     assert (WEB / "favicon.svg").exists()
 
 
-def test_pension_case_discovers_the_two_ballot_scenario_and_built_app_returns_to_portal() -> None:
+def test_pension_case_discovers_the_same_service_v4_review_and_legacy_route_migrates() -> None:
     case = BeautifulSoup((SITE / "cases" / "pension" / "index.html").read_text("utf-8"), "html.parser")
     experiment_path = SITE / "cases" / "pension" / "experiment" / "index.html"
     experiment = BeautifulSoup(experiment_path.read_text("utf-8"), "html.parser")
     assert case.find(
-        "a", href="/cases/pension/experiment/", string=lambda value: value and "시나리오 검토 시작" in value
+        "a",
+        href="https://session.aipol.kaps.or.kr/aipol-process-review.html",
+        string=lambda value: value and "프로세스 리뷰 시작" in value,
     )
     assert case.find(id="scenario-review")
     assert experiment.find("a", href="/cases/pension/", string="프로젝트 소개")
     assert experiment.find("a", href="/", attrs={"aria-label": "AIPOL 홈"})
     assert not experiment.find("img", alt="한국정책학회")
     assert not experiment.find("img", alt="Nextain")
-    assert experiment.find("meta", attrs={"name": "aipol-source-commit"})["content"] == (
-        "fcbae3c0dab18476e2274f9e4ff91dadeb2db944"
+    assert experiment.find(
+        "a", href="https://session.aipol.kaps.or.kr/aipol-process-review.html"
     )
-    assert experiment.find("script", src=lambda value: value and value.startswith("/cases/pension/experiment/assets/"))
+    assert not experiment.find(
+        "script", src=lambda value: value and value.startswith("/cases/pension/experiment/assets/")
+    )
     provenance = json.loads((experiment_path.parent / "provenance.json").read_text("utf-8"))
-    assert provenance["measurement_flow"].endswith("second final vote")
+    assert provenance["contract_version"] == "4.0"
+    assert provenance["legacy_review_status"].startswith("quarantined")
+    assert provenance["measurement_flow"].endswith("M3 ABC plus separate D acceptability")
 
 
 def test_public_portal_uses_nextain_aipol_origin_and_records_kaps_transition() -> None:
@@ -123,4 +129,4 @@ def test_public_portal_uses_nextain_aipol_origin_and_records_kaps_transition() -
             assert "policylab.nextain.io" not in path.read_text("utf-8"), path
     contract = (ROOT / "docs" / "aipol-execution-contract.md").read_text("utf-8")
     assert "https://aipol.kaps.or.kr" in contract
-    assert "https://aipol.kaps.or.kr" in contract
+    assert "https://session.aipol.kaps.or.kr" in contract

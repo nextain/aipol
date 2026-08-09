@@ -1,11 +1,13 @@
 {
   "platform": "AIPOL",
   "project": "연금개혁-AI 숙의민주주의 정책실험",
-  "source_repository": "https://github.com/armybonita/2026-Flagship-Session-KAPS-Human-AI-Collaborative-Policy-Lab-/",
-  "source_pull_request": 1,
-  "source_commit": "fcbae3c0dab18476e2274f9e4ff91dadeb2db944",
-  "source_scope": "top-level scenario app; personal-pension-simulator subproject excluded",
-  "integration_route": "/cases/pension/experiment/",
-  "measurement_flow": "first vote -> AI diagnosis and small-group discussion -> second final vote",
+  "contract_version": "4.0",
+  "decision_source": "2026-08-08 22:00 온라인 논의 및 2026-08-09 보충 결정",
+  "canonical_issue": "https://github.com/nextain/aipol/issues/7",
+  "active_service_route": "https://session.aipol.kaps.or.kr/aipol-process-review.html",
+  "integration_route": "/aipol-process-review.html",
+  "measurement_flow": "M1 ABC -> five M1-derived issues and second deliberation -> M2 ABC -> three-AI D with human approval -> expert explanation -> M3 ABC plus separate D acceptability",
+  "legacy_review_status": "quarantined; not an active route or deployment source",
+  "quarantine_commit": "15bf0c7",
   "review_audience": "pension team"
 }

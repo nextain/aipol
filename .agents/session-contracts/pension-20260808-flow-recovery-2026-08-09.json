@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "id": "pension-20260808-flow-recovery-2026-08-09",
+  "status": "active",
+  "project_root": ".",
+  "goal": "2026-08-08 22:00 합의와 nextain/aipol#7을 기준으로 연금 숙의 프로세스를 다시 구현하고, 동일한 실제 서비스 핸들러와 어드민을 사용하는 격리 리뷰 환경을 배포한 뒤 검토 URL을 사용자에게 Discord DM으로 전달한다.",
+  "scope": [
+    "개인 연금 계산·개인 영향 단계를 참가자 흐름에서 완전히 제거",
+    "1차·2차 투표 전 숙의와 사람 검수된 숙의 요약을 D안 입력으로 연결",
+    "1차 투표 결과와 의견을 승인된 5개 쟁점으로 AI 분류·집계하고 사람 승인 후 2차 숙의에 노출",
+    "두 차례 투표·숙의 기록을 바탕으로 3개 AI가 D안을 협의하고 사람이 최종 승인하는 흐름 구현",
+    "3차 투표에서 A/B/C 재투표와 D안 수용성·의견을 별도 입력으로 수집",
+    "별도 리뷰 앱이 아닌 실제 서비스 핸들러·어드민과 격리 리뷰 데이터 저장소를 사용하는 리뷰 URL 배포",
+    "프로세스 리뷰 URL의 Discord DM 전달",
+    "활성 공개 이벤트·상태 안내에 남은 2회 투표 문구를 v4 절차로 정정",
+    "기존 모놀리스에 대한 사용자 승인 기반 한시적 복잡도 플래그와 교차검토 증거 기록"
+  ],
+  "non_goals": [
+    "개인별 연금액·수령액·소득대체율 계산 또는 국민연금 시뮬레이터 복제",
+    "개인 영향 비교 단계(E1a) 또는 계산 영수증을 이번 연금 숙의 흐름에 포함",
+    "참가자가 5개 쟁점 관심도를 직접 선택하게 하는 설문",
+    "D안을 A/B/C와 같은 네 번째 선택지로 합치는 투표",
+    "UI에 하드코딩한 목 데이터만으로 리뷰 기능을 흉내 내는 별도 Vercel 앱",
+    "실제 참가자 개인정보·원본 녹음·미검수 전사문·실제 집계의 리뷰 환경 복제",
+    "헌장 파일·핵심 방어장치 또는 이 작업과 무관한 루트 워크스페이스 변경",
+    "격리된 드리프트 커밋의 전체 병합"
+  ],
+  "success_criteria": [
+    "참가자 단계와 관련 API·UI에 개인 연금 계산 또는 개인 영향 단계가 존재하지 않는다.",
+    "M1과 M2 전에 각각 숙의가 있고, 사람 검수된 두 숙의 요약과 두 투표 집계가 D안 생성 입력 스냅샷에 포함된다.",
+    "5개 쟁점 수치는 수동 관심 선택이 아니라 1차 투표의 의견을 AI가 분류한 고유 참가자 수로 계산되며 사람 승인 전에는 노출되지 않는다.",
+    "D안은 3개 AI의 제안·상호 검토·수정과 사람 승인 이력을 남기고, 참가자 화면에는 숨은 사고과정이 아닌 검토 가능한 협의 요약·한계만 노출한다.",
+    "M3는 A/B/C 재투표와 D안 수용성·서술 의견을 별도 필드로 저장한다.",
+    "리뷰 URL이 실제 참가자·어드민 라우트와 서비스 코드를 사용하되 서버가 선택한 격리 리뷰 데이터베이스와 승인된 결정론적 픽스처만 조회한다.",
+    "프로세스·어드민 연동 계약 테스트, 전체 관련 회귀 테스트, 브라우저 흐름 테스트와 빌드가 통과한다.",
+    "검증된 리뷰 URL이 사용자 Discord DM으로 전달되고 전달 증거가 진행 기록에 남는다."
+  ],
+  "allowed_paths": [
+    "docs/**",
+    "event-tool/**",
+    "policy_lab/domains/pension/**",
+    "scripts/**",
+    "site/cases/pension/**",
+    "site/events/**",
+    "site/status/**",
+    "tests/**",
+    ".agents/context/complexity-waivers.json",
+    ".agents/requirements/sources/USR-012-code-complexity-gate.json",
+    ".agents/progress/pension-20260808-flow-recovery-2026-08-09.json"
+  ],
+  "target_ownership": [
+    "docs/**",
+    "event-tool/**",
+    "policy_lab/domains/pension/**",
+    "scripts/**",
+    "site/cases/pension/**",
+    "site/events/**",
+    "site/status/**",
+    "tests/**",
+    ".agents/context/complexity-waivers.json",
+    ".agents/requirements/sources/USR-012-code-complexity-gate.json",
+    ".agents/progress/pension-20260808-flow-recovery-2026-08-09.json"
+  ],
+  "audiences": [
+    "AIPOL 정책실험 운영팀",
+    "AIPOL 연금 숙의 프로세스 리뷰어",
+    "2026-08-12 정책실험 참가자",
+    "AIPOL 어드민 운영자"
+  ],
+  "source_refs": [
+    "사용자 제공 2026-08-08 22:00 온라인 주요 논의 사항 및 2026-08-09 보충 결정",
+    "GitHub issue nextain/aipol#7: 연금 숙의 실험 v4 — 2026-08-08 논의 반영 및 실제 서비스 통합",
+    "nextain/aipol#7 최신 정정: 실제 API 핸들러·서비스와 서버 선택형 격리 리뷰 DB 사용",
+    "clean baseline f182596 (origin/feat/pension-deliberation-v2)",
+    "drift quarantine 15bf0c7 on local branch quarantine/pension-v4-drift-20260809",
+    "USR-012 사용자 원문: 자동 복잡도 경고, 사유·기한이 있는 제한적 플래그, 후속 코드 대조 요구"
+  ],
+  "allowed_shell_commands": [
+    "git status --short --branch",
+    "git diff --check",
+    "pytest -q",
+    "python scripts/build_site_i18n.py",
+    "node .claude/hooks/sync-entry-points.js --check"
+  ],
+  "session_bindings": [
+    {
+      "session_id": "019fe3a8-0664-7752-820a-6aa826bdb2b7",
+      "contract_digest": "4333b54b60ab1e64d8eceb49872bd80743bd508c97aad80bb546dfe7c72b3a67"
+    }
+  ],
+  "progress_file": ".agents/progress/pension-20260808-flow-recovery-2026-08-09.json",
+  "contract_digest": "4333b54b60ab1e64d8eceb49872bd80743bd508c97aad80bb546dfe7c72b3a67"
+}

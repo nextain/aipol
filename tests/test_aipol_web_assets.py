@@ -183,7 +183,7 @@ def test_admin_page_uses_forms_and_exposes_collection_gate():
         "approval_id", "launch_origin", "mark-pending-attrition", "cohort_finalized_at",
     ):
         assert required in preparation
-    assert "documents.map" in preparation
+    assert "approved.map" in preparation
     assert "open = openPreparation" not in preparation
     assert "window.openAipolPreparation = openPreparation" in preparation
     assert "approved_at: new Date" not in preparation

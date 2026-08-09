@@ -3218,3 +3218,311 @@ def test_participant_ui_parses_flattened_jws_and_production_verifier_accepts_it(
             check=False,
         )
         assert result.returncode == 7
+
+
+def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_inputs(
+    aipol_app,
+) -> None:
+    """Exercise the agreed 2026-08-08 flow through real admin and participant APIs."""
+    _, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    editor_headers = _admin_headers(client, "editor")
+    experiment = _create(
+        client, headers, capacity=1, suffix="-v4-real", procedure_version="v4"
+    )
+    experiment_id = experiment["id"]
+    base = f"/api/aipol/experiments/{experiment_id}"
+
+    # v4 freezes six canonical documents. Calculation is deliberately absent.
+    v4_categories = tuple(category for category in CATEGORIES if category != "calculation")
+    canonical = {}
+    for category in v4_categories:
+        document = {
+            "category": category,
+            "document_id": f"v4-doc-{category}",
+            "document_version": "v1",
+            "body": f"v4 사람이 승인한 {category} 정본",
+            "evidence": {"fixture": True, "calculator_required": False},
+        }
+        preview = client.post(
+            f"/api/admin/aipol/experiments/{experiment_id}/canonical-documents/preview",
+            headers=headers,
+            json=document,
+        )
+        assert preview.status_code == 200, preview.text
+        digest = preview.json()["content_hash"]
+        draft = client.post(
+            f"/api/admin/aipol/experiments/{experiment_id}/canonical-drafts",
+            headers=editor_headers,
+            json={**document, "declared_content_hash": digest},
+        )
+        assert draft.status_code == 200, draft.text
+        approved = client.post(
+            f"/api/admin/aipol/experiments/{experiment_id}/canonical-documents",
+            headers=headers,
+            json={
+                **document,
+                "declared_content_hash": digest,
+                "approval_id": f"v4-approval-{experiment_id}-{category}",
+                "approved_by": "hong",
+            },
+        )
+        assert approved.status_code == 200, approved.text
+        canonical[category] = approved.json()
+
+    spec = MeasurementSpec(**experiment["measurement_spec"])
+    frozen = client.put(
+        f"/api/admin/aipol/experiments/{experiment_id}/freeze",
+        headers=headers,
+        json={
+            "manifest_id": "v4-freeze-without-calculation",
+            "experiment_version": experiment["experiment_version"],
+            "option_set_version": experiment["measurement_spec"]["option_set_version"],
+            "measurement_spec_hash": spec.spec_hash,
+            "status": "frozen",
+            "collection_enabled": True,
+            "approvals": [
+                {
+                    "category": category,
+                    "approval_id": canonical[category]["approval_id"],
+                    "approved_by": canonical[category]["approved_by"],
+                    "approved_at": canonical[category]["approved_at"],
+                    "content_hash": canonical[category]["content_hash"],
+                }
+                for category in v4_categories
+            ],
+        },
+    )
+    assert frozen.status_code == 200, frozen.text
+    assert frozen.json()["collection_enabled"] is True
+    assert {
+        approval["category"] for approval in frozen.json()["freeze_manifest"]["approvals"]
+    } == set(v4_categories)
+
+    rejected_calculator = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
+        headers=headers,
+        json={
+            "kind": "personal_comparison",
+            "artifact_id": "must-not-exist",
+            "artifact_version": "v1",
+            "content": {
+                "title": "금지된 계산기",
+                "launch_url": "https://example.test/calculator",
+                "launch_origin": "https://example.test",
+                "calculation_version": "v1",
+                "limitations": "v4에서 금지",
+                "canonical_document_hash": "a" * 64,
+                "build_hash": "b" * 64,
+                "receipt_contract_hash": "c" * 64,
+                "integration_contract_version": INTEGRATION_VERSION,
+                "integration_test_hash": "d" * 64,
+            },
+            "approval_id": "forbidden-calculator",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert rejected_calculator.status_code == 400
+    assert "개인 연금 계산" in rejected_calculator.text
+
+    registered = _register(client, experiment_id)
+    assert registered.status_code == 200, registered.text
+    token = registered.json()["participant_token"]
+    assert _post(
+        client, f"{base}/consent", token, 0, "v4-consent",
+        consent_version="consent-v1", affirmed=True,
+    ).json() == {"stage": "E0", "state_revision": 1}
+    demographics = _post(
+        client, f"{base}/demographics", token, 1, "v4-demographics",
+        gender="prefer_not", age_band="40_49", income_band="prefer_not",
+        consent_version="consent-v1",
+    )
+    assert demographics.json() == {"stage": "E0", "state_revision": 1}
+    current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert current["first_deliberation"]
+    assert "personal" not in json.dumps(current).lower()
+    policy_ack = _post(
+        client, f"{base}/policy-options-ack", token, 1, "v4-policy-ack",
+        content_hash=current["content_hash"],
+    )
+    assert policy_ack.json() == {"stage": "M1", "state_revision": 2}
+
+    m1 = _post(
+        client, f"{base}/measurements/M1", token, 2, "v4-m1",
+        choice="A", stance="accept", reason="급여의 예측 가능성을 중요하게 봅니다.",
+        confidence=None,
+    )
+    assert m1.status_code == 200, m1.text
+    assert m1.json() == {"stage": "E1a", "state_revision": 3}
+    first_deliberation = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-deliberations/first",
+        headers=headers,
+        json={
+            "summary": "1차 숙의에서 개인 혜택과 재정 지속가능성의 균형을 논의했다.",
+            "source_note": "녹음 요약 후 진행자 검수",
+            "reviewed_by": "hong",
+        },
+    )
+    assert first_deliberation.status_code == 200, first_deliberation.text
+    inputs = client.get(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-inputs", headers=headers
+    ).json()
+    assert inputs["m1"]["participant_count"] == 1
+    issues = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
+        headers=headers,
+        json={
+            "kind": "issue_deliberation",
+            "artifact_id": "v4-five-issues",
+            "artifact_version": "v1",
+            "content": {
+                "title": "1차 의견 기반 5대 쟁점",
+                "body": "AI 분류 결과를 사람이 검수한 2차 숙의 자료",
+                "m1_aggregate_hash": inputs["m1"]["aggregate_hash"],
+                "human_reviewed": True,
+                "issues": [
+                    {"issue_id": f"issue-{index}", "title": title, "opinion_count": count}
+                    for index, (title, count) in enumerate((
+                        ("소득대체율", 1), ("보험료율", 0), ("수급개시연령", 0),
+                        ("재정 지속가능성", 1), ("세대 간 형평성", 0),
+                    ), start=1)
+                ],
+            },
+            "approval_id": "v4-five-issues-approval",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert issues.status_code == 200, issues.text
+    opened_e1a = client.post(
+        f"{base}/exposures/E1a/open",
+        headers=_participant_headers(token),
+        json={"expected_revision": 3, "idempotency_key": "v4-e1a-open"},
+    )
+    assert opened_e1a.status_code == 200, opened_e1a.text
+    e1a = client.post(
+        f"{base}/exposures/E1a",
+        headers=_participant_headers(token),
+        json={"expected_revision": 3, "idempotency_key": "v4-e1a", "read_ack": True},
+    )
+    assert e1a.status_code == 200, e1a.text
+    assert e1a.json() == {"stage": "M2", "state_revision": 4}
+
+    assessments = {
+        "A": {"stance": "reject", "reason": "쟁점 검토 후 우선순위가 바뀌었습니다."},
+        "B": {"stance": "accept", "reason": "지속가능성과 급여 균형이 낫습니다."},
+        "C": {"stance": "reject", "reason": "부담 배분에 동의하기 어렵습니다."},
+    }
+    m2 = _post(
+        client, f"{base}/measurements/M2", token, 4, "v4-m2",
+        choice="B", reason=None, confidence=None, stance=None,
+        option_assessments=assessments,
+    )
+    assert m2.status_code == 200, m2.text
+    assert m2.json() == {"stage": "E2", "state_revision": 5}
+    assert client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/close-registration",
+        headers=headers,
+    ).status_code == 200
+    second_deliberation = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-deliberations/second",
+        headers=headers,
+        json={
+            "summary": "5대 쟁점의 의견 수와 전문가 설명을 보고 선택 변화 이유를 논의했다.",
+            "source_note": "2차 녹음 요약 후 진행자 검수",
+            "reviewed_by": "hong",
+        },
+    )
+    assert second_deliberation.status_code == 200, second_deliberation.text
+    inputs = client.get(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-inputs", headers=headers
+    ).json()
+    assert inputs["m2"]["participant_count"] == 1
+    assert all(inputs["required_d_input_hashes"].values())
+    d_artifact = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
+        headers=headers,
+        json={
+            "kind": "ai_opinion",
+            "artifact_id": "v4-d",
+            "artifact_version": "v1",
+            "content": {
+                "title": "3개 AI 협의 D안",
+                "body": "승인된 네 입력만 사용해 합성한 절충안과 한계",
+                "input_hashes": inputs["required_d_input_hashes"],
+                "ai_council": [
+                    {"role": "재정 검토", "output": "장기 재정 제약을 반영"},
+                    {"role": "시민 의견 검토", "output": "두 차례 숙의 쟁점을 반영"},
+                    {"role": "통합 조정", "output": "A·B·C와 구별되는 D안을 합성"},
+                ],
+                "human_reviewed": True,
+            },
+            "approval_id": "v4-d-approval",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert d_artifact.status_code == 200, d_artifact.text
+    expert = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
+        headers=headers,
+        json={
+            "kind": "expert_explanation",
+            "artifact_id": "v4-expert-d",
+            "artifact_version": "v1",
+            "content": {"title": "D안 전문가 설명", "body": "협의 과정·차이·의의·한계와 질의응답"},
+            "approval_id": "v4-expert-approval",
+            "approved_by": "hong",
+            "fallback_used": False,
+        },
+    )
+    assert expert.status_code == 200, expert.text
+    assert _post(
+        client, f"{base}/exposures/E2", token, 5, "v4-e2", read_ack=True,
+    ).json() == {"stage": "E1b", "state_revision": 6}
+    assert _post(
+        client, f"{base}/exposures/E1b", token, 6, "v4-e1b", read_ack=True,
+    ).json() == {"stage": "M3", "state_revision": 7}
+    m3_current = client.get(f"{base}/current", headers=_participant_headers(token)).json()
+    assert [option["policy_option_id"] for option in m3_current["policy_options"]] == m3_current["option_order"]
+    assert set(m3_current["option_order"]) == {"A", "B", "C"}
+    assert m3_current["secondary_evaluation"]["artifact_id"] == "v4-d"
+    assert m3_current["secondary_evaluation"]["separate_from_main_choice"] is True
+    completed = _post(
+        client, f"{base}/measurements/M3", token, 7, "v4-m3",
+        choice="B", reason=None, confidence=None, stance=None,
+        secondary_evaluation={
+            "artifact_id": "v4-d", "acceptance": 4,
+            "reason": "절충 방향은 수용하지만 재정 추계 한계를 더 밝혀야 합니다.",
+        },
+    )
+    assert completed.status_code == 200, completed.text
+    assert completed.json() == {"stage": "complete", "state_revision": 8}
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        assert connection.execute(
+            "SELECT COUNT(*) FROM aipol_calculator_receipts WHERE experiment_id=?",
+            (experiment_id,),
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM aipol_v4_ai_council_runs WHERE experiment_id=?",
+            (experiment_id,),
+        ).fetchone()[0] == 1
+        final_vote = connection.execute(
+            "SELECT choice FROM aipol_measurements m JOIN aipol_participants p "
+            "ON p.id=m.participant_id WHERE p.experiment_id=? AND m.measurement_id='M3'",
+            (experiment_id,),
+        ).fetchone()
+        assert final_vote["choice"] in {"A", "B", "C"}
+        secondary = connection.execute(
+            "SELECT artifact_id,acceptance,reason FROM aipol_secondary_evaluations se "
+            "JOIN aipol_participants p ON p.id=se.participant_id WHERE p.experiment_id=?",
+            (experiment_id,),
+        ).fetchone()
+        assert dict(secondary) == {
+            "artifact_id": "v4-d",
+            "acceptance": 4,
+            "reason": "절충 방향은 수용하지만 재정 추계 한계를 더 밝혀야 합니다.",
+        }

@@ -1,6 +1,7 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+const V4_VERSION = "aipol-pension-deliberation-v4";
 const experimentId = params.get("experiment");
 const tokenKey = experimentId ? `aipol:participant:${experimentId}` : "aipol:participant:missing";
 const registrationNonceKey = `aipol:registration-nonce:${experimentId}`;
@@ -76,6 +77,9 @@ async function load() {
     current = await api(`/api/aipol/experiments/${encodeURIComponent(experimentId)}/current`);
     if (current.procedure_version === "aipol-pension-3-measurements-v3") {
       $("procedure-summary").textContent = "전문가 A/B/C안, 개인 영향 비교, 세 번의 선택, 전문가·청중 논평과 AI 수정 의견 D′를 차례로 확인합니다.";
+    }
+    if (current.procedure_version === V4_VERSION) {
+      $("procedure-summary").textContent = "A·B·C안 숙의와 1·2차 투표, 1차 의견에서 도출한 5대 쟁점 숙의, 3개 AI의 D안, 전문가 설명 뒤 최종 투표를 진행합니다.";
     }
     if (pendingReviewToken) {
       if (current.participant_type !== "synthetic" || current.synthetic_review !== true) {
@@ -159,12 +163,15 @@ function render() {
   if (current.stage === "complete") { show("done"); return; }
   if (current.stage === "withdrawn") { show("withdrawn"); return; }
   show("step");
-  const labels = {consent:"동의", E0:"정책전문가안 비교", M1:"1차 선택", T3:"1차 결과", E1a:"개인 조건 비교", M2:"2차 선택", T5:"1·2차 결과", T6:"조건별 분석", E2:"잠정 의견 D", E1b:"전문가 논평", A1:"공개 청중 의견", E3:"수정 의견 D′", M3:"3차 선택", T10:"최종 결과"};
+  const labels = current.procedure_version === V4_VERSION
+    ? {consent:"동의", E0:"기초정보·1차 숙의", M1:"1차 투표", T3:"1차 결과", E1a:"5대 쟁점·2차 숙의", M2:"2차 투표", T5:"1·2차 결과", E2:"3개 AI 협의 D안", E1b:"전문가 D안 설명", M3:"3차 투표", T10:"최종 결과"}
+    : {consent:"동의", E0:"정책전문가안 비교", M1:"1차 선택", T3:"1차 결과", E1a:"개인 조건 비교", M2:"2차 선택", T5:"1·2차 결과", T6:"조건별 분석", E2:"잠정 의견 D", E1b:"전문가 논평", A1:"공개 청중 의견", E3:"수정 의견 D′", M3:"3차 선택", T10:"최종 결과"};
   $("step-line").textContent = `${labels[current.interstitial_stage || current.stage] || current.stage} · 기록 버전 ${current.state_revision}`;
   if (["T3","T5","T10"].includes(current.stage)) renderPublicResult();
   else if (current.interstitial_stage === "T6") renderT6Result();
   else if ((current.stage === "E2" && current.waiting_for_e2_release) || (current.stage === "E3" && current.waiting_for_e3_release)) renderWaiting();
   else if (current.stage === "consent") renderConsent();
+  else if (current.stage === "E0" && current.procedure_version === V4_VERSION && current.demographics_required) renderDemographics();
   else if (current.stage === "E0") renderPolicyOptions();
   else if (current.stage === "E1a" && current.research_profile_required) renderResearchProfile();
   else if (["E1a","E1b","E2","E3"].includes(current.stage)) renderExposure();
@@ -186,6 +193,25 @@ const REASON_TOPIC_LABELS = {
   benefit_adequacy:"급여 적정성", contribution_burden:"보험료 부담", fiscal_sustainability:"재정 지속가능성",
   intergenerational_fairness:"세대 간 형평", retirement_timing:"은퇴 시점", trust_and_governance:"신뢰와 거버넌스",
 };
+const DEMOGRAPHIC_LABELS = {
+  female:"여성", male:"남성", other:"기타", prefer_not:"응답하지 않음",
+  under_30:"30세 미만", "30_39":"30~39세", "40_49":"40~49세", "50_59":"50~59세", "60_plus":"60세 이상",
+  under_2m:"월 200만원 미만", "2m_4m":"월 200~399만원", "4m_6m":"월 400~599만원", "6m_plus":"월 600만원 이상",
+};
+function renderDemographics() {
+  const contract = current.demographics_contract || {};
+  const select = (id, label, values) => `<label class="field-label" for="${id}">${label}</label><select id="${id}" class="field-input"><option value="">선택해 주세요</option>${(values || []).map((value) => `<option value="${esc(value)}">${esc(DEMOGRAPHIC_LABELS[value] || value)}</option>`).join("")}</select>`;
+  $("step-content").innerHTML = `<section class="step-card"><h2>기초 정보</h2><p>투표 결과를 거친 범주로만 비교하기 위한 정보입니다. 개인 연금액·가입기간·예상 수령액은 입력하거나 계산하지 않습니다.</p>${select("demographic-gender", "성별", contract.gender)}${select("demographic-age", "연령대", contract.age_band)}${select("demographic-income", "월 소득 구간", contract.income_band)}<label class="option-choice"><input id="demographic-check" type="checkbox"><span>위 세 범주 저장과 개인 연금 계산 정보를 수집하지 않는다는 점을 확인했습니다.</span></label><p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">기초 정보 저장</button></div></section>`;
+  bindActions(() => submitAction("demographics", {
+    gender:$("demographic-gender").value,
+    age_band:$("demographic-age").value,
+    income_band:$("demographic-income").value,
+    consent_version:current.consent_version,
+  }, () => {
+    if (!["demographic-gender", "demographic-age", "demographic-income"].every((id) => $(id).value)) return "세 범주를 모두 선택해 주세요.";
+    return $("demographic-check").checked || "기초 정보 수집 범위를 확인해 주세요.";
+  }));
+}
 function renderResearchProfile() {
   const contract = current.research_profile_contract || {};
   const fields = contract.fields || {};
@@ -274,10 +300,12 @@ function renderPublicResult() {
 }
 function renderPolicyOptions() {
   const options = current.policy_options || [];
+  const isV4 = current.procedure_version === V4_VERSION;
+  const deliberation = current.first_deliberation || {};
   const leverKeys = [...new Set(options.flatMap((option) => Object.keys(option.lever_values || {})))];
   const header = leverKeys.map((key) => `<th scope="col">${esc(key)}</th>`).join("");
   const rows = options.map((option) => `<tr><th scope="row">${esc(option.policy_option_id)} · ${esc(option.label)}</th>${leverKeys.map((key) => `<td>${esc(option.lever_values?.[key] ?? "-")}</td>`).join("")}</tr>`).join("");
-  $("step-content").innerHTML = `<section class="step-card"><h2>${esc(current.title || "정책전문가 A·B·C안 비교")}</h2><p>정책전문가가 설명한 세 안을 같은 항목으로 다시 확인한 뒤 1차 선택으로 넘어갑니다.</p><div class="table-wrap"><table class="policy-table"><thead><tr><th scope="col">정책안</th>${header}</tr></thead><tbody>${rows}</tbody></table></div><label class="option-choice"><input id="policy-options-check" type="checkbox"><span>A·B·C안 비교표를 확인했습니다.</span></label><p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">확인하고 1차 선택으로</button></div></section>`;
+  $("step-content").innerHTML = `<section class="step-card"><h2>${esc(current.title || "정책전문가 A·B·C안 비교")}</h2><p>정책전문가가 설명한 세 안을 같은 항목으로 확인합니다.</p><div class="table-wrap"><table class="policy-table"><thead><tr><th scope="col">정책안</th>${header}</tr></thead><tbody>${rows}</tbody></table></div>${isV4 ? `<hr><h3>${esc(deliberation.title || "1차 숙의")}</h3><p>${esc(deliberation.body || "")}</p><p class="stage-note">${esc(deliberation.recording_notice || "")}</p>` : ""}<label class="option-choice"><input id="policy-options-check" type="checkbox"><span>${isV4 ? "A·B·C안과 1차 숙의 안내" : "A·B·C안 비교표"}를 확인했습니다.</span></label><p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">확인하고 1차 ${isV4 ? "투표" : "선택"}로</button></div></section>`;
   bindActions(() => submitAction(
     "policy-options-ack",
     {content_hash: current.content_hash},
@@ -290,6 +318,10 @@ function renderConsent() {
   bindActions(() => submitAction("consent", {consent_version: current.consent_version, affirmed: true}, () => $("consent-check").checked || "동의 확인이 필요합니다."));
 }
 function renderExposure() {
+  if (current.procedure_version === V4_VERSION) {
+    renderV4Exposure();
+    return;
+  }
   const artifact = current.artifact || {};
   const content = artifact.content || {};
   const isPersonal = current.stage === "E1a";
@@ -326,6 +358,26 @@ function renderExposure() {
       () => true,
     );
   });
+}
+function renderV4Exposure() {
+  clearCalculatorIntegration();
+  const artifact = current.artifact || {};
+  const content = artifact.content || {};
+  let detail = `<p>${esc(content.body || content.limitations || "")}</p>`;
+  let notice = "승인 자료를 확인했습니다.";
+  if (current.stage === "E1a") {
+    const issues = content.issues || [];
+    detail += `<div class="option-list">${issues.map((issue) => `<article class="option-choice"><span><strong>${esc(issue.title)}</strong><small>1차 투표 의견 ${esc(issue.opinion_count)}건 · ${esc(issue.issue_id)}</small></span></article>`).join("")}</div><p class="stage-note">이 다섯 쟁점은 1차 투표 의견을 AI가 분류·집계하고 사람이 검수한 결과입니다. 전문가 설명과 청중 2차 숙의를 진행하며, 녹음 요약은 사람 검수 후 D안 입력에 사용합니다.</p>`;
+    notice = "5대 쟁점과 2차 숙의 안내를 확인했습니다.";
+  } else if (current.stage === "E2") {
+    detail += `<h3>3개 AI 협의 기록</h3>${(content.ai_council || []).map((member) => `<article class="proposal-card"><strong>${esc(member.role)}</strong><p>${esc(member.output)}</p></article>`).join("")}<p class="stage-note">D안은 A·B·C와 별도인 네 번째 투표 선택지가 아닙니다. 마지막 단계에서 D안 수용도와 의견을 별도로 묻습니다.</p>`;
+    notice = "D안과 AI 협의 근거를 확인했습니다.";
+  } else if (current.stage === "E1b") {
+    detail += `<p class="stage-note">전문가가 D안의 의의·한계와 AI 협의 과정을 설명한 뒤 간단한 청중 질의응답을 진행합니다.</p>`;
+    notice = "전문가 설명과 질의응답 안내를 확인했습니다.";
+  }
+  $("step-content").innerHTML = `<section class="step-card"><h2>${esc(content.title || current.title || "승인 자료")}</h2>${detail}<p class="artifact-meta">자료 ${esc(artifact.artifact_id)} · 버전 ${esc(artifact.artifact_version)} · 승인 ${esc(artifact.approval_id)}<br>해시 ${esc(artifact.content_hash)}</p><label class="option-choice"><input id="read-check" type="checkbox"><span>${esc(notice)}</span></label><p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">확인 완료</button></div></section>`;
+  bindActions(() => submitAction(`exposures/${current.stage}`, {read_ack:true}, () => $("read-check").checked || "자료 확인이 필요합니다."));
 }
 function renderAudienceDiscussion() {
   $("step-content").innerHTML = `<section class="step-card"><h2>공개 청중 의견 진행</h2><p>현장의 공개 발언을 듣고 진행자가 선별한 의견만 AI 수정 의견 D′의 입력으로 등록합니다.</p><p class="artifact-meta">이 화면은 참가자의 개인 텍스트를 수집하지 않습니다.</p><p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">공개 청중 의견 절차 확인</button></div></section>`;
@@ -375,6 +427,10 @@ function acceptManualReceipt() {
   }
 }
 function renderMeasurement() {
+  if (current.procedure_version === V4_VERSION) {
+    renderV4Measurement();
+    return;
+  }
   const options = current.policy_options || [];
   const legacyStructuredM2 = current.stage === "M2" && current.procedure_version === "aipol-pension-3-measurements-v2";
   const structuredM2 = current.stage === "M2" && current.structured_option_assessment === true;
@@ -403,6 +459,43 @@ function renderMeasurement() {
       const legacyDecision = $("stance")?.value;
       if (legacyStructuredM2 && !legacyDecision) return "수용, 조건부 수용, 비선택 중 하나를 선택해 주세요.";
       if (legacyStructuredM2 && ["conditional", "reject"].includes(legacyDecision) && !$("reason").value.trim()) return "조건부 수용과 비선택에는 이유를 적어 주세요.";
+      return true;
+    });
+  });
+}
+function renderV4Measurement() {
+  const options = current.policy_options || [];
+  const isM2 = current.stage === "M2";
+  const isM3 = current.stage === "M3";
+  const assessmentFields = isM2 ? `<h3>세 안에 대한 2차 판단</h3><p class="stage-note">선택안은 수용 또는 조건부 수용, 나머지 안은 비선택으로 판단하고 각 이유를 적어 주세요.</p>${options.map((option) => `<fieldset class="option-assessment"><legend>${esc(option.policy_option_id)} · ${esc(option.label)}</legend><label class="field-label" for="assessment-${esc(option.policy_option_id)}">판단</label><select id="assessment-${esc(option.policy_option_id)}" class="field-input"><option value="">선택해 주세요</option><option value="accept">수용</option><option value="conditional">조건부 수용</option><option value="reject">비선택</option></select><label class="field-label" for="assessment-reason-${esc(option.policy_option_id)}">이유</label><textarea id="assessment-reason-${esc(option.policy_option_id)}" maxlength="2000"></textarea></fieldset>`).join("")}` : "";
+  const m1Fields = current.stage === "M1" ? `<label class="field-label" for="stance">선택한 안의 수용 여부</label><select id="stance" class="field-input"><option value="">선택해 주세요</option><option value="accept">수용</option><option value="conditional">조건부 수용</option></select><label class="field-label" for="reason">의견과 선택 이유</label><textarea id="reason" maxlength="2000"></textarea>` : "";
+  const m3Fields = isM3 && current.secondary_evaluation ? `<hr><h3>D안 수용성 확인</h3><p class="stage-note">D안은 위 A·B·C 재투표의 네 번째 선택지가 아니며 별도로 평가합니다.</p><label class="field-label" for="secondary">D안 수용도 1~5</label><select id="secondary" class="field-input"><option value="">선택해 주세요</option>${[1,2,3,4,5].map((n) => `<option value="${n}">${n}</option>`).join("")}</select><label class="field-label" for="secondary-reason">D안에 대한 의견</label><textarea id="secondary-reason" maxlength="2000"></textarea>` : "";
+  $("step-content").innerHTML = `<section class="step-card"><h2>${esc(current.stage.replace("M", ""))}차 투표</h2><p>${esc(current.question_text || current.question_id)}</p><div class="option-list">${options.map((option) => `<label class="option-choice"><input type="radio" name="choice" value="${esc(option.policy_option_id)}"><span><strong>${esc(option.policy_option_id)} · ${esc(option.label)}</strong><small>정책 버전 ${esc(option.policy_version)}</small></span></label>`).join("")}</div>${assessmentFields}${m1Fields}${m3Fields}<p class="artifact-meta">이름·연락처·소속 등 개인을 알아볼 수 있는 정보는 적지 마세요.</p><p id="step-error" class="error-inline" role="alert" aria-live="polite"></p><div class="action-row"><button id="step-submit" class="btn-primary">${esc(current.stage)} 제출</button></div></section>`;
+  bindActions(() => {
+    const choice = document.querySelector('input[name="choice"]:checked');
+    const assessments = isM2 ? Object.fromEntries(options.map((option) => [option.policy_option_id, {stance:$(`assessment-${option.policy_option_id}`).value, reason:$(`assessment-reason-${option.policy_option_id}`).value.trim()}])) : undefined;
+    const secondary = isM3 ? {artifact_id:current.secondary_evaluation?.artifact_id, acceptance:Number($("secondary")?.value), reason:$("secondary-reason")?.value.trim()} : undefined;
+    return submitAction(`measurements/${current.stage}`, {
+      choice:choice?.value || null,
+      stance:$("stance")?.value || null,
+      reason:$("reason")?.value.trim() || "",
+      confidence:null,
+      ...(isM2 ? {option_assessments:assessments} : {}),
+      ...(isM3 ? {secondary_evaluation:secondary} : {}),
+    }, () => {
+      if (!choice) return "A·B·C 중 하나를 선택해 주세요.";
+      if (current.stage === "M1" && !$("stance").value) return "선택한 안의 수용 여부를 선택해 주세요.";
+      if (current.stage === "M1" && !$("reason").value.trim()) return "1차 의견과 선택 이유를 적어 주세요.";
+      if (isM2) {
+        for (const option of options) {
+          const assessment = assessments[option.policy_option_id];
+          if (!assessment.reason) return "세 안 각각의 판단 이유를 적어 주세요.";
+          if (option.policy_option_id === choice.value && !["accept", "conditional"].includes(assessment.stance)) return "선택안은 수용 또는 조건부 수용으로 표시해 주세요.";
+          if (option.policy_option_id !== choice.value && assessment.stance !== "reject") return "선택하지 않은 안은 비선택으로 표시해 주세요.";
+        }
+      }
+      if (isM3 && !$("secondary").value) return "D안 수용도를 선택해 주세요.";
+      if (isM3 && !$("secondary-reason").value.trim()) return "D안에 대한 의견을 적어 주세요.";
       return true;
     });
   });

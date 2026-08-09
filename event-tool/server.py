@@ -961,6 +961,44 @@ def aipol_admin_canonical_documents(
     return _aipol_call(aipol_store.list_canonical_documents, experiment_id)
 
 
+@app.get("/api/admin/aipol/experiments/{experiment_id}/v4-inputs")
+def aipol_admin_v4_inputs(
+    experiment_id: str, x_admin_token: str = Header(default="")
+):
+    require_aipol_admin(x_admin_token, Action.READ)
+    return _aipol_call(aipol_store.v4_admin_inputs, experiment_id)
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-deliberations/{round_id}")
+def aipol_admin_v4_deliberation(
+    experiment_id: str,
+    round_id: str,
+    body: dict,
+    x_admin_token: str = Header(default=""),
+):
+    registered_by = require_aipol_mutation(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    _require_exact_contract(
+        body,
+        {"summary", "source_note", "reviewed_by"},
+        set(),
+        "v4 deliberation input",
+    )
+    if not all(isinstance(body.get(key), str) for key in body):
+        raise HTTPException(400, "숙의 검수본 필드는 문자열이어야 합니다")
+    result = _aipol_call(
+        aipol_store.set_v4_deliberation_input,
+        experiment_id,
+        round_id=round_id,
+        summary=body["summary"],
+        source_note=body["source_note"],
+        reviewed_by=body["reviewed_by"],
+        registered_by=registered_by,
+    )
+    return _audit_experiment_mutation(
+        registered_by, "experiment.v4_deliberation.reviewed", experiment_id, result
+    )
+
+
 @app.post("/api/admin/aipol/experiments/{experiment_id}/artifacts")
 def aipol_admin_artifact(
     experiment_id: str, body: dict, x_admin_token: str = Header(default="")
@@ -1664,6 +1702,36 @@ def aipol_research_profile(
         consent_version=str(body.get("consent_version") or ""),
         expected_revision=_expected_revision(body),
         idempotency_key=str(body.get("idempotency_key") or ""),
+    )
+
+
+@app.post("/api/aipol/experiments/{experiment_id}/demographics")
+def aipol_demographics(
+    experiment_id: str, body: dict, x_participant_token: str = Header(default="")
+):
+    _require_exact_contract(
+        body,
+        {
+            "gender", "age_band", "income_band", "consent_version",
+            "expected_revision", "idempotency_key",
+        },
+        set(),
+        "v4 demographics",
+    )
+    if not all(isinstance(body.get(key), str) for key in (
+        "gender", "age_band", "income_band", "consent_version", "idempotency_key"
+    )):
+        raise HTTPException(400, "기초 정보 필드는 문자열이어야 합니다")
+    return _aipol_call(
+        aipol_store.record_demographics,
+        experiment_id,
+        x_participant_token,
+        gender=body["gender"],
+        age_band=body["age_band"],
+        income_band=body["income_band"],
+        consent_version=body["consent_version"],
+        expected_revision=_expected_revision(body),
+        idempotency_key=body["idempotency_key"],
     )
 
 

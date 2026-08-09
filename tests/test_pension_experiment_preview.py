@@ -1,78 +1,59 @@
+import json
+import re
 from pathlib import Path
 
 from bs4 import BeautifulSoup
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGE = ROOT / "site" / "cases" / "pension" / "experiment" / "index.html"
-SOURCE = ROOT / "integrations" / "kaps-pension-experiment" / "vendor" / "src"
+WEB = ROOT / "event-tool" / "web"
+PROCESS_PAGE = WEB / "aipol-process-review.html"
+PROCESS_SCRIPT = WEB / "aipol-process-review.js"
+MIGRATION_PAGE = ROOT / "site" / "cases" / "pension" / "experiment" / "index.html"
+PROVENANCE = MIGRATION_PAGE.parent / "provenance.json"
+SERVICE_REVIEW_URL = "https://session.aipol.kaps.or.kr/aipol-process-review.html"
 
 
-def soup() -> BeautifulSoup:
-    return BeautifulSoup(PAGE.read_text(encoding="utf-8"), "html.parser")
-
-
-def source_text() -> str:
-    return "\n".join(path.read_text(encoding="utf-8") for path in SOURCE.rglob("*.tsx"))
-
-
-def test_review_build_is_noindex_and_keeps_portal_navigation() -> None:
-    document = soup()
+def test_process_review_is_noindex_read_only_and_in_the_real_service() -> None:
+    document = BeautifulSoup(PROCESS_PAGE.read_text(encoding="utf-8"), "html.parser")
     assert document.select_one('meta[name="robots"]')["content"] == "noindex,nofollow,noarchive"
-    assert document.select_one('meta[name="aipol-source-commit"]')["content"] == (
-        "fcbae3c0dab18476e2274f9e4ff91dadeb2db944"
-    )
-    assert document.find("a", href="/cases/pension/")
-    assert document.find("a", href="/")
-    assert document.title.string == "연금개혁-AI 숙의민주주의 정책실험 | AIPOL"
-    assert document.find("img", src="/assets/aipol-logo.png", alt="AIPOL")
-    assert document.find("link", rel="stylesheet", href="/assets/site.css")
-    assert document.find("script", src="/assets/site.js")
-    assert not document.select(".ipol-project-partners")
-    assert document.find("meta", property="og:title", content="연금개혁-AI 숙의민주주의 정책실험 | AIPOL")
-    assert document.find("meta", property="og:image", content="https://aipol.kaps.or.kr/assets/og-aipol.png")
-    assert document.find("meta", attrs={"name": "twitter:card", "content": "summary_large_image"})
+    assert "읽기 전용 · 데이터 저장 없음" in document.get_text(" ", strip=True)
+    assert document.find("a", href="/aipol-admin.html")
+    assert document.find("script", src="/aipol-process-review.js")
+    assert document.find("link", href="/aipol.css")
 
 
-def test_experiment_legal_pages_are_built_and_linked() -> None:
-    experiment = PAGE.parent
-    source = (ROOT / "integrations" / "kaps-pension-experiment" / "adapter" / "integration-shell.js").read_text(encoding="utf-8")
-    assert '"/cases/pension/experiment/terms/"' in source
-    assert '"/cases/pension/experiment/privacy/"' in source
-    for slug in ("terms", "privacy"):
-        page = BeautifulSoup((experiment / slug / "index.html").read_text(encoding="utf-8"), "html.parser")
-        assert page.title and page.find("meta", property="og:title")
-        assert page.find("meta", property="og:description")
-        assert page.find("meta", property="og:image")
-        assert page.find("link", rel="canonical")
-        assert page.find("script", src="/assets/site.js")
-
-    privacy = (experiment / "privacy" / "index.html").read_text(encoding="utf-8")
-    assert "Google Analytics 4" in privacy
-    assert "G-HJDJKV750X" in privacy
-
-
-def test_professor_scenario_preserves_two_ballots_not_three() -> None:
-    text = source_text()
-    assert "1. 사전조사" in text
-    assert "2. 시뮬레이션·1차 투표" in text
-    assert "3. AI 진단·소그룹 토론" in text
-    assert "4. 최종 투표·결과 대시보드" in text
-    assert "1차·2차 투표 통합 분석 보고서" in text
-    assert "3차 투표" not in text
-    assert "M3" not in text
+def test_process_review_matches_the_approved_ten_step_v4_contract() -> None:
+    text = PROCESS_SCRIPT.read_text(encoding="utf-8")
+    assert len(re.findall(r'^\s*\["(?:10|[1-9])",', text, flags=re.MULTILINE)) == 10
+    for marker in (
+        "A·B·C안 설명과 1차 숙의",
+        "1차 결과 기반 5대 쟁점",
+        "전문가 설명과 2차 숙의",
+        "3개 AI 협의 D안 생성",
+        "3차 투표와 D안 별도 평가",
+        "최종 결과와 전문가 논평",
+    ):
+        assert marker in text
+    assert "개인 연금액 계산 정보는 수집하지 않습니다" in text
+    assert "D안은 네 번째 선택지가 아니라" in text
+    assert "개인 연금 시뮬레이션" not in text
 
 
-def test_built_app_uses_the_scoped_pension_route() -> None:
-    document = soup()
-    script = document.find("script", src=True)
-    assert script and script["src"].startswith("/cases/pension/experiment/assets/")
-    canonical = document.select_one('link[rel="canonical"]')
-    assert canonical and canonical["href"] == "https://aipol.kaps.or.kr/cases/pension/experiment/"
+def test_legacy_static_route_only_migrates_to_the_same_service_review() -> None:
+    html = MIGRATION_PAGE.read_text(encoding="utf-8")
+    document = BeautifulSoup(html, "html.parser")
+    assert document.select_one('meta[name="robots"]')["content"] == "noindex,nofollow,noarchive"
+    assert document.select_one('meta[http-equiv="refresh"]') is None
+    assert document.find("a", href=SERVICE_REVIEW_URL, string=lambda value: value and "프로세스 리뷰" in value)
+    assert "aipol-pension-design-review.vercel.app" not in html
+    assert not document.find("script", src=re.compile(r"/cases/pension/experiment/assets/"))
 
 
-def test_adapter_keeps_profile_edit_available_on_mobile() -> None:
-    adapter = (PAGE.parent / "integration-shell.js").read_text(encoding="utf-8")
-    assert "ipol-profile-edit" in adapter
-    assert "사전 프로필 정보 변경" in adapter
-    assert "ResizeObserver" in adapter
+def test_provenance_marks_the_old_review_as_quarantined() -> None:
+    provenance = json.loads(PROVENANCE.read_text(encoding="utf-8"))
+    assert provenance["contract_version"] == "4.0"
+    assert provenance["active_service_route"] == SERVICE_REVIEW_URL
+    assert provenance["quarantine_commit"] == "15bf0c7"
+    assert provenance["legacy_review_status"].startswith("quarantined")
+    assert "M3 ABC plus separate D acceptability" in provenance["measurement_flow"]

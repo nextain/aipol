@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "USR-012",
+  "source_kind": "human",
+  "origin": "native_user_message",
+  "actor": "user",
+  "platform": "openai-chat",
+  "locator": "conversation://private/code-complexity-gate",
+  "locator_access": "restricted",
+  "capture_kind": "public_safe_verbatim_excerpt",
+  "coverage": "selected_directives_not_complete_history",
+  "capture_note": "자동 코드 크기 경고, 사유가 있는 제한적 예외, 예외 주장과 실제 코드의 후속 대조를 요구한 사용자 원문이다.",
+  "events": [
+    {
+      "sequence": 1,
+      "exact_text": "리뷰어가 스스로 보게 하지말고 먼저 스크립트로 자동 경고 내게 해줘",
+      "obligations": [
+        "deterministic-complexity-preflight"
+      ],
+      "event_id": "USR-012-E01",
+      "source_kind": "human",
+      "origin": "native_user_message",
+      "locator": "conversation://private/code-complexity-gate#selected-user-message-01",
+      "text_sha256": "sha256:5b4f4da8497365e957ae2bce58eb11946926492f2031b9581e22d08fd4c16130",
+      "event_sha256": "sha256:40907500f61bf7eaa9778d51b2aa86eb96318a0291451597630f09a747b241fb"
+    },
+    {
+      "sequence": 2,
+      "exact_text": "어쩔수 없는 코드라면 플래그 처리하는 방식으로 하네스로 만들어",
+      "obligations": [
+        "bounded-complexity-exception"
+      ],
+      "event_id": "USR-012-E02",
+      "source_kind": "human",
+      "origin": "native_user_message",
+      "locator": "conversation://private/code-complexity-gate#selected-user-message-02",
+      "text_sha256": "sha256:e4cdc519f65c0581284b28b69bc3a90b7f8ad77e4caf4979c8a6de9729d0dbce",
+      "event_sha256": "sha256:54f75b469e0941828f65f0d933eb812bd079753501fd7634028251ed6729b79f"
+    },
+    {
+      "sequence": 3,
+      "exact_text": "플래드에 이유를 적게 하는 방식도 좋을듯",
+      "obligations": [
+        "reasoned-complexity-exception"
+      ],
+      "event_id": "USR-012-E03",
+      "source_kind": "human",
+      "origin": "native_user_message",
+      "locator": "conversation://private/code-complexity-gate#selected-user-message-03",
+      "text_sha256": "sha256:54ad6d76750f78527c75c829c6f39a7bbaa9d4da3f98600ca170253b70c6fea0",
+      "event_sha256": "sha256:847e3c1ef8bd7dba4d17d7a21bfe4eaef0a6d2eac613a003c316fe443e06b90f"
+    },
+    {
+      "sequence": 4,
+      "exact_text": "다만 그것을 100% 믿지말고 이후 검토에서 코드가 그 내용과 다른 경우 그것도 수정하게",
+      "obligations": [
+        "adversarial-waiver-claim-review"
+      ],
+      "event_id": "USR-012-E04",
+      "source_kind": "human",
+      "origin": "native_user_message",
+      "locator": "conversation://private/code-complexity-gate#selected-user-message-04",
+      "text_sha256": "sha256:8b16f785f71768bc5565f8940dce39ea64c99fe6c6aef6b5d208d46dcc3dbd90",
+      "event_sha256": "sha256:d6c623f33938eda421e6a48c2ccf511741fb43541241a0288dedcccab2ae87b7"
+    }
+  ],
+  "ordering": "relative_chronological_order_of_selected_messages",
+  "digest_algorithm": "sha256-canonical-event-v1"
+}
