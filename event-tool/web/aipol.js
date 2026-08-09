@@ -3,6 +3,8 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const V4_VERSION = "aipol-pension-deliberation-v4";
 const experimentId = params.get("experiment");
+const reviewMode = params.get("review");
+const reviewDataset = params.get("dataset") || "pension-v4-20260808-r1";
 const tokenKey = experimentId ? `aipol:participant:${experimentId}` : "aipol:participant:missing";
 const registrationNonceKey = `aipol:registration-nonce:${experimentId}`;
 const registrationIdempotencyKey = `aipol:registration-idempotency:${experimentId}`;
@@ -53,7 +55,7 @@ function resetParticipant() {
 }
 
 function esc(value) { return String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-function show(name) { ["loading","error","start","recovery","step","done","withdrawn"].forEach((state) => $("state-" + state).classList.toggle("hidden", state !== name)); }
+function show(name) { ["loading","error","review","start","recovery","step","done","withdrawn"].forEach((state) => $("state-" + state).classList.toggle("hidden", state !== name)); }
 function actionKey(stage, revision) {
   const key = `aipol:idem:${experimentId}:${stage}:${revision}`;
   let value = localStorage.getItem(key);
@@ -69,6 +71,11 @@ async function api(path, options={}) {
   return body;
 }
 async function load() {
+  if (reviewMode) {
+    if (reviewMode !== "process") { $("error-message").textContent = "지원하지 않는 리뷰 유형입니다."; show("error"); return; }
+    await loadProcessReview();
+    return;
+  }
   if (!experimentId) { $("error-message").textContent = "행사 링크에 experiment 값이 없습니다."; show("error"); return; }
   if (reviewTokenError) { $("error-message").textContent = reviewTokenError; show("error"); return; }
   show("loading");
@@ -113,6 +120,39 @@ async function load() {
       return;
     }
     $("error-message").textContent = error.message; show("error");
+  }
+}
+function reviewBars(counts) {
+  const values = Object.values(counts || {}).map(Number);
+  const max = Math.max(1, ...values);
+  return `<div class="review-bars">${Object.entries(counts || {}).map(([key, count]) => `<div class="review-bar"><strong>${esc(key)}안</strong><span><i style="width:${Math.round(Number(count) / max * 100)}%"></i></span><b>${esc(count)}명</b></div>`).join("")}</div>`;
+}
+function reviewDetail(step) {
+  let detail = "";
+  if (step.counts) detail += reviewBars(step.counts);
+  if (step.issues) detail += `<div class="review-issues">${step.issues.map((issue, index) => `<div><span>${index + 1}. ${esc(issue.title)}</span><strong>${esc(issue.opinion_count)}건</strong></div>`).join("")}</div>`;
+  if (step.deliberation) detail += `<blockquote><strong>${esc(step.deliberation.source_note)}</strong><br>${esc(step.deliberation.summary)}<br><small>검수자 ${esc(step.deliberation.reviewed_by)}</small></blockquote>`;
+  if (step.council) detail += `<div class="review-council">${step.council.map((member, index) => `<article><span>AI ${index + 1}</span><strong>${esc(member.role)}</strong><p>${esc(member.output)}</p></article>`).join("")}</div>`;
+  if (step.d_acceptability) detail += `<p class="review-d-result"><strong>D안 평균 수용도 ${esc(step.d_acceptability.average)} / 5</strong> · ${esc(step.d_acceptability.response_count)}명 별도 응답</p>`;
+  return detail;
+}
+async function loadProcessReview() {
+  show("loading");
+  try {
+    const snapshot = await api(`/api/aipol/process-reviews/${encodeURIComponent(reviewDataset)}`);
+    if (snapshot.fixture?.kind !== "mock" || snapshot.fixture?.read_only !== true) throw new Error("격리된 읽기 전용 목업 스냅샷이 아닙니다.");
+    if (!Array.isArray(snapshot.steps) || snapshot.steps.length !== 10) throw new Error("10단계 프로세스 계약과 일치하지 않습니다.");
+    $("procedure-summary").textContent = "1·2차 숙의와 투표, 1차 의견 기반 5대 쟁점, 3개 AI 협의 D안, 전문가 설명과 3차 투표의 연결을 검토합니다.";
+    $("process-review-notice").textContent = snapshot.notice;
+    $("process-review-integrity").innerHTML = `<span>데이터셋 <strong>${esc(snapshot.review_id)}</strong></span><span>계약 v${esc(snapshot.contract_version)}</span><span>참가자 목업 ${esc(snapshot.fixture.participant_count)}명</span><span>저장 ${esc(snapshot.stored_at)}</span><code>SHA-256 ${esc(snapshot.content_hash)}</code>`;
+    const inputLabels = {m1:"1차 투표", deliberation_1:"1차 숙의 검수본", m2:"2차 투표", deliberation_2:"2차 숙의 검수본"};
+    $("process-review-inputs").innerHTML = Object.entries(snapshot.input_hashes || {}).map(([key, hash]) => `<article><strong>${esc(inputLabels[key] || key)}</strong><code>${esc(hash)}</code></article>`).join("") + `<div class="review-flow-arrow" aria-hidden="true">↓</div><article class="review-flow-result"><strong>3개 AI 협의 → 사람 검수·최종 승인 → D안</strong></article>`;
+    $("process-review-steps").innerHTML = snapshot.steps.map((step) => `<section class="step-card review-step"><div class="review-step-number">${esc(step.number)}</div><div><p class="eyebrow">STEP ${esc(step.number)}</p><h2>${esc(step.title)}</h2><p>${esc(step.description)}</p>${reviewDetail(step)}<p class="review-gate"><strong>승인 게이트</strong> ${esc(step.gate)}</p></div></section>`).join("");
+    show("review");
+  } catch (error) {
+    $("error-message").textContent = error.message;
+    $("reset-error").classList.add("hidden");
+    show("error");
   }
 }
 async function register() {

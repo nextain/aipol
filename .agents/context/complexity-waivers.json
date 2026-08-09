@@ -13,10 +13,10 @@
     },
     {
       "path": "event-tool/server.py",
-      "sha256": "sha256:e8edcd254d8695c3f7b3f549157079f1119c7d4b4078a337d23d5e2d40413164",
-      "maxLines": 1928,
-      "maxBytes": 80006,
-      "reason": "This pre-existing FastAPI route module received only the bounded v4 demographics and admin-input endpoints. Router decomposition is deferred to a dedicated compatibility change to avoid altering unrelated production routes during flow recovery.",
+      "sha256": "sha256:9fa99d9a1c0b5a09830f101de4a6eda43bc26f603a02deff7435a59a770a4e72",
+      "maxLines": 1939,
+      "maxBytes": 80437,
+      "reason": "This pre-existing FastAPI route module received the bounded v4 demographics and admin-input endpoints plus one read-only process-review router endpoint. Router decomposition is deferred to a dedicated compatibility change to avoid altering unrelated production routes during flow recovery.",
       "owner": "aipol-maintainers",
       "authorityRef": "source:USR-012#sha256:f491ca2bd80837af34feba6a3fa1ccf48573a74974e0832c2cfb984dd60de28a",
       "expiresOn": "2026-09-07"

@@ -30,7 +30,7 @@ RECEIPT_CONTRACT = {
 }
 MODULES = (
     "server", "db", "aipol_store", "aipol_admin_store", "aipol_audit_checkpoint", "aipol_chat",
-    "aipol_batch", "aipol_receipt", "ai_config", "deliberate", "llm",
+    "aipol_batch", "aipol_receipt", "aipol_process_review", "ai_config", "deliberate", "llm",
 )
 
 
@@ -145,6 +145,65 @@ def _ack_public_result(page, title: str) -> None:
     page.locator("#step-content").filter(has_text=title).wait_for()
     page.locator("#public-result-check").check()
     page.locator("#step-submit").click()
+
+
+def test_process_review_query_renders_read_only_mock_snapshot(tmp_path, monkeypatch):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    uvicorn = pytest.importorskip("uvicorn")
+    event_tool = __import__("pathlib").Path(__file__).parents[1] / "event-tool"
+    monkeypatch.setenv("EVENT_ENV", "development")
+    monkeypatch.setenv("EVENT_DB_PATH", str(tmp_path / "process-review.db"))
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_DB_PATH", str(tmp_path / "isolated-process-review.db"))
+    monkeypatch.setenv("EVENT_SQLITE_NOLOCK", "false")
+    monkeypatch.setenv("EVENT_SESSION_SECRET", "s" * 48)
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_ENABLED", "true")
+    monkeypatch.syspath_prepend(str(event_tool))
+    for name in MODULES:
+        sys.modules.pop(name, None)
+    app_module = importlib.import_module("server")
+
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(
+        app_module.app, host="127.0.0.1", port=port, log_level="warning", lifespan="off"
+    ))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 10
+    while not server.started and time.time() < deadline:
+        time.sleep(0.05)
+    assert server.started
+    base = f"http://127.0.0.1:{port}"
+
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    try:
+        with sync_api.sync_playwright() as runtime:
+            browser = runtime.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.on(
+                "console",
+                lambda message: console_errors.append(message.text) if message.type == "error" else None,
+            )
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            response = page.goto(
+                f"{base}/aipol.html?review=process&dataset=pension-v4-20260808-r1"
+            )
+            assert response and response.status == 200
+            page.locator("#state-review").filter(has_text="프로세스 리뷰 · 목업 DB · 읽기 전용").wait_for()
+            assert page.locator(".review-step").count() == 10
+            assert page.locator(".review-issues > div").count() == 5
+            assert page.locator(".review-council > article").count() == 3
+            assert page.locator("#state-review").inner_text().count("4.1") >= 1
+            assert "개인 연금 계산 정보는 수집하지 않습니다" in page.locator("#state-review").inner_text()
+            assert page.evaluate("localStorage.length") == 0
+            assert console_errors == []
+            assert page_errors == []
+            browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        for name in MODULES:
+            sys.modules.pop(name, None)
 
 
 def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkeypatch):

@@ -44,6 +44,7 @@ _load_env()
 import ai_config as CFG  # noqa: E402
 import db  # noqa: E402
 import aipol_store  # noqa: E402
+import aipol_process_review  # noqa: E402
 import aipol_admin_store  # noqa: E402
 import aipol_chat  # noqa: E402
 import aipol_batch  # noqa: E402
@@ -174,6 +175,7 @@ app = FastAPI(
 )
 db.init()
 db.fail_interrupted_jobs()
+aipol_process_review.init()
 aipol_admin_store.init()
 aipol_audit_checkpoint.configure(
     aipol_audit_checkpoint.store_from_environment(production=PRODUCTION)
@@ -1660,6 +1662,15 @@ def aipol_recover_participant(experiment_id: str, body: dict, request: Request):
 @app.get("/api/aipol/experiments/{experiment_id}/current")
 def aipol_current(experiment_id: str, x_participant_token: str = Header(default="")):
     return _aipol_call(aipol_store.participant_current, experiment_id, x_participant_token)
+
+
+@app.get("/api/aipol/process-reviews/{review_id}")
+def aipol_process_review_snapshot(review_id: str):
+    try:
+        snapshot = aipol_process_review.get(review_id)
+    except KeyError as exc:
+        raise HTTPException(404, "프로세스 리뷰를 찾을 수 없습니다") from exc
+    return JSONResponse(snapshot, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/aipol/experiments/{experiment_id}/consent")

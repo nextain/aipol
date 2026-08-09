@@ -20,6 +20,26 @@
     </header>
     <section id="state-loading" class="state"><div class="spinner" aria-hidden="true"></div><p>현재 단계를 확인하는 중…</p></section>
     <section id="state-error" class="state hidden"><p class="big">진행할 수 없습니다.</p><p id="error-message" class="muted"></p><button id="retry" class="btn-primary">다시 확인</button><button id="reset-error" class="external-link hidden" type="button">다른 참가자로 시작</button></section>
+    <section id="state-review" class="hidden">
+      <div class="step-line">프로세스 리뷰 · 목업 DB · 읽기 전용</div>
+      <section class="step-card review-intro" aria-labelledby="process-review-title">
+        <p class="eyebrow">2026년 8월 8일 22:00 합의 기준</p>
+        <h2 id="process-review-title">연금개혁 숙의 프로세스 리뷰</h2>
+        <p id="process-review-notice" class="stage-note"></p>
+        <p>개인 연금 계산과 개인 영향 단계는 없습니다. D안은 A·B·C와 함께 고르는 네 번째 안이 아니며, 마지막에 수용성과 의견만 별도로 확인합니다.</p>
+        <div id="process-review-integrity" class="review-integrity"></div>
+      </section>
+      <section class="step-card" aria-labelledby="review-flow-title">
+        <h2 id="review-flow-title">D안 승인 입력 흐름</h2>
+        <div id="process-review-inputs" class="review-inputs"></div>
+      </section>
+      <div id="process-review-steps"></div>
+      <section class="step-card" aria-labelledby="review-boundary-title">
+        <h2 id="review-boundary-title">운영 경계</h2>
+        <p><strong>현재 프로세스 리뷰</strong>는 격리된 목업 스냅샷을 DB에서 읽기만 하며 참가자·투표 원장에는 기록하지 않습니다.</p>
+        <p><strong>다음 실제 동작 리뷰</strong>는 어드민이 승인 자료·숙의 요약·AI 협의 기록을 등록한 뒤 같은 참가자 화면과 실제 원장으로 진행합니다.</p>
+      </section>
+    </section>
     <section id="state-start" class="state hidden">
       <p class="big">실험 취지와 진행 안내</p>
       <p>이 실험은 국민연금 개혁안을 시민이 직접 비교하고, 전문가와 AI가 숙의 과정에서 어떤 역할을 하는지 함께 살펴봅니다. AI가 정책을 결정하거나 정답을 제시하지 않으며, 오늘 이 자리에서 확인한 선택과 의견만 기록합니다.</p>

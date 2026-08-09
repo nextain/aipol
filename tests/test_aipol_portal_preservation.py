@@ -103,7 +103,7 @@ def test_pension_case_discovers_the_same_service_v4_review_and_legacy_route_migr
     experiment = BeautifulSoup(experiment_path.read_text("utf-8"), "html.parser")
     assert case.find(
         "a",
-        href="https://session.aipol.kaps.or.kr/aipol-process-review.html",
+        href="https://session.aipol.kaps.or.kr/aipol.html?review=process&dataset=pension-v4-20260808-r1",
         string=lambda value: value and "프로세스 리뷰 시작" in value,
     )
     assert case.find(id="scenario-review")
@@ -112,7 +112,7 @@ def test_pension_case_discovers_the_same_service_v4_review_and_legacy_route_migr
     assert not experiment.find("img", alt="한국정책학회")
     assert not experiment.find("img", alt="Nextain")
     assert experiment.find(
-        "a", href="https://session.aipol.kaps.or.kr/aipol-process-review.html"
+        "a", href="https://session.aipol.kaps.or.kr/aipol.html?review=process&dataset=pension-v4-20260808-r1"
     )
     assert not experiment.find(
         "script", src=lambda value: value and value.startswith("/cases/pension/experiment/assets/")

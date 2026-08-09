@@ -105,7 +105,7 @@ async function openV4Preparation(experiment) {
     <p class="stage-note"><strong>개인 연금 계산·개인 영향 단계는 이 절차에 존재하지 않습니다.</strong> D안은 A/B/C와 별도이며 M3 선택지에도 들어가지 않습니다.</p>
     <p class="stage-note">서명 계정: ${esc(actor || "재로그인 필요")} · ${experiment.collection_enabled ? "수집 ON" : "수집 OFF"} · 등록 ${experiment.registration_open ? "OPEN" : "CLOSED"}</p>
     <p>퍼널: 등록 ${summary.funnel.registered || 0} · M1 ${summary.funnel.M1 || 0} · M2 ${summary.funnel.M2 || 0} · M3 ${summary.funnel.M3 || 0}</p>
-    <div class="action-row"><a href="/aipol-process-review.html" target="_blank" rel="noopener">프로세스 리뷰</a><a href="/aipol.html?experiment=${encodeURIComponent(experiment.id)}" target="_blank" rel="noopener">실제 참가자 화면</a></div>
+    <div class="action-row"><a href="/aipol.html?review=process&amp;dataset=pension-v4-20260808-r1" target="_blank" rel="noopener">프로세스 리뷰</a><a href="/aipol.html?experiment=${encodeURIComponent(experiment.id)}" target="_blank" rel="noopener">실제 참가자 화면</a></div>
     <p id="preparation-status" class="artifact-meta" role="status"></p>
     <details open><summary>0. v4 정본 6종 승인·수집 동결 (${requiredDocuments.length}/6)</summary>
       <p class="stage-note">계산 정본은 요구하지 않습니다. 정책안·측정·개인정보·연구윤리·출처 라이선스·절차 정본만 현재 설정 해시에 묶습니다.</p>
