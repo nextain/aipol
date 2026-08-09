@@ -3849,3 +3849,50 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
             "acceptance": 4,
             "reason": "절충 방향은 수용하지만 재정 추계 한계를 더 밝혀야 합니다.",
         }
+
+
+def test_v4_synthetic_review_resolves_the_same_approved_stage_artifacts(
+    aipol_app, monkeypatch,
+) -> None:
+    """The review-only route must not fall back to legacy v3 artifact kinds."""
+    server, client, db_path = aipol_app
+    headers = _admin_headers(client)
+    experiment = _create(
+        client, headers, suffix="-v4-review-artifacts", procedure_version="v4"
+    )
+    expected = {
+        "E1a": "issue_deliberation",
+        "E2": "ai_opinion",
+        "E1b": "expert_explanation",
+    }
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(db_path) as connection:
+        for index, kind in enumerate(expected.values(), start=1):
+            content = {"title": f"review {kind}", "body": "approved review fixture"}
+            digest = content_hash(content)
+            connection.execute(
+                "INSERT INTO aipol_artifacts VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    f"review-row-{index}", experiment["id"], kind,
+                    f"review-{kind}", "v1", digest,
+                    json.dumps(content, ensure_ascii=False), f"approval-{index}",
+                    "review-approver", now, 0, time.time(),
+                ),
+            )
+            connection.execute(
+                "INSERT INTO aipol_approval_events VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    f"review-approval-{index}", experiment["id"], "artifact", kind,
+                    digest, f"approval-{index}", experiment["created_by"],
+                    "review-approver", now, time.time(),
+                ),
+            )
+    monkeypatch.setattr(server.aipol_store, "_synthetic_review_mode", lambda *_: True)
+    with server.db._conn() as connection:
+        hydrated = server.aipol_store.get_experiment(experiment["id"], connection)
+        for stage, kind in expected.items():
+            row, artifact = server.aipol_store._synthetic_review_artifact(
+                connection, hydrated, {"participant_type": "synthetic"}, stage
+            )
+            assert row["kind"] == kind
+            assert artifact.artifact_id == f"review-{kind}"

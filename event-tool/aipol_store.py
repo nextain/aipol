@@ -5396,6 +5396,21 @@ def _synthetic_review_artifact(
     """Load an approved artifact without opening any real-collection gate."""
     if not _synthetic_review_mode(experiment, participant):
         raise CollectionDisabled("synthetic review mode is not enabled")
+    if _uses_v4_procedure(experiment):
+        kind = {
+            "E1a": ArtifactKind.ISSUE_DELIBERATION.value,
+            "E1b": ArtifactKind.EXPERT_EXPLANATION.value,
+            "E2": ArtifactKind.AI_OPINION.value,
+        }.get(stage)
+        if not kind:
+            raise ExperimentError("v4 합성 검토 자료 단계가 올바르지 않습니다")
+        row = connection.execute(
+            "SELECT * FROM aipol_artifacts WHERE experiment_id=? AND kind=?",
+            (experiment["id"], kind),
+        ).fetchone()
+        if not row:
+            raise ExperimentError("v4 합성 검토용 승인 자료가 없습니다")
+        return row, _parse_artifact(row, connection)
     if stage == "E2":
         row = connection.execute(
             "SELECT * FROM aipol_ai_candidates WHERE experiment_id=? AND candidate_role='fallback'",
