@@ -1,7 +1,7 @@
 {
   "work": "pension-20260808-flow-recovery",
   "status": "in_progress",
-  "current_phase": "issue_acceptance_gap_audit",
+  "current_phase": "deployment_evidence_pending_authorization",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
   "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2",
   "started_at": "2026-08-09T09:00:00+09:00",
@@ -49,7 +49,10 @@
     "The runbook now permits sharing only /cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1, explicitly forbids the host root and legacy pension URL, and records that share soft delete is not an application-consistent review SQLite backup.",
     "The process-review repository now has a dedicated admin-only backup endpoint that reads only the isolated review DB, creates an atomic artifact under /review-data/process-review-backups, performs copy-based restore and integrity checks, validates the synthetic fixture plus review-only identifier namespaces, and prunes only review backups older than the independently configured 1-30 day retention.",
     "The review backup path refuses collision with the operational DB, never uses the operational quiescence/backup directory, and exposes its isolated readiness in /readyz. Focused backup, process-review, and DEV-IaC validation passed 27 tests; Python compilation, Bicep compilation, parameter JSON parsing, and git diff checks passed. No Azure deployment was performed.",
-    "Post-backup-lifecycle full repository regression passed 444 tests with 6 skipped. The only warnings are the pre-existing websockets/uvicorn deprecations emitted by the Playwright server fixture; no product test failed."
+    "Post-backup-lifecycle full repository regression passed 444 tests with 6 skipped. The only warnings are the pre-existing websockets/uvicorn deprecations emitted by the Playwright server fixture; no product test failed.",
+    "The deterministic review fixture now persists the approved three-AI council evidence as review-vc-pension-v4-20260808-r1, validates its exact input, member, synthesis, approval, and content hashes on every startup, and backfills repositories created before the run-evidence row without replacing their append-only binding.",
+    "Review backup restore validation now rejects operational identifiers in experiments, participants, issue-classification runs, council-generation runs, council steps, and approved AI-council runs. Focused process-review and SQLite backup validation passed 10 tests, including legacy binding backfill and proof that the operational database contains no council run.",
+    "Post-run-namespace full repository regression passed 444 tests with 6 skipped. The only warnings are the same pre-existing websockets/uvicorn deprecations; no product test failed. No deployment or external review-pass was performed because deployment authorization is absent and the user explicitly disabled the harness."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -84,5 +87,5 @@
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-10T06:21:00+09:00"
+  "updated_at": "2026-08-10T06:41:08+09:00"
 }
