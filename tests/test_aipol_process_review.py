@@ -135,3 +135,79 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
     finally:
         for name in MODULES:
             sys.modules.pop(name, None)
+
+
+def test_signed_review_session_binds_same_handler_to_review_database(tmp_path, monkeypatch):
+    event_db_path = tmp_path / "event.db"
+    review_db_path = tmp_path / "isolated-process-review.db"
+    monkeypatch.setenv("EVENT_ENV", "development")
+    monkeypatch.setenv("EVENT_DB_PATH", str(event_db_path))
+    monkeypatch.setenv("EVENT_SESSION_SECRET", "s" * 48)
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_DB_PATH", str(review_db_path))
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_SESSION_SECRET", "r" * 48)
+    monkeypatch.syspath_prepend(str(EVENT_TOOL))
+    for name in MODULES:
+        sys.modules.pop(name, None)
+    server = importlib.import_module("server")
+    observed = []
+
+    def participant_current(experiment_id, participant_token):
+        observed.append((experiment_id, participant_token, server.db.active_path()))
+        return {"experiment_id": experiment_id, "participant_token": participant_token}
+
+    monkeypatch.setattr(server.aipol_store, "participant_current", participant_current)
+    try:
+        signed_token = server.aipol_process_review.issue_session_token(
+            server.aipol_process_review.REVIEW_ID,
+            "review-experiment",
+            "internal-participant-token",
+        )
+        with TestClient(server.app) as client:
+            response = client.get(
+                "/api/aipol/experiments/review-experiment/current",
+                headers={"x-participant-token": signed_token},
+            )
+            assert response.status_code == 200
+            assert response.headers["x-aipol-data-class"] == "synthetic-review"
+            assert response.headers["cache-control"] == "no-store"
+            assert observed[-1] == (
+                "review-experiment", "internal-participant-token", review_db_path.resolve()
+            )
+            assert server.db.active_path() == event_db_path
+
+            mismatch = client.get(
+                "/api/aipol/experiments/operational-experiment/current",
+                headers={"x-participant-token": signed_token},
+            )
+            assert mismatch.status_code == 401
+            assert len(observed) == 1
+
+            tampered = client.get(
+                "/api/aipol/experiments/review-experiment/current",
+                headers={"x-participant-token": signed_token[:-1] + ("A" if signed_token[-1] != "A" else "B")},
+            )
+            assert tampered.status_code == 401
+            assert len(observed) == 1
+
+            ordinary = client.get(
+                "/api/aipol/experiments/operational-experiment/current",
+                headers={"x-participant-token": "ordinary-participant-token"},
+            )
+            assert ordinary.status_code == 200
+            assert observed[-1] == (
+                "operational-experiment", "ordinary-participant-token", event_db_path
+            )
+
+        expired = server.aipol_process_review.issue_session_token(
+            server.aipol_process_review.REVIEW_ID,
+            "review-experiment",
+            "internal-participant-token",
+            now=100,
+            ttl_seconds=60,
+        )
+        with pytest.raises(server.aipol_process_review.ReviewSessionError, match="expired"):
+            server.aipol_process_review.verify_session_token(expired, now=160)
+    finally:
+        for name in MODULES:
+            sys.modules.pop(name, None)

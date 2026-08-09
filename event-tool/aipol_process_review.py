@@ -7,14 +7,21 @@ SQLite database and are verified again when read.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import sqlite3
+import time
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import datetime, timezone
 from pathlib import Path
 
 
 REVIEW_ID = "pension-v4-20260808-r1"
+SESSION_TOKEN_PREFIX = "aipr1."
+_SESSION_PAYLOAD_KEYS = frozenset({
+    "v", "review_id", "experiment_id", "participant_token", "iat", "exp",
+})
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS aipol_process_review_events (
@@ -66,6 +73,117 @@ def database_path() -> Path:
         return Path(configured)
     event_path = Path(os.environ.get("EVENT_DB_PATH", "event.db"))
     return event_path.with_name("aipol-process-review.db")
+
+
+class ReviewSessionError(ValueError):
+    """The review-session capability is missing, invalid, or expired."""
+
+
+def _session_secret() -> bytes:
+    value = os.environ.get("AIPOL_PROCESS_REVIEW_SESSION_SECRET", "")
+    if len(value.encode("utf-8")) < 32:
+        raise ReviewSessionError("process review session secret is not configured")
+    return value.encode("utf-8")
+
+
+def _session_ttl_limit() -> int:
+    try:
+        value = int(os.environ.get("AIPOL_PROCESS_REVIEW_SESSION_MAX_TTL_SECONDS", "3600"))
+    except ValueError as exc:
+        raise ReviewSessionError("process review session TTL is invalid") from exc
+    if value < 60 or value > 86_400:
+        raise ReviewSessionError("process review session TTL is outside the allowed range")
+    return value
+
+
+def _b64encode(value: bytes) -> str:
+    return urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _b64decode(value: str) -> bytes:
+    try:
+        padding = "=" * (-len(value) % 4)
+        return urlsafe_b64decode((value + padding).encode("ascii"))
+    except (ValueError, UnicodeEncodeError) as exc:
+        raise ReviewSessionError("process review session token is malformed") from exc
+
+
+def _valid_identifier(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= 128
+        and all(character.isalnum() or character in "-_" for character in value)
+    )
+
+
+def issue_session_token(
+    review_id: str,
+    experiment_id: str,
+    participant_token: str,
+    *,
+    now: int | None = None,
+    ttl_seconds: int = 1800,
+) -> str:
+    """Issue a short-lived capability bound to one approved review experiment."""
+    if not enabled() or review_id != REVIEW_ID:
+        raise ReviewSessionError("process review session is not available")
+    if not _valid_identifier(experiment_id) or not participant_token:
+        raise ReviewSessionError("process review session binding is invalid")
+    ttl_limit = _session_ttl_limit()
+    if not isinstance(ttl_seconds, int) or ttl_seconds < 60 or ttl_seconds > ttl_limit:
+        raise ReviewSessionError("process review session TTL is outside the allowed range")
+    issued_at = int(time.time()) if now is None else int(now)
+    payload = {
+        "v": 1,
+        "review_id": review_id,
+        "experiment_id": experiment_id,
+        "participant_token": participant_token,
+        "iat": issued_at,
+        "exp": issued_at + ttl_seconds,
+    }
+    encoded_payload = _b64encode(_canonical(payload).encode("utf-8"))
+    signature = hmac.new(
+        _session_secret(), encoded_payload.encode("ascii"), hashlib.sha256
+    ).digest()
+    return f"{SESSION_TOKEN_PREFIX}{encoded_payload}.{_b64encode(signature)}"
+
+
+def verify_session_token(token: str, *, now: int | None = None) -> dict:
+    """Verify and unpack a review capability without exposing it to stores."""
+    if not enabled() or not isinstance(token, str) or not token.startswith(SESSION_TOKEN_PREFIX):
+        raise ReviewSessionError("process review session token is invalid")
+    parts = token[len(SESSION_TOKEN_PREFIX):].split(".")
+    if len(parts) != 2 or not all(parts):
+        raise ReviewSessionError("process review session token is malformed")
+    encoded_payload, encoded_signature = parts
+    expected = hmac.new(
+        _session_secret(), encoded_payload.encode("ascii"), hashlib.sha256
+    ).digest()
+    if not hmac.compare_digest(expected, _b64decode(encoded_signature)):
+        raise ReviewSessionError("process review session signature is invalid")
+    try:
+        payload = json.loads(_b64decode(encoded_payload).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReviewSessionError("process review session payload is invalid") from exc
+    if not isinstance(payload, dict) or set(payload) != _SESSION_PAYLOAD_KEYS:
+        raise ReviewSessionError("process review session payload contract is invalid")
+    if (
+        payload.get("v") != 1
+        or payload.get("review_id") != REVIEW_ID
+        or not _valid_identifier(payload.get("experiment_id"))
+        or not isinstance(payload.get("participant_token"), str)
+        or not payload["participant_token"]
+        or not isinstance(payload.get("iat"), int)
+        or not isinstance(payload.get("exp"), int)
+    ):
+        raise ReviewSessionError("process review session binding is invalid")
+    current = int(time.time()) if now is None else int(now)
+    ttl = payload["exp"] - payload["iat"]
+    if ttl < 60 or ttl > _session_ttl_limit() or payload["iat"] > current + 30:
+        raise ReviewSessionError("process review session lifetime is invalid")
+    if current >= payload["exp"]:
+        raise ReviewSessionError("process review session has expired")
+    return payload
 
 
 def _conn() -> sqlite3.Connection:

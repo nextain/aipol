@@ -336,7 +336,32 @@ async def production_guards(request: Request, call_next):
                 return JSONResponse({"detail": "요청이 너무 큽니다"}, status_code=413)
         except ValueError:
             return JSONResponse({"detail": "Content-Length 형식이 올바르지 않습니다"}, status_code=400)
-    response = await call_next(request)
+    participant_token = request.headers.get("x-participant-token", "")
+    review_binding = None
+    if participant_token.startswith(aipol_process_review.SESSION_TOKEN_PREFIX):
+        try:
+            review_binding = aipol_process_review.verify_session_token(participant_token)
+        except aipol_process_review.ReviewSessionError:
+            return JSONResponse({"detail": "리뷰 세션이 유효하지 않습니다"}, status_code=401)
+        prefix = "/api/aipol/experiments/"
+        remainder = request.url.path[len(prefix):] if request.url.path.startswith(prefix) else ""
+        requested_experiment_id = remainder.split("/", 1)[0] if "/" in remainder else ""
+        if requested_experiment_id != review_binding["experiment_id"]:
+            return JSONResponse({"detail": "리뷰 세션의 실험 범위가 일치하지 않습니다"}, status_code=401)
+        review_path = aipol_process_review.database_path().resolve()
+        if review_path == db.DB_PATH.resolve():
+            return JSONResponse({"detail": "리뷰 저장소 격리가 구성되지 않았습니다"}, status_code=503)
+        request.scope["headers"] = [
+            (key, review_binding["participant_token"].encode("latin-1"))
+            if key.lower() == b"x-participant-token" else (key, value)
+            for key, value in request.scope["headers"]
+        ]
+        with db.use_database(review_path):
+            response = await call_next(request)
+        response.headers["X-AIPOL-Data-Class"] = "synthetic-review"
+        response.headers["Cache-Control"] = "no-store"
+    else:
+        response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"

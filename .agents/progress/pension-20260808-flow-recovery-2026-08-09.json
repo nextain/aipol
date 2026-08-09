@@ -1,7 +1,7 @@
 {
   "work": "pension-20260808-flow-recovery",
   "status": "in_progress",
-  "current_phase": "final_regression",
+  "current_phase": "review_session_binding",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
   "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2",
   "started_at": "2026-08-09T09:00:00+09:00",
@@ -34,7 +34,10 @@
     "The earlier monolithic mock-snapshot review evidence is superseded: the review query now reconstructs one physically isolated synthetic event from append-only event, seven-input, and ten-step rows, verifies each row hash and the assembled event hash, and never creates those tables in the participant database.",
     "Expert explanation release now requires an append-only draft bound to the currently approved D artifact hash, exact before/after field diff, public modification reason, non-empty public Q&A, the experiment editor identity, and approval by a different authorized operator. Generic expert artifact injection fails closed.",
     "The participant D screen exposes the real aggregate cohort type and N, public source provenance, constraint verdicts and three-AI outputs; the following expert screen exposes the approved before/after diff, public reason, Q&A, editor/draft time and separate approver/approval time.",
-    "Expert-diff and isolated-review focused validation passed: Python compilation, JavaScript syntax checks, git diff checks, two core API contract tests, six route/preview contracts, and the Playwright synthetic-event review passed without console or page errors."
+    "Expert-diff and isolated-review focused validation passed: Python compilation, JavaScript syntax checks, git diff checks, two core API contract tests, six route/preview contracts, and the Playwright synthetic-event review passed without console or page errors.",
+    "Issue #7's latest acceptance contract supersedes the read-only snapshot as the completion target: an interactive synthetic review must use the same participant handlers and state transitions while a server-issued short-lived session fixes all repository access to a separately configured review database.",
+    "The v4 synthetic artifact resolver drift was corrected in commit 6e53137: E1a resolves ISSUE_DELIBERATION, E2 resolves AI_OPINION, E1b resolves EXPERT_EXPLANATION, and unsupported v4 stages fail closed.",
+    "Request-local database binding was added in commit 6531860 and is restored after each context. The signed review-session routing phase now binds one approved review id and experiment id, unwraps the internal participant token only inside the server, rejects tampering, expiry, cross-experiment use, and any review/operational database path collision; focused process-review tests passed 2 tests."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -65,5 +68,5 @@
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-10T04:34:08+09:00"
+  "updated_at": "2026-08-10T05:03:06+09:00"
 }
