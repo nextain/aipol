@@ -1061,6 +1061,58 @@ def aipol_admin_v4_deliberation(
     )
 
 
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-expert-review/draft")
+def aipol_admin_v4_expert_review_draft(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    editor_by = require_aipol_mutation(x_admin_token, Action.EDIT_KNOWLEDGE)
+    _require_exact_contract(
+        body, {"after_content", "public_reason", "qna"}, set(), "v4 expert review draft"
+    )
+    if not isinstance(body.get("after_content"), dict) or not isinstance(
+        body.get("public_reason"), str
+    ) or not isinstance(body.get("qna"), list):
+        raise HTTPException(400, "전문가 수정본·공개 사유·질의응답 형식이 올바르지 않습니다")
+    result = _aipol_call(
+        aipol_store.draft_v4_expert_review,
+        experiment_id,
+        after_content=body["after_content"],
+        public_reason=body["public_reason"],
+        qna=body["qna"],
+        editor_by=editor_by,
+    )
+    return _audit_experiment_mutation(
+        editor_by, "experiment.v4_expert_review.drafted", experiment_id, result
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-expert-review/approve")
+def aipol_admin_v4_expert_review_approve(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    approved_by = require_aipol_mutation(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    _require_exact_contract(
+        body,
+        {"declared_content_hash", "artifact_id", "artifact_version", "approval_id"},
+        set(),
+        "v4 expert review approval",
+    )
+    if not all(isinstance(body.get(key), str) for key in body):
+        raise HTTPException(400, "전문가 수정 승인 필드는 문자열이어야 합니다")
+    result = _aipol_call(
+        aipol_store.approve_v4_expert_review,
+        experiment_id,
+        declared_content_hash=body["declared_content_hash"],
+        artifact_id=body["artifact_id"],
+        artifact_version=body["artifact_version"],
+        approval_id=body["approval_id"],
+        approved_by=approved_by,
+    )
+    return _audit_experiment_mutation(
+        approved_by, "experiment.v4_expert_review.approved", experiment_id, result
+    )
+
+
 @app.post("/api/admin/aipol/experiments/{experiment_id}/v4-issue-classification/run")
 def aipol_admin_v4_issue_classification_run(
     experiment_id: str, body: dict, x_admin_token: str = Header(default="")

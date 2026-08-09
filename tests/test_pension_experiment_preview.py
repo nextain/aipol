@@ -18,7 +18,7 @@ def test_process_review_is_a_parameterized_state_in_the_real_service() -> None:
     document = BeautifulSoup((WEB / "aipol.html").read_text(encoding="utf-8"), "html.parser")
     assert document.select_one('meta[name="robots"]')["content"] == "noindex,nofollow,noarchive"
     assert document.find(id="state-review")
-    assert "목업 DB · 읽기 전용" in document.get_text(" ", strip=True)
+    assert "합성 이벤트 DB · 읽기 전용" in document.get_text(" ", strip=True)
     assert document.find("script", src="/aipol.js")
     assert document.find("link", href="/aipol.css")
     script = PARTICIPANT_SCRIPT.read_text(encoding="utf-8")
@@ -33,7 +33,7 @@ def test_process_review_renderer_contains_the_approved_v4_contract_markers() -> 
         "D안 승인 입력 흐름",
         "3개 AI 협의",
         "사람 검수·최종 승인",
-        "격리된 읽기 전용 목업 스냅샷",
+        "격리된 읽기 전용 합성 이벤트",
         "10단계 프로세스 계약",
     ):
         assert marker in text or marker in (WEB / "aipol.html").read_text(encoding="utf-8")

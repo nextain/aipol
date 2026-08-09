@@ -18,7 +18,7 @@ MODULES = (
 )
 
 
-def test_process_review_snapshot_is_flagged_isolated_and_append_only(tmp_path, monkeypatch):
+def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monkeypatch):
     event_db_path = tmp_path / "event.db"
     review_db_path = tmp_path / "isolated-process-review.db"
     monkeypatch.setenv("EVENT_ENV", "development")
@@ -68,15 +68,22 @@ def test_process_review_snapshot_is_flagged_isolated_and_append_only(tmp_path, m
             assert response.status_code == 200
             assert response.headers["cache-control"] == "no-store"
             snapshot = response.json()
-            assert snapshot["fixture"] == {
-                "kind": "mock", "read_only": True, "participant_count": 40,
+            assert snapshot["cohort"] == {
+                "kind": "synthetic_review", "read_only": True, "participant_count": 40,
             }
             assert [step["number"] for step in snapshot["steps"]] == list(range(1, 11))
             assert len(snapshot["steps"][3]["issues"]) == 5
             assert set(snapshot["input_hashes"]) == {
-                "m1", "deliberation_1", "m2", "deliberation_2",
+                "source_bundle", "constraints", "m1", "deliberation_1",
+                "five_issues", "m2", "deliberation_2",
             }
             assert len(snapshot["steps"][6]["council"]) == 3
+            assert snapshot["steps"][6]["cohort"] == {
+                "participant_type": "synthetic_review", "participant_count": 40,
+            }
+            assert len(snapshot["steps"][6]["constraint_verdicts"]) == 2
+            assert len(snapshot["steps"][7]["expert_review"]["field_diff"]) == 3
+            assert snapshot["steps"][7]["expert_review"]["approved_by"] != snapshot["steps"][7]["expert_review"]["editor_by"]
             assert snapshot["steps"][8]["d_acceptability"]["response_count"] == 40
             assert "개인 연금 계산" in snapshot["forbidden_stages"]
             assert len(snapshot["content_hash"]) == 64
@@ -88,22 +95,33 @@ def test_process_review_snapshot_is_flagged_isolated_and_append_only(tmp_path, m
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
-            assert "aipol_process_review_snapshots" not in tables
+            assert not tables.intersection({
+                "aipol_process_review_events", "aipol_process_review_inputs",
+                "aipol_process_review_steps",
+            })
 
         with sqlite3.connect(review_db_path) as connection:
             row = connection.execute(
-                "SELECT fixture_kind, content_hash FROM aipol_process_review_snapshots WHERE id=?",
+                "SELECT cohort_type, content_hash FROM aipol_process_review_events WHERE id=?",
                 (snapshot["review_id"],),
             ).fetchone()
-            assert row == ("mock", snapshot["content_hash"])
+            assert row == ("synthetic_review", snapshot["content_hash"])
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_process_review_inputs WHERE review_id=?",
+                (snapshot["review_id"],),
+            ).fetchone()[0] == 7
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_process_review_steps WHERE review_id=?",
+                (snapshot["review_id"],),
+            ).fetchone()[0] == 10
             with pytest.raises(sqlite3.IntegrityError, match="append-only"):
                 connection.execute(
-                    "UPDATE aipol_process_review_snapshots SET contract_version='drift' WHERE id=?",
+                    "UPDATE aipol_process_review_events SET contract_version='drift' WHERE id=?",
                     (snapshot["review_id"],),
                 )
             with pytest.raises(sqlite3.IntegrityError, match="append-only"):
                 connection.execute(
-                    "DELETE FROM aipol_process_review_snapshots WHERE id=?",
+                    "DELETE FROM aipol_process_review_steps WHERE review_id=?",
                     (snapshot["review_id"],),
                 )
     finally:

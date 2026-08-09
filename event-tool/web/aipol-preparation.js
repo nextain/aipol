@@ -92,6 +92,7 @@ async function openV4Preparation(experiment) {
   const councilRun = inputs.generation_runs?.ai_council || null;
   const dInputDraft = inputs.d_input_draft || null;
   const dInputSet = inputs.d_input_set || null;
+  const expertDraft = inputs.expert_review_draft || null;
   const issueRunCards = (issueRun?.issues || []).map((item) => `
     <article class="proposal-card"><strong>${esc(item.title)}</strong>
       <p>${esc(item.summary)}</p><p class="artifact-meta">실제 M1 의견 ${esc(item.opinion_count)}건 · ${esc(item.issue_id)}</p>
@@ -154,7 +155,7 @@ async function openV4Preparation(experiment) {
           ${field("v4-d-id", "D안 자료 ID", "text", "pension-council-d")}${field("v4-d-version", "D안 버전", "text", experiment.experiment_version)}${field("v4-d-approval", "사람 승인 ID")}<button type="button" id="approve-v4-d" class="btn-primary">이 3-AI 협의 결과를 사람 승인</button>` : ""}`}
     </details>
     <details open><summary>5. 전문가 D안 설명·한계·질의응답 안내 승인</summary>
-      ${artifact.expert_explanation ? `<p class="artifact-meta">승인 완료 · ${esc(artifact.expert_explanation.content_hash)} · ${esc(artifact.expert_explanation.approved_by)}</p>` : `${field("v4-expert-id", "자료 ID", "text", "pension-d-expert")}${field("v4-expert-version", "자료 버전", "text", experiment.experiment_version)}${field("v4-expert-title", "제목", "text", "D안의 의의와 한계")}${prepTextarea("v4-expert-body", "전문가 설명·한계·질의응답 안내")}${field("v4-expert-approval", "사람 승인 ID")}<button type="button" id="save-v4-expert" class="btn-primary">전문가 설명 승인</button>`}
+      ${artifact.expert_explanation ? `<p class="artifact-meta">승인 완료 · ${esc(artifact.expert_explanation.content_hash)} · ${esc(artifact.expert_explanation.approved_by)} · ${esc(artifact.expert_explanation.approved_at)}</p>` : expertDraft ? `<p class="artifact-meta">편집자 ${esc(expertDraft.editor_by)} · 초안 해시 ${esc(expertDraft.content_hash)} · ${esc(expertDraft.drafted_at)}</p><pre class="artifact-meta">${esc(JSON.stringify(expertDraft.field_diff, null, 2))}</pre><p>${esc(expertDraft.public_reason)}</p><pre class="artifact-meta">${esc(JSON.stringify(expertDraft.qna, null, 2))}</pre>${field("v4-expert-id", "자료 ID", "text", "pension-d-expert")}${field("v4-expert-version", "자료 버전", "text", experiment.experiment_version)}${field("v4-expert-approval", "별도 승인 ID")}<button type="button" id="approve-v4-expert" class="btn-primary">동일 초안 해시 재검증 후 승인</button>` : `<fieldset ${isEditor ? "" : "disabled"}><legend>전문가 편집자 수정 초안</legend>${field("v4-expert-title", "수정 제목", "text", "D안의 의의와 한계")}${prepTextarea("v4-expert-body", "수정 본문")}${prepTextarea("v4-expert-limitations", "수정 한계")}${prepTextarea("v4-expert-reason", "공개 수정 사유")}${prepTextarea("v4-expert-qna", "공개 Q&A JSON", '[{"question":"이 안의 핵심 한계는 무엇인가요?","answer":"장기 추계 가정에 따라 결과가 달라질 수 있습니다."}]')}<button type="button" id="draft-v4-expert" class="btn-primary">전문가 수정 초안 등록</button></fieldset>`}
     </details>`;
   $("preview-canonical").onclick = previewCanonical;
   $("register-canonical-draft").onclick = registerCanonicalDraft;
@@ -172,7 +173,8 @@ async function openV4Preparation(experiment) {
   if ($("approve-v4-issues")) $("approve-v4-issues").onclick = () => approveV4Issues(issueRun.run_id);
   if ($("run-v4-council")) $("run-v4-council").onclick = runV4Council;
   if ($("approve-v4-d")) $("approve-v4-d").onclick = () => approveV4D(councilRun.run_id);
-  if ($("save-v4-expert")) $("save-v4-expert").onclick = saveV4Expert;
+  if ($("draft-v4-expert")) $("draft-v4-expert").onclick = draftV4Expert;
+  if ($("approve-v4-expert")) $("approve-v4-expert").onclick = () => approveV4Expert(expertDraft.content_hash);
 }
 
 async function draftV4DInputs() {
@@ -237,9 +239,16 @@ async function approveV4D(runId) {
   } catch (error) { $("admin-error").textContent = error.message; }
 }
 
-async function saveV4Expert() {
+async function draftV4Expert() {
   try {
-    await saveV4Artifact({kind: "expert_explanation", artifact_id: $("v4-expert-id").value.trim(), artifact_version: $("v4-expert-version").value.trim(), content: {title: $("v4-expert-title").value.trim(), body: $("v4-expert-body").value.trim()}, approval_id: $("v4-expert-approval").value.trim()});
+    await api(`/api/admin/aipol/experiments/${selected.id}/v4-expert-review/draft`, {method: "POST", body: JSON.stringify({after_content: {title: $("v4-expert-title").value.trim(), body: $("v4-expert-body").value.trim(), limitations: $("v4-expert-limitations").value.trim()}, public_reason: $("v4-expert-reason").value.trim(), qna: prepArray("v4-expert-qna", "공개 Q&A")})});
+    await refreshPreparation();
+  } catch (error) { $("admin-error").textContent = error.message; }
+}
+
+async function approveV4Expert(contentHash) {
+  try {
+    await api(`/api/admin/aipol/experiments/${selected.id}/v4-expert-review/approve`, {method: "POST", body: JSON.stringify({declared_content_hash: contentHash, artifact_id: $("v4-expert-id").value.trim(), artifact_version: $("v4-expert-version").value.trim(), approval_id: $("v4-expert-approval").value.trim()})});
     await refreshPreparation();
   } catch (error) { $("admin-error").textContent = error.message; }
 }

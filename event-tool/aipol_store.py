@@ -537,6 +537,22 @@ CREATE TABLE IF NOT EXISTS aipol_v4_d_input_sets (
   FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
 );
 
+CREATE TABLE IF NOT EXISTS aipol_v4_expert_review_drafts (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL UNIQUE,
+  d_artifact_hash TEXT NOT NULL CHECK(length(d_artifact_hash)=64),
+  before_content TEXT NOT NULL,
+  after_content TEXT NOT NULL,
+  field_diff TEXT NOT NULL,
+  public_reason TEXT NOT NULL CHECK(length(trim(public_reason)) > 0),
+  qna TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  editor_by TEXT NOT NULL,
+  drafted_at TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
 CREATE TABLE IF NOT EXISTS aipol_v4_issue_classification_runs (
   id TEXT PRIMARY KEY,
   experiment_id TEXT NOT NULL,
@@ -917,6 +933,10 @@ CREATE TRIGGER IF NOT EXISTS aipol_v4_d_input_sets_no_update
 BEFORE UPDATE ON aipol_v4_d_input_sets BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_v4_d_input_sets_no_delete
 BEFORE DELETE ON aipol_v4_d_input_sets BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_expert_review_drafts_no_update
+BEFORE UPDATE ON aipol_v4_expert_review_drafts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_expert_review_drafts_no_delete
+BEFORE DELETE ON aipol_v4_expert_review_drafts BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_ai_candidates_no_update
 BEFORE UPDATE ON aipol_ai_candidates BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_ai_candidates_no_delete
@@ -3300,6 +3320,9 @@ def v4_admin_inputs(experiment_id: str) -> dict:
         input_set = connection.execute(
             "SELECT * FROM aipol_v4_d_input_sets WHERE experiment_id=?", (experiment_id,)
         ).fetchone()
+        expert_draft = connection.execute(
+            "SELECT * FROM aipol_v4_expert_review_drafts WHERE experiment_id=?", (experiment_id,)
+        ).fetchone()
         input_draft_public = _v4_d_input_set_public(input_draft) if input_draft else None
         input_set_public = _v4_d_input_set_public(input_set, connection) if input_set else None
     by_round = {row["round_id"]: row for row in deliberations}
@@ -3322,12 +3345,155 @@ def v4_admin_inputs(experiment_id: str) -> dict:
         },
         "d_input_draft": input_draft_public,
         "d_input_set": input_set_public,
+        "expert_review_draft": _v4_expert_review_draft_public(expert_draft) if expert_draft else None,
         "artifacts": artifacts,
         "generation_runs": {
             "issue_classification": issue_run,
             "ai_council": council_run,
         },
     }
+
+
+def _v4_expert_review_draft_public(row: sqlite3.Row | dict) -> dict:
+    value = dict(row)
+    for key in ("before_content", "after_content", "field_diff", "qna"):
+        value[key] = json.loads(value[key]) if isinstance(value[key], str) else value[key]
+    return value
+
+
+def _v4_expert_artifact_content(draft: dict) -> dict:
+    return {
+        **draft["after_content"],
+        "d_artifact_hash": draft["d_artifact_hash"],
+        "before": draft["before_content"],
+        "after": draft["after_content"],
+        "field_diff": draft["field_diff"],
+        "public_reason": draft["public_reason"],
+        "qna": draft["qna"],
+        "expert_review": {
+            "draft_hash": draft["content_hash"],
+            "editor_by": draft["editor_by"],
+            "drafted_at": draft["drafted_at"],
+        },
+        "human_reviewed": True,
+    }
+
+
+def draft_v4_expert_review(
+    experiment_id: str,
+    *,
+    after_content: dict,
+    public_reason: str,
+    qna: list[dict],
+    editor_by: str,
+) -> dict:
+    if set(after_content) != {"title", "body", "limitations"} or any(
+        not isinstance(after_content[key], str) or not after_content[key].strip()
+        for key in after_content
+    ):
+        raise ExperimentError("전문가 수정본에는 제목·본문·한계를 정확히 입력해야 합니다")
+    normalized_after = {key: after_content[key].strip() for key in ("title", "body", "limitations")}
+    reason = public_reason.strip()
+    if not reason:
+        raise ExperimentError("전문가 수정 공개 사유가 필요합니다")
+    if not isinstance(qna, list) or not qna:
+        raise ExperimentError("공개 질의응답이 하나 이상 필요합니다")
+    normalized_qna = []
+    for item in qna:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"question", "answer"}
+            or not all(isinstance(item[key], str) and item[key].strip() for key in item)
+        ):
+            raise ExperimentError("질의응답은 비어 있지 않은 question·answer만 포함해야 합니다")
+        normalized_qna.append({key: item[key].strip() for key in ("question", "answer")})
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("전문가 D안 검토는 v4 절차에서만 사용할 수 있습니다")
+        if editor_by != experiment.get("created_by"):
+            raise ExperimentError("실험의 서명된 편집자만 전문가 수정 초안을 등록할 수 있습니다")
+        d_row = connection.execute(
+            "SELECT * FROM aipol_artifacts WHERE experiment_id=? AND kind=?",
+            (experiment_id, ArtifactKind.AI_OPINION.value),
+        ).fetchone()
+        if not d_row:
+            raise ExperimentError("승인된 D안 뒤에 전문가 수정 초안을 등록할 수 있습니다")
+        _parse_artifact(d_row, connection)
+        d_content = json.loads(d_row["content"])
+        before = {
+            key: str(d_content.get(key) or "").strip()
+            for key in ("title", "body", "limitations")
+        }
+        field_diff = [
+            {"field": key, "before": before[key], "after": normalized_after[key]}
+            for key in ("title", "body", "limitations")
+            if before[key] != normalized_after[key]
+        ]
+        if not field_diff:
+            raise ExperimentError("전문가 수정본은 승인된 D안에서 한 필드 이상 변경해야 합니다")
+        drafted_at = datetime.now(timezone.utc).isoformat()
+        envelope = {
+            "d_artifact_hash": d_row["content_hash"],
+            "before_content": before,
+            "after_content": normalized_after,
+            "field_diff": field_diff,
+            "public_reason": reason,
+            "qna": normalized_qna,
+            "editor_by": editor_by,
+            "drafted_at": drafted_at,
+        }
+        digest = content_hash(envelope)
+        try:
+            connection.execute(
+                "INSERT INTO aipol_v4_expert_review_drafts(id,experiment_id,d_artifact_hash,"
+                "before_content,after_content,field_diff,public_reason,qna,content_hash,editor_by,"
+                "drafted_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    _id("verd"), experiment_id, d_row["content_hash"], _json(before),
+                    _json(normalized_after), _json(field_diff), reason, _json(normalized_qna),
+                    digest, editor_by, drafted_at, time.time(),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ImmutableRecordConflict("전문가 수정 초안은 등록 뒤 교체할 수 없습니다") from exc
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_expert_review_drafts WHERE experiment_id=?", (experiment_id,)
+        ).fetchone()
+        public = _v4_expert_review_draft_public(row)
+    return public
+
+
+def approve_v4_expert_review(
+    experiment_id: str,
+    *,
+    declared_content_hash: str,
+    artifact_id: str,
+    artifact_version: str,
+    approval_id: str,
+    approved_by: str,
+) -> dict:
+    with db._conn() as connection:
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_expert_review_drafts WHERE experiment_id=?", (experiment_id,)
+        ).fetchone()
+        if not row or not hmac.compare_digest(str(row["content_hash"]), declared_content_hash):
+            raise ExperimentError("승인할 전문가 수정 초안 해시가 서버 초안과 다릅니다")
+        draft = _v4_expert_review_draft_public(row)
+        if draft["editor_by"] == approved_by:
+            raise ExperimentError("전문가 수정 편집자와 승인자는 서로 달라야 합니다")
+    return set_artifact(
+        experiment_id,
+        kind=ArtifactKind.EXPERT_EXPLANATION.value,
+        artifact_id=artifact_id,
+        artifact_version=artifact_version,
+        content=_v4_expert_artifact_content(draft),
+        approval_id=approval_id,
+        approved_by=approved_by,
+        registered_by=approved_by,
+        v4_expert_draft_hash=declared_content_hash,
+    )
 
 
 def _v4_required_d_inputs(connection: sqlite3.Connection, experiment_id: str) -> tuple[dict, dict]:
@@ -3425,6 +3591,10 @@ def v4_council_generation_input(experiment_id: str) -> dict:
 def _v4_d_input_snapshot(approved_inputs: dict) -> dict:
     issue = approved_inputs["five_issues"]
     return {
+        "cohort": {
+            "participant_type": "real",
+            "participant_count": approved_inputs["m2"]["participant_count"],
+        },
         "source_bundle": approved_inputs["source_bundle"],
         "constraint_set": approved_inputs["constraints"],
         "five_issues": {
@@ -4429,6 +4599,7 @@ def set_artifact(
     approved_by: str,
     registered_by: str,
     fallback_used: bool = False,
+    v4_expert_draft_hash: str | None = None,
 ) -> dict:
     artifact_kind = ArtifactKind(kind)
     if artifact_kind is ArtifactKind.PERSONAL_COMPARISON:
@@ -4462,6 +4633,27 @@ def set_artifact(
         is_v4 = _uses_v4_procedure(experiment)
         if artifact_kind is ArtifactKind.PERSONAL_COMPARISON and is_v4:
             raise ExperimentError("v4 절차에는 개인 연금 계산·개인 영향 자료를 등록할 수 없습니다")
+        if artifact_kind is ArtifactKind.EXPERT_EXPLANATION and is_v4:
+            if not v4_expert_draft_hash:
+                raise ExperimentError("v4 전문가 설명은 수정 초안·별도 승인 API를 사용해야 합니다")
+            draft_row = connection.execute(
+                "SELECT * FROM aipol_v4_expert_review_drafts WHERE experiment_id=?",
+                (experiment_id,),
+            ).fetchone()
+            if (
+                not draft_row
+                or not hmac.compare_digest(str(draft_row["content_hash"]), v4_expert_draft_hash)
+                or content != _v4_expert_artifact_content(_v4_expert_review_draft_public(draft_row))
+            ):
+                raise ExperimentError("전문가 승인 내용이 서버 수정 초안과 다릅니다")
+            d_row = connection.execute(
+                "SELECT content_hash FROM aipol_artifacts WHERE experiment_id=? AND kind=?",
+                (experiment_id, ArtifactKind.AI_OPINION.value),
+            ).fetchone()
+            if not d_row or not hmac.compare_digest(
+                str(d_row["content_hash"]), str(content.get("d_artifact_hash") or "")
+            ):
+                raise ExperimentError("전문가 수정 초안이 현재 승인된 D안과 다릅니다")
         if artifact_kind is ArtifactKind.AI_OPINION and not is_v4:
             raise ExperimentError("AI 의견은 primary/fallback 후보 등록 API를 사용해야 합니다")
         if artifact_kind is ArtifactKind.ISSUE_DELIBERATION and not is_v4:

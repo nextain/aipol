@@ -147,7 +147,7 @@ def _ack_public_result(page, title: str) -> None:
     page.locator("#step-submit").click()
 
 
-def test_process_review_query_renders_read_only_mock_snapshot(tmp_path, monkeypatch):
+def test_process_review_query_renders_stored_read_only_synthetic_event(tmp_path, monkeypatch):
     sync_api = pytest.importorskip("playwright.sync_api")
     uvicorn = pytest.importorskip("uvicorn")
     event_tool = __import__("pathlib").Path(__file__).parents[1] / "event-tool"
@@ -189,10 +189,12 @@ def test_process_review_query_renders_read_only_mock_snapshot(tmp_path, monkeypa
                 f"{base}/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1"
             )
             assert response and response.status == 200
-            page.locator("#state-review").filter(has_text="프로세스 리뷰 · 목업 DB · 읽기 전용").wait_for()
+            page.locator("#state-review").filter(has_text="프로세스 리뷰 · 합성 이벤트 DB · 읽기 전용").wait_for()
             assert page.locator(".review-step").count() == 10
-            assert page.locator(".review-issues > div").count() == 5
+            assert page.locator(".review-step").nth(3).locator(".review-issues > div").count() == 5
+            assert page.locator(".review-step").nth(6).locator(".review-issues > div").count() == 2
             assert page.locator(".review-council > article").count() == 3
+            assert "전문가 수정 전후" in page.locator(".review-step").nth(7).inner_text()
             assert page.locator("#state-review").inner_text().count("4.1") >= 1
             assert "개인 연금 계산 정보는 수집하지 않습니다" in page.locator("#state-review").inner_text()
             assert page.evaluate("localStorage.length") == 0

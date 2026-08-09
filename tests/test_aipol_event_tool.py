@@ -3694,9 +3694,12 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
         for item in d_artifact.json()["content"]["constraint_verdicts"]
     } == {"hard-no-personal-calculation", "soft-balance"}
     assert d_artifact.json()["content"]["input_snapshot"]["source_bundle"]["publicity"] == "public"
+    assert d_artifact.json()["content"]["input_snapshot"]["cohort"] == {
+        "participant_type": "real", "participant_count": 1,
+    }
     assert d_artifact.json()["content"]["input_snapshot"]["constraint_set"]["hard"] == hard_constraints
     assert len(d_artifact.json()["content"]["input_snapshot"]["five_issues"]["content"]["issues"]) == 5
-    expert = client.post(
+    direct_expert = client.post(
         f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
         headers=headers,
         json={
@@ -3709,10 +3712,61 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
             "fallback_used": False,
         },
     )
+    assert direct_expert.status_code == 400
+    assert "수정 초안·별도 승인" in direct_expert.text
+    expert_draft = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-expert-review/draft",
+        headers=editor_headers,
+        json={
+            "after_content": {
+                "title": "D안 전문가 설명",
+                "body": "협의 과정과 시민 의견 반영 근거를 전문가가 명확히 설명합니다.",
+                "limitations": "장기 재정 추계 가정과 세부 시행령은 추가 검토가 필요합니다.",
+            },
+            "public_reason": "시민이 AI 초안과 전문가 수정의 차이를 직접 검증할 수 있도록 보완했습니다.",
+            "qna": [{
+                "question": "D안은 A·B·C와 별도의 선택지인가요?",
+                "answer": "아니요. D안 수용도는 A·B·C 최종 선택과 별도로 묻습니다.",
+            }],
+        },
+    )
+    assert expert_draft.status_code == 200, expert_draft.text
+    assert expert_draft.json()["d_artifact_hash"] == d_artifact.json()["content_hash"]
+    assert {item["field"] for item in expert_draft.json()["field_diff"]} == {
+        "title", "body", "limitations",
+    }
+    wrong_expert_approval = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-expert-review/approve",
+        headers=headers,
+        json={
+            "declared_content_hash": "0" * 64,
+            "artifact_id": "v4-expert-d",
+            "artifact_version": "v1",
+            "approval_id": "v4-expert-wrong",
+        },
+    )
+    assert wrong_expert_approval.status_code == 400
+    expert = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-expert-review/approve",
+        headers=headers,
+        json={
+            "declared_content_hash": expert_draft.json()["content_hash"],
+            "artifact_id": "v4-expert-d",
+            "artifact_version": "v1",
+            "approval_id": "v4-expert-approval",
+        },
+    )
     assert expert.status_code == 200, expert.text
+    assert expert.json()["content"]["field_diff"] == expert_draft.json()["field_diff"]
+    assert expert.json()["content"]["expert_review"]["editor_by"] == "editor"
     assert _post(
         client, f"{base}/exposures/E2", token, 5, "v4-e2", read_ack=True,
     ).json() == {"stage": "E1b", "state_revision": 6}
+    expert_current = client.get(
+        f"{base}/current", headers=_participant_headers(token)
+    ).json()["artifact"]
+    assert expert_current["approved_by"] == "hong"
+    assert expert_current["content"]["d_artifact_hash"] == d_artifact.json()["content_hash"]
     assert _post(
         client, f"{base}/exposures/E1b", token, 6, "v4-e1b", read_ack=True,
     ).json() == {"stage": "M3", "state_revision": 7}
@@ -3762,6 +3816,11 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             connection.execute(
                 "UPDATE aipol_v4_d_input_sets SET content_hash=? WHERE experiment_id=?",
+                ("0" * 64, experiment_id),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute(
+                "UPDATE aipol_v4_expert_review_drafts SET content_hash=? WHERE experiment_id=?",
                 ("0" * 64, experiment_id),
             )
         council_steps = connection.execute(
