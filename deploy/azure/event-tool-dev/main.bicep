@@ -87,6 +87,22 @@ param receiptAudience string = ''
 @maxValue(3600)
 param receiptMaxTtlSeconds int = 600
 
+@description('Enable the approved interactive process-review fixture in its isolated repository.')
+param processReviewEnabled bool = false
+
+@description('Pinned Key Vault version for the process-review session signing secret.')
+param processReviewSessionSecretVersion string = ''
+
+@minValue(60)
+@maxValue(3600)
+@description('Maximum lifetime of a server-issued process-review session.')
+param processReviewSessionMaxTtlSeconds int = 1800
+
+@minValue(1)
+@maxValue(30)
+@description('Soft-delete retention for the synthetic process-review Azure Files share only.')
+param processReviewShareRetentionDays int = 7
+
 @minValue(1)
 @maxValue(20)
 @description('Azure Files share quota in GiB. Five GiB is sufficient for the development SQLite state.')
@@ -96,9 +112,12 @@ param containerAppName string = 'ca-aipol-event-tool-dev'
 param environmentName string = 'cae-aipol-event-tool-dev'
 param environmentStorageName string = 'eventtoolstate'
 param fileShareName string = 'event-tool-state'
+param processReviewEnvironmentStorageName string = 'processreviewstate'
+param processReviewFileShareName string = 'aipol-process-review-state'
 param auditCheckpointContainerName string = 'aipol-audit-checkpoints'
 param identityName string = 'uami-aipol-event-tool-dev'
 param storageAccountName string = 'staipolevt${uniqueString(subscription().id, resourceGroup().id)}'
+param processReviewStorageAccountName string = 'staipolrev${uniqueString(subscription().id, resourceGroup().id)}'
 param registryName string = 'acraipolevt${uniqueString(subscription().id, resourceGroup().id)}'
 param keyVaultName string = 'kv-aipol-evt-${take(uniqueString(subscription().id, resourceGroup().id), 8)}'
 
@@ -116,7 +135,8 @@ var tags = {
 
 var resourceGroupGuardPassed = resourceGroup().name == 'rg-aipol-dev'
 var receiptInputGuardPassed = !receiptVerifierEnabled || (!empty(receiptPublicKeySecretVersion) && !empty(receiptKeyId) && !empty(receiptIssuer) && !empty(receiptAudience))
-var appInputGuardPassed = contains(containerImage, '@sha256:') && !empty(eventSessionSecretVersion) && !empty(eventAdminUsersSecretVersion) && !empty(eventAdminRolesSecretVersion) && !empty(eventAdminTotpSecretVersion) && !empty(eventCredentialKeysetVersion) && !empty(eventCredentialActiveKeyId) && !empty(eventAuditCheckpointKeysetVersion) && !empty(eventAuditCheckpointActiveKeyId) && !empty(friendliAiKeyVersion) && !empty(upstageKeyVersion) && !empty(clovaStudioKeyVersion) && receiptInputGuardPassed
+var processReviewInputGuardPassed = !processReviewEnabled || !empty(processReviewSessionSecretVersion)
+var appInputGuardPassed = contains(containerImage, '@sha256:') && !empty(eventSessionSecretVersion) && !empty(eventAdminUsersSecretVersion) && !empty(eventAdminRolesSecretVersion) && !empty(eventAdminTotpSecretVersion) && !empty(eventCredentialKeysetVersion) && !empty(eventCredentialActiveKeyId) && !empty(eventAuditCheckpointKeysetVersion) && !empty(eventAuditCheckpointActiveKeyId) && !empty(friendliAiKeyVersion) && !empty(upstageKeyVersion) && !empty(clovaStudioKeyVersion) && receiptInputGuardPassed && processReviewInputGuardPassed
 // An externally reachable review app remains a synthetic-only, interactive
 // surface. Background jobs are forbidden while public ingress is enabled.
 var featureGuardPassed = !collectionEnabled && !chatbotEnabled && (!enableExternalIngress || !batchEnabled)
@@ -156,6 +176,47 @@ resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2025-01-01'
 resource stateShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2025-01-01' = if (provisionInfrastructure) {
   parent: fileService
   name: fileShareName
+  properties: {
+    accessTier: 'TransactionOptimized'
+    enabledProtocols: 'SMB'
+    shareQuota: fileShareQuotaGiB
+  }
+}
+
+// The interactive review repository has an independent account key, share,
+// soft-delete policy, and mount. It cannot be addressed through /data.
+resource processReviewStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = if (provisionInfrastructure && processReviewEnabled) {
+  name: processReviewStorageAccountName
+  location: location
+  kind: 'StorageV2'
+  sku: {
+    name: 'Standard_LRS'
+  }
+  properties: {
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: true
+    defaultToOAuthAuthentication: true
+    minimumTlsVersion: 'TLS1_2'
+    publicNetworkAccess: 'Enabled'
+    supportsHttpsTrafficOnly: true
+  }
+  tags: union(tags, { dataClass: 'synthetic-review' })
+}
+
+resource processReviewFileService 'Microsoft.Storage/storageAccounts/fileServices@2025-01-01' = if (provisionInfrastructure && processReviewEnabled) {
+  parent: processReviewStorage
+  name: 'default'
+  properties: {
+    shareDeleteRetentionPolicy: {
+      enabled: true
+      days: processReviewShareRetentionDays
+    }
+  }
+}
+
+resource processReviewStateShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2025-01-01' = if (provisionInfrastructure && processReviewEnabled) {
+  parent: processReviewFileService
+  name: processReviewFileShareName
   properties: {
     accessTier: 'TransactionOptimized'
     enabledProtocols: 'SMB'
@@ -245,6 +306,19 @@ resource environmentStorage 'Microsoft.App/managedEnvironments/storages@2025-01-
   }
 }
 
+resource processReviewEnvironmentStorage 'Microsoft.App/managedEnvironments/storages@2025-01-01' = if (provisionInfrastructure && processReviewEnabled) {
+  parent: environment
+  name: processReviewEnvironmentStorageName
+  properties: {
+    azureFile: {
+      accessMode: 'ReadWrite'
+      accountKey: processReviewStorage!.listKeys().keys[0].value
+      accountName: processReviewStorage.name
+      shareName: processReviewStateShare.name
+    }
+  }
+}
+
 resource appIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (provisionInfrastructure) {
   name: identityName
   location: location
@@ -317,6 +391,11 @@ resource clovaStudioKey 'Microsoft.KeyVault/vaults/secrets@2024-11-01' existing 
 resource receiptPublicKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' existing = {
   parent: keyVault
   name: 'aipol-receipt-ed25519-public-key'
+}
+
+resource processReviewSessionSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' existing = {
+  parent: keyVault
+  name: 'aipol-process-review-session-secret'
 }
 
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
@@ -478,6 +557,16 @@ resource receiptPublicKeySecretRole 'Microsoft.Authorization/roleAssignments@202
   }
 }
 
+resource processReviewSessionSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (provisionApp && processReviewEnabled) {
+  name: guid(processReviewSessionSecret.id, appIdentity.id, keyVaultSecretsUserRoleId)
+  scope: processReviewSessionSecret
+  properties: {
+    principalId: appIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+  }
+}
+
 // Start and read executions on this one Job only. This role cannot write or
 // delete the Job and is not granted at resource-group scope.
 resource policyNewsJobOperatorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (provisionApp && batchEnabled) {
@@ -527,7 +616,16 @@ var receiptRuntimeEnvironment = receiptVerifierEnabled ? [
   { name: 'AIPOL_RECEIPT_MAX_TTL_SECONDS', value: string(receiptMaxTtlSeconds) }
 ] : []
 
-var runtimeEnvironment = concat(baseRuntimeEnvironment, receiptRuntimeEnvironment)
+var processReviewRuntimeEnvironment = processReviewEnabled ? [
+  { name: 'AIPOL_PROCESS_REVIEW_ENABLED', value: 'true' }
+  { name: 'AIPOL_PROCESS_REVIEW_DB_PATH', value: '/review-data/aipol-process-review.db' }
+  { name: 'AIPOL_PROCESS_REVIEW_SESSION_SECRET', secretRef: 'aipol-process-review-session-secret' }
+  { name: 'AIPOL_PROCESS_REVIEW_SESSION_MAX_TTL_SECONDS', value: string(processReviewSessionMaxTtlSeconds) }
+] : [
+  { name: 'AIPOL_PROCESS_REVIEW_ENABLED', value: 'false' }
+]
+
+var runtimeEnvironment = concat(baseRuntimeEnvironment, receiptRuntimeEnvironment, processReviewRuntimeEnvironment)
 
 var baseAppSecrets = [
   {
@@ -585,6 +683,44 @@ var receiptAppSecrets = receiptVerifierEnabled ? [
   }
 ] : []
 
+var processReviewAppSecrets = processReviewEnabled ? [
+  {
+    identity: appIdentity.id
+    keyVaultUrl: '${keyVault!.properties.vaultUri}secrets/aipol-process-review-session-secret/${processReviewSessionSecretVersion}'
+    name: 'aipol-process-review-session-secret'
+  }
+] : []
+
+var baseVolumeMounts = [
+  {
+    mountPath: '/data'
+    volumeName: 'event-data'
+  }
+]
+
+var processReviewVolumeMounts = processReviewEnabled ? [
+  {
+    mountPath: '/review-data'
+    volumeName: 'process-review-data'
+  }
+] : []
+
+var baseVolumes = [
+  {
+    name: 'event-data'
+    storageName: environmentStorageName
+    storageType: 'AzureFile'
+  }
+]
+
+var processReviewVolumes = processReviewEnabled ? [
+  {
+    name: 'process-review-data'
+    storageName: processReviewEnvironmentStorageName
+    storageType: 'AzureFile'
+  }
+] : []
+
 resource app 'Microsoft.App/containerApps@2025-01-01' = if (provisionApp) {
   name: containerAppName
   location: location
@@ -617,7 +753,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (provisionApp) {
           server: '${registryName}.azurecr.io'
         }
       ]
-      secrets: concat(baseAppSecrets, receiptAppSecrets)
+      secrets: concat(baseAppSecrets, receiptAppSecrets, processReviewAppSecrets)
     }
     template: {
       containers: [
@@ -655,31 +791,21 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (provisionApp) {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          volumeMounts: [
-            {
-              mountPath: '/data'
-              volumeName: 'event-data'
-            }
-          ]
+          volumeMounts: concat(baseVolumeMounts, processReviewVolumeMounts)
         }
       ]
       scale: {
         minReplicas: 1
         maxReplicas: 1
       }
-      volumes: [
-        {
-          name: 'event-data'
-          storageName: environmentStorageName
-          storageType: 'AzureFile'
-        }
-      ]
+      volumes: concat(baseVolumes, processReviewVolumes)
     }
   }
   tags: tags
   dependsOn: [
     acrPullRole
     environmentStorage
+    processReviewEnvironmentStorage
     eventSessionSecretRole
     eventAdminUsersSecretRole
     eventAdminRolesSecretRole
@@ -691,6 +817,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (provisionApp) {
     clovaStudioKeyRole
     auditCheckpointWriterRoleAssignment
     receiptPublicKeySecretRole
+    processReviewSessionSecretRole
     policyNewsJobOperatorRole
   ]
 }
@@ -709,8 +836,10 @@ output batchJobResourceId string = provisionApp && batchEnabled ? policyNewsJob.
 output registryLoginServer string = provisionInfrastructure ? '${registryName}.azurecr.io' : ''
 output keyVaultResourceName string = provisionInfrastructure ? keyVaultName : ''
 output appFqdn string = provisionApp ? app!.properties.configuration.ingress.fqdn : ''
-output keyVaultSecretsUserScopeMode string = receiptVerifierEnabled ? 'ten-named-secrets-only' : 'nine-named-secrets-only'
+output keyVaultSecretsUserScopeMode string = receiptVerifierEnabled && processReviewEnabled ? 'eleven-named-secrets-only' : (receiptVerifierEnabled || processReviewEnabled ? 'ten-named-secrets-only' : 'nine-named-secrets-only')
 output vaultWideKeyVaultSecretsUserAllowed bool = false
 output blobDataContributorAllowed bool = false
 output auditCheckpointDeleteAllowed bool = false
 output receiptVerifierConfigured bool = provisionApp && receiptVerifierEnabled
+output processReviewConfigured bool = provisionApp && processReviewEnabled
+output processReviewStorageAccount string = provisionInfrastructure && processReviewEnabled ? processReviewStorageAccountName : ''

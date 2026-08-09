@@ -17,10 +17,13 @@ resource group. Nothing in this directory has been deployed by adding these file
   deployment.
 - The app runs one Uvicorn worker in exactly one Container Apps replica. A deployment-only ASGI wrapper serializes
   HTTP requests because synchronous FastAPI handlers can otherwise overlap in a thread pool.
-- SQLite and the provider roster live on a 5-GiB Azure Files share mounted at `/data`. The image runs as fixed
-  non-root UID/GID `10001:10001`; startup writes and reads a probe under `/data` and fails before importing the
+- Operational SQLite and the provider roster live on a 5-GiB Azure Files share mounted at `/data`. The optional
+  process-review repository uses a different storage account key and Azure Files share mounted at `/review-data`,
+  with its own 7-day share soft-delete policy. It is disabled by default and never stores rows under `/data`.
+  The image runs as fixed non-root UID/GID `10001:10001`; startup writes and reads a probe under `/data` and fails before importing the
   application if the mounted share is not writable by that identity.
-- A user-assigned managed identity pulls the private ACR image and reads nine required version-pinned Key Vault references. ACR admin
+- A user-assigned managed identity pulls the private ACR image and reads nine required version-pinned Key Vault
+  references, plus only the explicitly enabled optional receipt or process-review secret scopes. ACR admin
   credentials are disabled.
 - Receipt verification is disabled by default, so `/readyz` reports `collection_ready=false`. A reviewed full E1a through
   M3 rehearsal can opt in to one version-pinned Ed25519 public-key secret plus exact key ID, issuer, audience, and TTL.
@@ -68,6 +71,7 @@ A new dynamic service starts internal-only in `rg-aipol-dev`; production remains
 | Container App | `ca-aipol-event-tool-dev`, internal ingress, one replica |
 | Azure Container Registry | unique `acraipolevt...`, Basic, admin disabled |
 | Storage account and file share | unique `staipolevt...` / `event-tool-state` |
+| Process-review storage (optional) | separate unique `staipolrev...` / `aipol-process-review-state`, mounted only at `/review-data` |
 | User-assigned identity | `uami-aipol-event-tool-dev` |
 | Key Vault | unique `kv-aipol-evt-...`, RBAC and purge protection enabled |
 
@@ -78,7 +82,8 @@ Key Vault access.
 ## Managed-identity RBAC drift gate
 
 Run this read-only gate before and after every reviewed deployment. The event identity may have `Key Vault Secrets
-User` on exactly the nine required named secret scopes, plus the optional receipt public-key scope, never on the vault root.
+User` on exactly the nine required named secret scopes, plus only an enabled optional receipt public-key or
+process-review session-secret scope, never on the vault root.
 
 ```powershell
 $AipolPrincipalId = az identity show --resource-group rg-aipol-dev --name uami-aipol-event-tool-dev --query principalId -o tsv
@@ -95,6 +100,9 @@ $AipolExpectedSecretScopes = @(
   "$AipolVaultId/secrets/upstage-key",
   "$AipolVaultId/secrets/clova-studio-test-key"
 )
+# Append only when the corresponding feature is enabled:
+# $AipolExpectedSecretScopes += "$AipolVaultId/secrets/aipol-receipt-ed25519-public-key"
+# $AipolExpectedSecretScopes += "$AipolVaultId/secrets/aipol-process-review-session-secret"
 $AipolAssignments = az role assignment list --assignee-object-id $AipolPrincipalId --all -o json | ConvertFrom-Json
 $AipolSecretRoles = @($AipolAssignments | Where-Object { $_.roleDefinitionName -eq 'Key Vault Secrets User' })
 $AipolVaultWide = @($AipolSecretRoles | Where-Object { $_.scope.TrimEnd('/') -ieq $AipolVaultId.TrimEnd('/') })
@@ -112,7 +120,8 @@ after reviewing the resolved principal and vault IDs; this runbook does not auth
 az role assignment delete --assignee-object-id $AipolPrincipalId --role 'Key Vault Secrets User' --scope $AipolVaultId
 ```
 
-Then rerun the read-only gate and require all nine required named-secret scopes before and after deployment.
+Then rerun the read-only gate and require all nine required named-secret scopes, plus only the enabled optional
+scopes, before and after deployment.
 
 ## 1. Local verification (no Azure changes)
 
@@ -240,6 +249,7 @@ terminal:
 | `upstage-key` | `UPSTAGE_KEY` | Upstage API key; the second independent council step |
 | `clova-studio-test-key` | `CLOVA_STUDIO_TEST_KEY` | CLOVA Studio API key; the third independent council step |
 | `aipol-receipt-ed25519-public-key` (optional) | `AIPOL_RECEIPT_ED25519_PUBLIC_KEY_B64` | public key only; required for a full signed-receipt rehearsal |
+| `aipol-process-review-session-secret` (optional) | `AIPOL_PROCESS_REVIEW_SESSION_SECRET` | independent random 32+ character signing secret; required only for the isolated interactive review repository |
 
 Example shapes only:
 
@@ -274,6 +284,12 @@ $EventAuditCheckpointKeysetVersion = ((az keyvault secret show --vault-name $Aip
 $FriendliAiKeyVersion = ((az keyvault secret show --vault-name $AipolVault --name friendli-ai-key --query id --output tsv) -split '/')[-1]
 $UpstageKeyVersion = ((az keyvault secret show --vault-name $AipolVault --name upstage-key --query id --output tsv) -split '/')[-1]
 $ClovaStudioKeyVersion = ((az keyvault secret show --vault-name $AipolVault --name clova-studio-test-key --query id --output tsv) -split '/')[-1]
+```
+
+Resolve the optional process-review secret version only after that review surface is explicitly approved:
+
+```powershell
+$ProcessReviewSessionSecretVersion = ((az keyvault secret show --vault-name $AipolVault --name aipol-process-review-session-secret --query id --output tsv) -split '/')[-1]
 ```
 
 ## 5. Review and create the Container App
@@ -360,7 +376,8 @@ Acceptance checks:
 2. Startup logs contain no Key Vault, ACR, SQLite, or roster errors.
 3. `/healthz` and `/readyz` return HTTP 200 from an internal test path; disabled receipt verification reports
    `collection_ready=false`, while a full rehearsal requires `collection_ready=true`.
-4. `/data/event.db` and `/data/roster.json` survive a normal revision restart.
+4. `/data/event.db` and `/data/roster.json` survive a normal revision restart. When process review is enabled,
+   `/review-data/aipol-process-review.db` also survives restart and no review ID or row appears in `/data/event.db`.
 5. No model key is exposed by an API or page, and collection/chatbot/batch settings remain false. An externally approved
    synthetic v4 review may retain only the three version-pinned model secret references required for operator-triggered runs.
 6. Login responses show the explicit editor/approver role split; no account has both roles.
@@ -370,10 +387,14 @@ External ingress requires a separate security and privacy review. Do not set `en
 make the internal smoke test easier.
 
 For an explicitly approved, synthetic-only external review link, repeat the same reviewed deployment with
-`enableExternalIngress=true` while keeping `collectionEnabled=false`, `chatbotEnabled=false`, and
-`batchEnabled=false`. The resulting Azure-managed FQDN is HTTPS-only. Participants still require one-time admission
-codes, administrators still require distinct scrypt-hashed accounts plus TOTP, replicas remain fixed at one, and
-no custom DNS or production resource is created. Never share an administrator credential with a reviewer.
+`enableExternalIngress=true`, `processReviewEnabled=true`, and
+`processReviewSessionSecretVersion=$ProcessReviewSessionSecretVersion`, while keeping `collectionEnabled=false`,
+`chatbotEnabled=false`, and `batchEnabled=false`. The only shareable experiment URL is
+`https://<reviewed-host>/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1`; never use the
+host root or a legacy pension URL. The resulting Azure-managed FQDN is HTTPS-only. Participants require a
+server-issued short-lived review session; administrators still require distinct scrypt-hashed accounts plus TOTP;
+replicas remain fixed at one; and no custom DNS or production resource is created. Never share an administrator
+credential with a reviewer.
 
 ## 7. SQLite backup, rollback, and scaling rule
 
@@ -394,6 +415,10 @@ The packaged `python /app/backup_sqlite.py` command is an offline recovery utili
 path. Download that exact file through an approved Azure Files
 data-plane identity and verify the checksum outside Azure before continuing. A raw copy of `event.db` while writes
 are in progress is not a backup.
+
+The process-review share's 7-day soft delete protects deletion of the share; it is not an application-consistent
+SQLite backup. Do not copy the review DB through this operational endpoint. A dedicated review backup/restore check
+is a separate release gate and must remain isolated from `/data` and operational backup artifacts.
 
 Before deploying a new image or pinned secret version, explicitly deactivate the old revision and wait for zero
 active revisions:
@@ -446,8 +471,9 @@ replica/one worker constraint is therefore a security boundary as well as a SQLi
 without replacing the registration limiter with a shared durable service. Only enable trusted proxy headers when
 the Container Apps ingress is the sole path to the application and overwrites client-supplied forwarding headers.
 
-The application identity receives `Key Vault Secrets User` separately on the nine required named secrets and the
-optional receipt public-key secret, never on the vault. Container App references remain pinned to explicit secret versions. Adding another secret requires a new
+The application identity receives `Key Vault Secrets User` separately on the nine required named secrets and only
+the enabled optional receipt public-key or process-review session secret, never on the vault. Container App
+references remain pinned to explicit secret versions. Adding another secret requires a new
 secret-scoped role assignment and review; widening the role to the vault is prohibited.
 
 ## Immutable audit-checkpoint gate

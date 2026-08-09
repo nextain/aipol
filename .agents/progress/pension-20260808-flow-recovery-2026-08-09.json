@@ -44,7 +44,9 @@
     "The client discards malformed, expired, or unauthorized review sessions, presents an in-place retry after issuance failure, restores a valid session after reload, and keeps the static ten-step evidence available before session start. Focused process-review, web-asset, route-preview, and Playwright validation passed 18 tests including a forced 503 followed by successful retry and reload restoration.",
     "The interactive review now exercises the unchanged v4 participant handlers from consent through demographics, E0, M1, E1a, M2, E2, E1b, M3, and completion. This exposed and corrected a real client/server contract drift: v4 M3 had sent an empty primary reason even though the server requires the ABC vote and D acceptability/comment to remain separate. The focused full-flow browser test and 20 related process-review, route-preview, web-asset, and v4 domain tests passed.",
     "Post-fix full repository regression passed 441 tests with 6 skipped. The only emitted warnings are upstream websockets/uvicorn deprecations from the Playwright server fixture; no product test failed.",
-    "Review repository binding now carries a request-local review ID namespace as well as the isolated database path. Review experiments and participants are structurally prefixed review-xp-* and review-ap-* while ordinary requests retain the production namespace; existing non-namespaced review fixtures fail closed instead of being silently reused. Focused process-review tests passed 3 tests."
+    "Review repository binding now carries a request-local review ID namespace as well as the isolated database path. Review experiments and participants are structurally prefixed review-xp-* and review-ap-* while ordinary requests retain the production namespace; existing non-namespaced review fixtures fail closed instead of being silently reused. Focused process-review tests passed 3 tests.",
+    "The DEV deployment contract now keeps process review opt-in and assigns it a separate Azure storage account key, file share, /review-data mount, seven-day share soft-delete policy, and independently version-pinned session-signing secret. The operational /data share cannot address the review database. Bicep compilation, parameter JSON parsing, diff checks, and all 17 DEV-IaC tests passed; no Azure deployment was performed.",
+    "The runbook now permits sharing only /cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1, explicitly forbids the host root and legacy pension URL, and records that share soft delete is not an application-consistent review SQLite backup."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -56,6 +58,9 @@
     "event-tool/web/aipol-process-review.html",
     "event-tool/web/aipol.html",
     "event-tool/web/aipol.js",
+    "deploy/azure/event-tool-dev/main.bicep",
+    "deploy/azure/event-tool-dev/main.parameters.dev.json",
+    "deploy/azure/event-tool-dev/README.md",
     "tests/test_aipol_process_review.py",
     "tests/test_pension_deliberation_v4.py",
     "tests/test_aipol_event_tool.py",

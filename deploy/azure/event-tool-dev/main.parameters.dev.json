@@ -23,6 +23,9 @@
     "receiptVerifierEnabled": {
       "value": false
     },
+    "processReviewEnabled": {
+      "value": false
+    },
     "auditImmutabilityPolicyLocked": {
       "value": false
     }

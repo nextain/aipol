@@ -44,6 +44,7 @@ def test_dev_deployment_is_opt_in_and_feature_switches_default_off() -> None:
         "collectionEnabled",
         "chatbotEnabled",
         "receiptVerifierEnabled",
+        "processReviewEnabled",
         "auditImmutabilityPolicyLocked",
     ):
         assert re.search(rf"param {name} bool = false\b", bicep)
@@ -76,6 +77,14 @@ def test_stateful_sqlite_contract_is_single_replica_and_persistent() -> None:
     assert "{ name: 'EVENT_DB_PATH', value: '/data/event.db' }" in bicep
     assert "{ name: 'EVENT_ROSTER_PATH', value: '/data/roster.json' }" in bicep
     assert "{ name: 'EVENT_SQLITE_NOLOCK', value: 'true' }" in bicep
+    assert "param processReviewEnabled bool = false" in bicep
+    assert "processReviewStorageAccountName" in bicep
+    assert "processReviewEnvironmentStorageName" in bicep
+    assert "accountKey: processReviewStorage!.listKeys().keys[0].value" in bicep
+    assert "mountPath: '/review-data'" in bicep
+    assert "{ name: 'AIPOL_PROCESS_REVIEW_DB_PATH', value: '/review-data/aipol-process-review.db' }" in bicep
+    assert "processReviewShareRetentionDays int = 7" in bicep
+    assert "days: processReviewShareRetentionDays" in bicep
     assert re.search(r"minReplicas:\s*1\b", bicep)
     assert re.search(r"maxReplicas:\s*1\b", bicep)
     assert '"--workers", "1"' in dockerfile
@@ -118,6 +127,7 @@ def test_identity_is_used_for_acr_and_key_vault_without_literal_secrets() -> Non
     assert "secretRef: 'upstage-key'" in bicep
     assert "secretRef: 'clova-studio-test-key'" in bicep
     assert "secretRef: 'aipol-receipt-ed25519-public-key'" in bicep
+    assert "secretRef: 'aipol-process-review-session-secret'" in bicep
     assert "EVENT_SESSION_SECRET', value:" not in bicep
     assert "EVENT_ADMIN_USERS_JSON', value:" not in bicep
     assert "EVENT_ADMIN_ROLES_JSON', value:" not in bicep
@@ -127,6 +137,7 @@ def test_identity_is_used_for_acr_and_key_vault_without_literal_secrets() -> Non
     assert "UPSTAGE_KEY', value:" not in bicep
     assert "CLOVA_STUDIO_TEST_KEY', value:" not in bicep
     assert "AIPOL_RECEIPT_ED25519_PUBLIC_KEY_B64', value:" not in bicep
+    assert "AIPOL_PROCESS_REVIEW_SESSION_SECRET', value:" not in bicep
     assert not re.search(r"(?:value|secretRef):\s*['\"]demo['\"]", bicep, re.IGNORECASE)
     assert "scope: keyVault" not in bicep
     assert "scope: eventSessionSecret" in bicep
@@ -138,8 +149,10 @@ def test_identity_is_used_for_acr_and_key_vault_without_literal_secrets() -> Non
     assert "scope: upstageKey" in bicep
     assert "scope: clovaStudioKey" in bicep
     assert "scope: receiptPublicKeySecret" in bicep
+    assert "scope: processReviewSessionSecret" in bicep
     assert "nine-named-secrets-only" in bicep
     assert "ten-named-secrets-only" in bicep
+    assert "eleven-named-secrets-only" in bicep
     assert "output vaultWideKeyVaultSecretsUserAllowed bool = false" in bicep
 
 
@@ -210,6 +223,19 @@ def test_receipt_verifier_is_optional_version_pinned_and_readiness_visible() -> 
     assert '"collection_ready"' in server
     assert "receipt_verifier" in server
     assert "full E1a" in runbook
+
+
+def test_process_review_is_opt_in_with_isolated_storage_secret_and_retention() -> None:
+    bicep = _text(BICEP)
+    parameters = json.loads(_text(PARAMETERS))["parameters"]
+
+    assert parameters["processReviewEnabled"]["value"] is False
+    assert "var processReviewInputGuardPassed = !processReviewEnabled" in bicep
+    assert "processReviewSessionSecretVersion" in bicep
+    assert "aipol-process-review-session-secret/${processReviewSessionSecretVersion}" in bicep
+    assert "AIPOL_PROCESS_REVIEW_ENABLED', value: 'false'" in bicep
+    assert "AIPOL_PROCESS_REVIEW_SESSION_MAX_TTL_SECONDS" in bicep
+    assert "output processReviewConfigured bool" in bicep
 
 
 def test_audit_checkpoint_is_immutable_keyed_and_delete_free() -> None:
