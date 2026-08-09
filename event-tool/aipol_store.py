@@ -1212,7 +1212,9 @@ def init() -> None:
 
 
 def _id(prefix: str) -> str:
-    return f"{prefix}-{uuid.uuid4().hex[:12]}"
+    namespace = db.active_id_namespace()
+    namespaced_prefix = f"{namespace}-{prefix}" if namespace else prefix
+    return f"{namespaced_prefix}-{uuid.uuid4().hex[:12]}"
 
 
 def _token_hash(token: str) -> str:

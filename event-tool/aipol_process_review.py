@@ -415,7 +415,8 @@ def _validate_interactive_fixture(experiment_id: str, fixture: dict) -> None:
     experiment = aipol_store.get_experiment(experiment_id)
     manifest = experiment.get("freeze_manifest") or {}
     if (
-        experiment.get("experiment_version") != FIXTURE_VERSION
+        not experiment_id.startswith("review-xp-")
+        or experiment.get("experiment_version") != FIXTURE_VERSION
         or experiment.get("session_id") != REVIEW_ID
         or experiment.get("procedure_config", {}).get("version")
         != "aipol-pension-deliberation-v4"
@@ -442,7 +443,7 @@ def _ensure_interactive_fixture(event: dict, inputs: dict[str, dict], steps: lis
         raise RuntimeError("process review database must be physically isolated")
     fixture = _fixture_definition(event, inputs, steps)
     fixture_hash = _digest(fixture)
-    with db.use_database(review_path):
+    with db.use_database(review_path, id_namespace="review"):
         db.init()
         aipol_store.init()
         with db._conn() as connection:
@@ -510,7 +511,7 @@ def issue_review_session(review_id: str) -> dict:
     # deployment cannot leave an unusable synthetic session behind.
     _session_secret()
     ttl_seconds = min(1800, _session_ttl_limit())
-    with db.use_database(review_path):
+    with db.use_database(review_path, id_namespace="review"):
         with db._conn() as connection:
             binding = connection.execute(
                 "SELECT experiment_id FROM aipol_process_review_bindings WHERE review_id=?",
@@ -518,6 +519,8 @@ def issue_review_session(review_id: str) -> dict:
             ).fetchone()
         if not binding:
             raise KeyError(review_id)
+        if not binding["experiment_id"].startswith("review-xp-"):
+            raise RuntimeError("process review experiment namespace mismatch")
         registration = aipol_store.register_participant(
             binding["experiment_id"], "synthetic", audit_actor="server:process-review-session"
         )

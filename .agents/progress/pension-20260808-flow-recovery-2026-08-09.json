@@ -43,7 +43,8 @@
     "The canonical review query now starts an interactive session only from the approved review id, accepts the experiment id exclusively from the signed server response, and enters the unchanged participant current handler. Review capability and idempotency state use sessionStorage only; localStorage remains empty, the URL never gains an experiment selector, and the REVIEW/SYNTHETIC DATA boundary remains visible across participant states.",
     "The client discards malformed, expired, or unauthorized review sessions, presents an in-place retry after issuance failure, restores a valid session after reload, and keeps the static ten-step evidence available before session start. Focused process-review, web-asset, route-preview, and Playwright validation passed 18 tests including a forced 503 followed by successful retry and reload restoration.",
     "The interactive review now exercises the unchanged v4 participant handlers from consent through demographics, E0, M1, E1a, M2, E2, E1b, M3, and completion. This exposed and corrected a real client/server contract drift: v4 M3 had sent an empty primary reason even though the server requires the ABC vote and D acceptability/comment to remain separate. The focused full-flow browser test and 20 related process-review, route-preview, web-asset, and v4 domain tests passed.",
-    "Post-fix full repository regression passed 441 tests with 6 skipped. The only emitted warnings are upstream websockets/uvicorn deprecations from the Playwright server fixture; no product test failed."
+    "Post-fix full repository regression passed 441 tests with 6 skipped. The only emitted warnings are upstream websockets/uvicorn deprecations from the Playwright server fixture; no product test failed.",
+    "Review repository binding now carries a request-local review ID namespace as well as the isolated database path. Review experiments and participants are structurally prefixed review-xp-* and review-ap-* while ordinary requests retain the production namespace; existing non-namespaced review fixtures fail closed instead of being silently reused. Focused process-review tests passed 3 tests."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -74,5 +75,5 @@
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-10T06:10:00+09:00"
+  "updated_at": "2026-08-10T06:20:00+09:00"
 }

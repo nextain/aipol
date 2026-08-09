@@ -356,7 +356,7 @@ async def production_guards(request: Request, call_next):
             if key.lower() == b"x-participant-token" else (key, value)
             for key, value in request.scope["headers"]
         ]
-        with db.use_database(review_path):
+        with db.use_database(review_path, id_namespace="review"):
             response = await call_next(request)
         response.headers["X-AIPOL-Data-Class"] = "synthetic-review"
         response.headers["Cache-Control"] = "no-store"

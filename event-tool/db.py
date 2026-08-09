@@ -21,6 +21,9 @@ DB_PATH = Path(os.environ.get("EVENT_DB_PATH", Path(__file__).parent / "event.db
 _DB_PATH_OVERRIDE: ContextVar[Path | None] = ContextVar(
     "event_db_path_override", default=None
 )
+_ID_NAMESPACE_OVERRIDE: ContextVar[str | None] = ContextVar(
+    "event_id_namespace_override", default=None
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -81,17 +84,28 @@ def active_path() -> Path:
     return _DB_PATH_OVERRIDE.get() or DB_PATH
 
 
+def active_id_namespace() -> str | None:
+    """Return the ID namespace bound to the current repository context."""
+    return _ID_NAMESPACE_OVERRIDE.get()
+
+
 @contextmanager
-def use_database(path: str | Path) -> Iterator[Path]:
-    """Temporarily bind all store calls in this context to an explicit DB file."""
+def use_database(path: str | Path, *, id_namespace: str | None = None) -> Iterator[Path]:
+    """Bind store calls to an explicit DB file and optional ID namespace."""
     resolved = Path(path)
     if not resolved.is_absolute():
         raise ValueError("database override path must be absolute")
-    token = _DB_PATH_OVERRIDE.set(resolved)
+    if id_namespace is not None and (
+        not id_namespace or any(not (c.isalnum() or c in "-_") for c in id_namespace)
+    ):
+        raise ValueError("database ID namespace must contain only letters, numbers, '-' or '_'")
+    path_token = _DB_PATH_OVERRIDE.set(resolved)
+    namespace_token = _ID_NAMESPACE_OVERRIDE.set(id_namespace)
     try:
         yield resolved
     finally:
-        _DB_PATH_OVERRIDE.reset(token)
+        _ID_NAMESPACE_OVERRIDE.reset(namespace_token)
+        _DB_PATH_OVERRIDE.reset(path_token)
 
 
 def _conn():
@@ -145,7 +159,10 @@ def claim_totp_counter(username: str, counter: int) -> bool:
     return True
 
 
-def _id(p): return f"{p}-{uuid.uuid4().hex[:8]}"
+def _id(p):
+    namespace = active_id_namespace()
+    prefix = f"{namespace}-{p}" if namespace else p
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
 _J = ("intro", "attachments", "proposals", "profile_fields")
 
 

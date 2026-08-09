@@ -166,7 +166,12 @@ def test_signed_review_session_binds_same_handler_to_review_database(tmp_path, m
     observed = []
 
     def participant_current(experiment_id, participant_token):
-        observed.append((experiment_id, participant_token, server.db.active_path()))
+        observed.append((
+            experiment_id,
+            participant_token,
+            server.db.active_path(),
+            server.db.active_id_namespace(),
+        ))
         return {"experiment_id": experiment_id, "participant_token": participant_token}
 
     monkeypatch.setattr(server.aipol_store, "participant_current", participant_current)
@@ -185,7 +190,8 @@ def test_signed_review_session_binds_same_handler_to_review_database(tmp_path, m
             assert response.headers["x-aipol-data-class"] == "synthetic-review"
             assert response.headers["cache-control"] == "no-store"
             assert observed[-1] == (
-                "review-experiment", "internal-participant-token", review_db_path.resolve()
+                "review-experiment", "internal-participant-token", review_db_path.resolve(),
+                "review",
             )
             assert server.db.active_path() == event_db_path
 
@@ -209,7 +215,7 @@ def test_signed_review_session_binds_same_handler_to_review_database(tmp_path, m
             )
             assert ordinary.status_code == 200
             assert observed[-1] == (
-                "operational-experiment", "ordinary-participant-token", event_db_path
+                "operational-experiment", "ordinary-participant-token", event_db_path, None
             )
 
         expired = server.aipol_process_review.issue_session_token(
@@ -250,6 +256,7 @@ def test_server_issues_session_only_for_approved_isolated_fixture(tmp_path, monk
             session = issued.json()
             assert session["review_id"] == server.aipol_process_review.REVIEW_ID
             assert session["experiment_id"] != "client-chosen"
+            assert session["experiment_id"].startswith("review-xp-")
             assert session["participant_token"].startswith("aipr1.")
             assert session["synthetic_review"] is True
             assert session["data_class"] == "synthetic_review"
@@ -281,6 +288,10 @@ def test_server_issues_session_only_for_approved_isolated_fixture(tmp_path, monk
                 (server.aipol_process_review.REVIEW_ID,),
             ).fetchone()
             assert binding == (server.aipol_process_review.FIXTURE_VERSION, session["experiment_id"])
+            participant_id = connection.execute(
+                "SELECT id FROM aipol_participants"
+            ).fetchone()[0]
+            assert participant_id.startswith("review-ap-")
     finally:
         for name in MODULES:
             sys.modules.pop(name, None)
