@@ -89,6 +89,14 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
             assert len(snapshot["content_hash"]) == 64
             assert client.post(route).status_code == 405
 
+            operational = server.db.create_event("operational-event")
+            with server.db.use_database(review_db_path):
+                server.db.init()
+                review_only = server.db.create_event("review-only-event")
+                assert [row["id"] for row in server.db.list_events()] == [review_only["id"]]
+            assert [row["id"] for row in server.db.list_events()] == [operational["id"]]
+            assert server.db.active_path() == event_db_path
+
         with sqlite3.connect(event_db_path) as connection:
             tables = {
                 row[0] for row in connection.execute(

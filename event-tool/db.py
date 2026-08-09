@@ -12,9 +12,15 @@ import secrets
 import sqlite3
 import time
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
+from typing import Iterator
 
 DB_PATH = Path(os.environ.get("EVENT_DB_PATH", Path(__file__).parent / "event.db"))
+_DB_PATH_OVERRIDE: ContextVar[Path | None] = ContextVar(
+    "event_db_path_override", default=None
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -70,14 +76,33 @@ CREATE TABLE IF NOT EXISTS admin_auth_totp_counters (
 """
 
 
+def active_path() -> Path:
+    """Return the repository path bound to the current request/task context."""
+    return _DB_PATH_OVERRIDE.get() or DB_PATH
+
+
+@contextmanager
+def use_database(path: str | Path) -> Iterator[Path]:
+    """Temporarily bind all store calls in this context to an explicit DB file."""
+    resolved = Path(path)
+    if not resolved.is_absolute():
+        raise ValueError("database override path must be absolute")
+    token = _DB_PATH_OVERRIDE.set(resolved)
+    try:
+        yield resolved
+    finally:
+        _DB_PATH_OVERRIDE.reset(token)
+
+
 def _conn():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    path = active_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     # Azure Files(SMB)는 POSIX byte-range lock을 지원하지 않는다. ACA를 반드시 1 replica로
     # 고정한 운영 환경에서만 nolock URI를 명시적으로 켠다. 일반 로컬 환경은 표준 잠금을 쓴다.
     if os.environ.get("EVENT_SQLITE_NOLOCK", "false").lower() == "true":
-        c = sqlite3.connect(f"file:{DB_PATH}?mode=rwc&nolock=1", uri=True, timeout=30)
+        c = sqlite3.connect(f"file:{path}?mode=rwc&nolock=1", uri=True, timeout=30)
     else:
-        c = sqlite3.connect(DB_PATH, timeout=30)
+        c = sqlite3.connect(path, timeout=30)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA foreign_keys=ON")
     c.execute("PRAGMA busy_timeout=30000")
