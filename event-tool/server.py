@@ -21,12 +21,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE = Path(__file__).parent
 WEB = BASE / "web"
 INSTANCES = BASE / "instances"
+PENSION_EXPERIMENT_PATH = "/cases/pension/experiment/"
 
 
 def _load_env():
@@ -2029,6 +2030,26 @@ def aipol_withdraw(
         expected_revision=_expected_revision(body),
         idempotency_key=str(body.get("idempotency_key") or ""),
     )
+
+
+def _redirect_with_query(request: Request, destination: str) -> RedirectResponse:
+    query = request.url.query
+    return RedirectResponse(f"{destination}?{query}" if query else destination, status_code=308)
+
+
+@app.get(PENSION_EXPERIMENT_PATH, include_in_schema=False)
+def pension_experiment_page():
+    return FileResponse(WEB / "aipol.html")
+
+
+@app.get(PENSION_EXPERIMENT_PATH.rstrip("/"), include_in_schema=False)
+def pension_experiment_slash(request: Request):
+    return _redirect_with_query(request, PENSION_EXPERIMENT_PATH)
+
+
+@app.get("/aipol.html", include_in_schema=False)
+def legacy_aipol_page(request: Request):
+    return _redirect_with_query(request, PENSION_EXPERIMENT_PATH)
 
 
 app.mount("/", StaticFiles(directory=str(WEB), html=True), name="web")

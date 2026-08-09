@@ -11,7 +11,7 @@ PROCESS_PAGE = WEB / "aipol-process-review.html"
 PARTICIPANT_SCRIPT = WEB / "aipol.js"
 MIGRATION_PAGE = ROOT / "site" / "cases" / "pension" / "experiment" / "index.html"
 PROVENANCE = MIGRATION_PAGE.parent / "provenance.json"
-SERVICE_REVIEW_URL = "https://session.aipol.kaps.or.kr/aipol.html?review=process&dataset=pension-v4-20260808-r1"
+SERVICE_REVIEW_URL = "https://session.aipol.kaps.or.kr/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1"
 
 
 def test_process_review_is_a_parameterized_state_in_the_real_service() -> None:
@@ -42,8 +42,8 @@ def test_process_review_renderer_contains_the_approved_v4_contract_markers() -> 
 def test_old_review_route_only_redirects_to_the_parameterized_service_review() -> None:
     document = BeautifulSoup(PROCESS_PAGE.read_text(encoding="utf-8"), "html.parser")
     refresh = document.select_one('meta[http-equiv="refresh"]')
-    assert refresh and "aipol.html?review=process&dataset=pension-v4-20260808-r1" in refresh["content"]
-    assert document.find("a", href="/aipol.html?review=process&dataset=pension-v4-20260808-r1")
+    assert refresh and "/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1" in refresh["content"]
+    assert document.find("a", href="/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1")
 
 
 def test_legacy_public_route_only_migrates_to_the_same_service_review() -> None:

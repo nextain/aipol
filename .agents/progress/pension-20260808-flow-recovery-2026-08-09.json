@@ -1,7 +1,7 @@
 {
   "work": "pension-20260808-flow-recovery",
   "status": "in_progress",
-  "current_phase": "process_review_ready",
+  "current_phase": "d_input_provenance_recovery",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
   "contract_digest": "28354910f5e800e99598a97c3fbf1ee2cdd8133b619ca422de9fbd9bd9d762a2",
   "started_at": "2026-08-09T09:00:00+09:00",
@@ -13,7 +13,10 @@
     "Session contract ownership was expanded to site/events/** and site/status/** so stale public two-ballot copy could be corrected under explicit authority.",
     "Session contract ownership was narrowly expanded to deploy/azure/event-tool-dev/** after the isolated DEV review outage proved that a stale same-replica writer lease prevented restart; PROD remains an explicit non-goal.",
     "The active v4 contract removes the personal pension calculation and personal-impact stages, derives exactly five issues from M1 opinions with human approval, binds both reviewed deliberation summaries and M1/M2 aggregates into a three-AI D proposal, and stores M3 ABC choice separately from D acceptability and comment.",
-    "The same event-tool service now exposes the canonical query review at /aipol.html?review=process&dataset=pension-v4-20260808-r1; /aipol-process-review.html is redirect-only, and /aipol-preparation.html plus the ordinary /aipol.html participant path remain available for the later real admin-linked rehearsal.",
+    "The earlier claim that /aipol.html was canonical is invalidated by the recovered user instruction and handoff: the pension experiment service belongs below /cases/pension/experiment/; /aipol.html is compatibility-only and must preserve its query while redirecting.",
+    "The canonical participant and process-review surface is now served at /cases/pension/experiment/ before the general StaticFiles mount; both the missing-slash form and legacy /aipol.html preserve repeated, blank, and percent-encoded query values while redirecting with HTTP 308.",
+    "Canonical-route validation passed: focused route, portal, preview, and metadata tests passed 26 tests; the admin Playwright suite passed 2 tests; the full repository suite passed 438 tests with 6 skipped; git diff checking, JavaScript syntax checks, Python compilation, and JSON parsing passed.",
+    "The review-pass deterministic preflight remains NOT_CLEAN at complexity digest sha256:3b6a6dd24e456bf50f089193ae2f586ae363d5e58288883f46c88a8972837cae because pre-existing large-file waiver hashes and ceilings are stale; independent read-only review attempts did not return a final verdict within their bounded runtime, so no CLEAN review claim is made.",
     "The process review snapshot is append-only, read-only mock data in /data/aipol-process-review.db, physically separate from the participant/admin /data/event.db; the Azure Files connection follows EVENT_SQLITE_NOLOCK=true.",
     "Full repository regression passed: 436 passed, 6 skipped; after the Azure Files connection correction, the focused process-review, remote-browser-contract, and DEV-IaC suite passed 16 tests.",
     "git diff --check, conflict-marker scan, changed JavaScript syntax checks, Python compilation, Bicep compilation, and explicit session binding verification passed.",
@@ -28,6 +31,7 @@
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
+    "event-tool/server.py",
     "event-tool/aipol_process_review.py",
     "event-tool/web/aipol-process-review.html",
     "event-tool/web/aipol.html",
@@ -41,6 +45,8 @@
     "attempted": true,
     "environment": "isolated_dev",
     "review_url": "https://ca-aipol-event-tool-dev.agreeabledune-0d70826c.koreacentral.azurecontainerapps.io/aipol.html?review=process&dataset=pension-v4-20260808-r1",
+    "review_url_status": "superseded_wrong_path; historical deployment evidence only",
+    "canonical_review_path": "/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1",
     "image_digest": "sha256:7d74ad511a3a2be53bce9e44fd3a9e9439dd2a0b55c29f234035b9f3bce19243",
     "revision": "ca-aipol-event-tool-dev--review-bb9fa64",
     "discord_dm": {
@@ -49,5 +55,5 @@
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-09T11:05:07+09:00"
+  "updated_at": "2026-08-10T03:30:08+09:00"
 }

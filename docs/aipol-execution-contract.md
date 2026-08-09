@@ -6,7 +6,7 @@
 - 적용 이슈: `nextain/aipol#7`
 - 행사: 2026 한국정책학회 하계학술대회 특별기획Ⅰ, 2026-08-12 14:30–16:10
 - 공식 공개 포털: `https://aipol.kaps.or.kr/`
-- 실제 서비스: `https://session.aipol.kaps.or.kr/`
+- 실제 서비스: `https://session.aipol.kaps.or.kr/cases/pension/experiment/`
 
 이 문서는 연금개혁 숙의실험 v4의 정본 계약이다. 참가자 화면, 어드민, API,
 데이터 원장, 프로세스 리뷰와 배포는 이 계약을 함께 따라야 한다.
@@ -18,7 +18,7 @@
 - M1·M2·M3의 주 선택지는 모두 A/B/C뿐이다. D는 네 번째 선택지가 아니다.
 - 쟁점은 참가자의 관심도 직접 선택으로 만들지 않는다.
 - 별도 Vercel 리뷰 앱은 사용하지 않는다. 리뷰 페이지는 실제 행사 서비스 안의
-  `/aipol.html?review=process&dataset=pension-v4-20260808-r1`에서 제공한다.
+  `/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1`에서 제공한다.
 - 리뷰 파라미터는 `AIPOL_PROCESS_REVIEW_DB_PATH`로 지정한 격리된 append-only 목업 DB
   스냅숏만 읽는다. 참가자·투표 원장과 DB 파일을 분리하고, 목업 여부·콘텐츠 해시·
   저장 시각을 화면에 명시한다.
@@ -126,7 +126,7 @@ v4 실제 수집을 열기 전에 다음 여섯 범주의 정본 문서와 승�
 ## 8. 리뷰와 배포
 
 - 프로세스 리뷰는 실제 `event-tool` 서비스의
-  `/aipol.html?review=process&dataset=pension-v4-20260808-r1`을 사용한다.
+  `/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1`을 사용한다.
 - 리뷰 페이지는 10단계, 목업 입력 데이터와 승인 게이트를 설명하는 읽기 전용·`noindex`
   화면이며 명시적 개발 플래그가 없으면 API가 열리지 않는다.
 - 첫 검토는 격리 개발 서비스와 결정론적 합성 데이터만 사용하며 실제 수집을 끈다.

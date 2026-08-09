@@ -36,6 +36,29 @@ def test_process_review_snapshot_is_flagged_isolated_and_append_only(tmp_path, m
 
     try:
         with TestClient(server.app) as client:
+            canonical_page = client.get("/cases/pension/experiment/", follow_redirects=False)
+            assert canonical_page.status_code == 200
+            assert "연금개혁-AI 숙의민주주의 정책실험" in canonical_page.text
+
+            slash_redirect = client.get(
+                "/cases/pension/experiment?x=a%2Fb&x=%E2%9C%93&blank=",
+                follow_redirects=False,
+            )
+            assert slash_redirect.status_code in {307, 308}
+            assert slash_redirect.headers["location"] == (
+                "/cases/pension/experiment/?x=a%2Fb&x=%E2%9C%93&blank="
+            )
+
+            legacy_page = client.get(
+                "/aipol.html?review=process&dataset=pension-v4-20260808-r1",
+                follow_redirects=False,
+            )
+            assert legacy_page.status_code in {307, 308}
+            assert legacy_page.headers["location"] == (
+                "/cases/pension/experiment/"
+                "?review=process&dataset=pension-v4-20260808-r1"
+            )
+
             assert client.get(route).status_code == 404
             assert not review_db_path.exists()
 

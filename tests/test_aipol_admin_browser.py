@@ -186,7 +186,7 @@ def test_process_review_query_renders_read_only_mock_snapshot(tmp_path, monkeypa
             )
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             response = page.goto(
-                f"{base}/aipol.html?review=process&dataset=pension-v4-20260808-r1"
+                f"{base}/cases/pension/experiment/?review=process&dataset=pension-v4-20260808-r1"
             )
             assert response and response.status == 200
             page.locator("#state-review").filter(has_text="프로세스 리뷰 · 목업 DB · 읽기 전용").wait_for()
@@ -287,7 +287,7 @@ def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkey
                 admin.locator("#download-admission-csv").click()
             assert download_info.value.suggested_filename.endswith("admission-credentials.csv")
             admin.locator("#experiments button").first.click()
-            experiment_id = admin.locator('#detail a[href^="/aipol.html?experiment="]').get_attribute("href").split("=")[1]
+            experiment_id = admin.locator('#detail a[href^="/cases/pension/experiment/?experiment="]').get_attribute("href").split("=")[1]
 
             calculation_evidence = _calculation_evidence()
             for category in CATEGORIES:
@@ -363,7 +363,7 @@ def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkey
                 lambda request: participant_payloads.append(request.post_data or "")
                 if request.method == "POST" and "/api/aipol/" in request.url else None,
             )
-            participant.goto(f"{base}/aipol.html?experiment={experiment_id}")
+            participant.goto(f"{base}/cases/pension/experiment/?experiment={experiment_id}")
             participant.locator("#state-start").wait_for()
             assert "정책전문가팀" in participant.locator("#state-start").inner_text()
             assert "AI팀" in participant.locator("#state-start").inner_text()
@@ -389,7 +389,7 @@ def test_admin_editor_approver_freeze_and_participant_e1a_to_m3(tmp_path, monkey
                 lambda request: participant_payloads.append(request.post_data or "")
                 if request.method == "POST" and "/api/aipol/" in request.url else None,
             )
-            participant.goto(f"{base}/aipol.html?experiment={experiment_id}")
+            participant.goto(f"{base}/cases/pension/experiment/?experiment={experiment_id}")
             participant.locator("#recovery-code").fill(recovery_code)
             participant.locator("#recover").click()
             participant.locator("#state-recovery").wait_for()

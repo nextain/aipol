@@ -62,7 +62,7 @@ EOF
 ```
 
 - **시민 화면**: http://127.0.0.1:8100/
-- **AIPOL 참여 화면**: http://127.0.0.1:8100/aipol.html?experiment={실험ID}
+- **AIPOL 참여 화면**: http://127.0.0.1:8100/cases/pension/experiment/?experiment={실험ID}
 - **진행자 화면**: http://127.0.0.1:8100/admin.html  (아이디 `local`, 비밀번호 = `EVENT_ADMIN_PASSWORD`, 기본 `demo`)
 - **AIPOL 통합 운영**: http://127.0.0.1:8100/aipol-admin.html
 
@@ -145,7 +145,7 @@ Azure Files는 SQLite 파일 잠금을 지원하지 않아 운영 컨테이너�
 합성 참가자 토큰은 주소의 fragment에만 넣습니다.
 
 ```text
-https://session.aipol.kaps.or.kr/aipol.html?experiment={실험ID}#review_token={합성참가자토큰}
+https://session.aipol.kaps.or.kr/cases/pension/experiment/?experiment={실험ID}#review_token={합성참가자토큰}
 ```
 
 브라우저는 주소에서 fragment를 먼저 지운 뒤 서버에서 합성 검토 권한을 확인하고, 검증된 토큰만 로컬 저장소에 보관합니다. 기본 유효기간은 7일이며 `AIPOL_SYNTHETIC_REVIEW_TTL_SECONDS`로 15분~30일 범위에서 조정할 수 있습니다. 운영자는 `POST /api/admin/aipol/experiments/{실험ID}/synthetic-participants/{review_id}/revoke`로 링크를 즉시 폐기할 수 있습니다. 이 링크는 참가 권한을 가진 비밀 링크이므로 공개 저장소, 공개 이슈, 검색 가능한 문서에 기록하지 않습니다.

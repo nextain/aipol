@@ -283,7 +283,7 @@ def test_event_page_is_rehearsal_only_and_uses_confirmed_schedule() -> None:
     assert "A/B/C 모바일 투표 3회 예정" in parsed.text
     assert "1차 모바일 투표" in parsed.text
     assert "2차 숙의와 투표" in parsed.text and "D안 설명과 3차 투표" in parsed.text
-    assert 'href="https://session.aipol.kaps.or.kr/aipol.html?review=process&amp;dataset=pension-v4-20260808-r1"' in (
+    assert 'href="https://session.aipol.kaps.or.kr/cases/pension/experiment/?review=process&amp;dataset=pension-v4-20260808-r1"' in (
         SITE / "cases" / "pension" / "index.html"
     ).read_text(encoding="utf-8")
     assert "session.policylab.nextain.io" not in source
