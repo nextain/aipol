@@ -1904,6 +1904,25 @@ def aipol_process_review_snapshot(review_id: str):
     return JSONResponse(snapshot, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/aipol/process-reviews/{review_id}/session")
+def aipol_process_review_session(review_id: str):
+    try:
+        session = aipol_process_review.issue_review_session(review_id)
+    except KeyError as exc:
+        raise HTTPException(404, "프로세스 리뷰를 찾을 수 없습니다") from exc
+    except aipol_process_review.ReviewSessionError as exc:
+        raise HTTPException(503, "프로세스 리뷰 세션을 발급할 수 없습니다") from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return JSONResponse(
+        session,
+        headers={
+            "Cache-Control": "no-store",
+            "X-AIPOL-Data-Class": "synthetic-review",
+        },
+    )
+
+
 @app.post("/api/aipol/experiments/{experiment_id}/consent")
 def aipol_consent(
     experiment_id: str,

@@ -88,6 +88,7 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
             assert "개인 연금 계산" in snapshot["forbidden_stages"]
             assert len(snapshot["content_hash"]) == 64
             assert client.post(route).status_code == 405
+            assert client.post(f"{route}/session").status_code == 503
 
             operational = server.db.create_event("operational-event")
             with server.db.use_database(review_db_path):
@@ -105,8 +106,10 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
             }
             assert not tables.intersection({
                 "aipol_process_review_events", "aipol_process_review_inputs",
-                "aipol_process_review_steps",
+                "aipol_process_review_steps", "aipol_process_review_bindings",
             })
+            assert connection.execute("SELECT COUNT(*) FROM aipol_experiments").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM aipol_participants").fetchone()[0] == 0
 
         with sqlite3.connect(review_db_path) as connection:
             row = connection.execute(
@@ -122,6 +125,11 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
                 "SELECT COUNT(*) FROM aipol_process_review_steps WHERE review_id=?",
                 (snapshot["review_id"],),
             ).fetchone()[0] == 10
+            assert connection.execute(
+                "SELECT COUNT(*) FROM aipol_process_review_bindings WHERE review_id=?",
+                (snapshot["review_id"],),
+            ).fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM aipol_participants").fetchone()[0] == 0
             with pytest.raises(sqlite3.IntegrityError, match="append-only"):
                 connection.execute(
                     "UPDATE aipol_process_review_events SET contract_version='drift' WHERE id=?",
@@ -130,6 +138,11 @@ def test_process_review_event_is_stored_isolated_and_append_only(tmp_path, monke
             with pytest.raises(sqlite3.IntegrityError, match="append-only"):
                 connection.execute(
                     "DELETE FROM aipol_process_review_steps WHERE review_id=?",
+                    (snapshot["review_id"],),
+                )
+            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                connection.execute(
+                    "UPDATE aipol_process_review_bindings SET fixture_version='drift' WHERE review_id=?",
                     (snapshot["review_id"],),
                 )
     finally:
@@ -208,6 +221,66 @@ def test_signed_review_session_binds_same_handler_to_review_database(tmp_path, m
         )
         with pytest.raises(server.aipol_process_review.ReviewSessionError, match="expired"):
             server.aipol_process_review.verify_session_token(expired, now=160)
+    finally:
+        for name in MODULES:
+            sys.modules.pop(name, None)
+
+
+def test_server_issues_session_only_for_approved_isolated_fixture(tmp_path, monkeypatch):
+    event_db_path = tmp_path / "event.db"
+    review_db_path = tmp_path / "isolated-process-review.db"
+    monkeypatch.setenv("EVENT_ENV", "development")
+    monkeypatch.setenv("EVENT_DB_PATH", str(event_db_path))
+    monkeypatch.setenv("EVENT_SESSION_SECRET", "s" * 48)
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_DB_PATH", str(review_db_path))
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_SESSION_SECRET", "r" * 48)
+    monkeypatch.syspath_prepend(str(EVENT_TOOL))
+    for name in MODULES:
+        sys.modules.pop(name, None)
+    server = importlib.import_module("server")
+    session_route = "/api/aipol/process-reviews/pension-v4-20260808-r1/session"
+
+    try:
+        with TestClient(server.app) as client:
+            issued = client.post(session_route, json={"experiment_id": "client-chosen"})
+            assert issued.status_code == 200, issued.text
+            assert issued.headers["cache-control"] == "no-store"
+            assert issued.headers["x-aipol-data-class"] == "synthetic-review"
+            session = issued.json()
+            assert session["review_id"] == server.aipol_process_review.REVIEW_ID
+            assert session["experiment_id"] != "client-chosen"
+            assert session["participant_token"].startswith("aipr1.")
+            assert session["synthetic_review"] is True
+            assert session["data_class"] == "synthetic_review"
+
+            current = client.get(
+                f"/api/aipol/experiments/{session['experiment_id']}/current",
+                headers={"x-participant-token": session["participant_token"]},
+            )
+            assert current.status_code == 200, current.text
+            assert current.headers["x-aipol-data-class"] == "synthetic-review"
+            assert current.json()["stage"] == "consent"
+            assert current.json()["participant_type"] == "synthetic"
+            assert current.json()["synthetic_review"] is True
+
+            missing = client.post("/api/aipol/process-reviews/not-approved/session")
+            assert missing.status_code == 404
+
+            # Startup/retry reuses the append-only binding instead of creating drift.
+            server.aipol_process_review.init()
+
+        with sqlite3.connect(event_db_path) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM aipol_experiments").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM aipol_participants").fetchone()[0] == 0
+        with sqlite3.connect(review_db_path) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM aipol_experiments").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM aipol_participants").fetchone()[0] == 1
+            binding = connection.execute(
+                "SELECT fixture_version,experiment_id FROM aipol_process_review_bindings WHERE review_id=?",
+                (server.aipol_process_review.REVIEW_ID,),
+            ).fetchone()
+            assert binding == (server.aipol_process_review.FIXTURE_VERSION, session["experiment_id"])
     finally:
         for name in MODULES:
             sys.modules.pop(name, None)

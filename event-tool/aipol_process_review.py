@@ -18,6 +18,7 @@ from pathlib import Path
 
 
 REVIEW_ID = "pension-v4-20260808-r1"
+FIXTURE_VERSION = "pension-v4-review-fixture-v1"
 SESSION_TOKEN_PREFIX = "aipr1."
 _SESSION_PAYLOAD_KEYS = frozenset({
     "v", "review_id", "experiment_id", "participant_token", "iat", "exp",
@@ -48,6 +49,13 @@ CREATE TABLE IF NOT EXISTS aipol_process_review_steps (
   content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
   PRIMARY KEY(review_id,step_number)
 );
+CREATE TABLE IF NOT EXISTS aipol_process_review_bindings (
+  review_id TEXT PRIMARY KEY REFERENCES aipol_process_review_events(id),
+  fixture_version TEXT NOT NULL,
+  fixture_hash TEXT NOT NULL CHECK(length(fixture_hash)=64),
+  experiment_id TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
 CREATE TRIGGER IF NOT EXISTS aipol_process_review_events_no_update
 BEFORE UPDATE ON aipol_process_review_events BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_process_review_events_no_delete
@@ -60,6 +68,10 @@ CREATE TRIGGER IF NOT EXISTS aipol_process_review_steps_no_update
 BEFORE UPDATE ON aipol_process_review_steps BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_process_review_steps_no_delete
 BEFORE DELETE ON aipol_process_review_steps BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_process_review_bindings_no_update
+BEFORE UPDATE ON aipol_process_review_bindings BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_process_review_bindings_no_delete
+BEFORE DELETE ON aipol_process_review_bindings BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 """
 
 
@@ -285,6 +297,250 @@ def _seed_event() -> tuple[dict, dict[str, dict], list[dict]]:
     return event, inputs, steps
 
 
+def _fixture_definition(event: dict, inputs: dict[str, dict], steps: list[dict]) -> dict:
+    """Return the approved, deterministic material used by the interactive review."""
+    issue_content = {
+        "title": "1차 결과 기반 5대 핵심 쟁점",
+        "body": steps[3]["description"],
+        "issues": [
+            {"issue_id": f"review-issue-{index}", **issue}
+            for index, issue in enumerate(steps[3]["issues"], start=1)
+        ],
+        "input_hashes": {"m1": event["input_hashes"]["m1"]},
+        "human_reviewed": True,
+        "reviewed_by": "process-reviewer",
+        "synthetic_review": True,
+        "data_class": "synthetic_review",
+    }
+    d_content = {
+        "title": "AI 협의 D안",
+        "body": steps[6]["ai_summary"],
+        "limitations": "장기 재정 추계 가정과 세부 시행령은 후속 검토가 필요합니다.",
+        "input_hashes": event["input_hashes"],
+        "input_snapshot": inputs,
+        "council": steps[6]["council"],
+        "constraint_verdicts": steps[6]["constraint_verdicts"],
+        "human_reviewed": True,
+        "approved_by": "process-review-approver",
+        "synthetic_review": True,
+        "data_class": "synthetic_review",
+    }
+    expert = steps[7]["expert_review"]
+    expert_content = {
+        "title": expert["after"]["title"],
+        "body": expert["after"]["body"],
+        "limitations": expert["after"]["limitations"],
+        "d_artifact_hash": _digest(d_content),
+        "before": expert["before"],
+        "after": expert["after"],
+        "field_diff": expert["field_diff"],
+        "public_reason": expert["public_reason"],
+        "qna": expert["qna"],
+        "human_reviewed": True,
+        "synthetic_review": True,
+        "data_class": "synthetic_review",
+    }
+    return {
+        "fixture_version": FIXTURE_VERSION,
+        "experiment": {
+            "title": "연금개혁 AI 숙의민주주의 정책실험 — REVIEW/SYNTHETIC DATA",
+            "experiment_version": FIXTURE_VERSION,
+            "session_id": REVIEW_ID,
+            "consent_version": "pension-review-consent-v1",
+            "consent_text": (
+                "이 세션은 프로세스 검토용 합성 데이터입니다. 실제 투표 결과가 아니며 "
+                "개인 연금 계산 정보는 수집하지 않습니다."
+            ),
+            "question_id": "pension-policy-choice",
+            "question_text": "현재 설명을 기준으로 A·B·C안 중 어느 안을 선택하시겠습니까?",
+            "option_set_version": "pension-review-options-v1",
+            "policy_options": [
+                {"policy_option_id": "A", "label": "A안", "policy_version": "pension-review-options-v1", "source": "approved synthetic review fixture", "approved_by": "process-review-approver", "lever_values": {"balance": "benefit"}},
+                {"policy_option_id": "B", "label": "B안", "policy_version": "pension-review-options-v1", "source": "approved synthetic review fixture", "approved_by": "process-review-approver", "lever_values": {"balance": "balanced"}},
+                {"policy_option_id": "C", "label": "C안", "policy_version": "pension-review-options-v1", "source": "approved synthetic review fixture", "approved_by": "process-review-approver", "lever_values": {"balance": "sustainability"}},
+            ],
+            "capacity": 40,
+            "created_by": "process-review-editor",
+            "procedure_version": "v4",
+        },
+        "artifacts": {
+            "issue_deliberation": issue_content,
+            "ai_opinion": d_content,
+            "expert_explanation": expert_content,
+        },
+    }
+
+
+def _insert_fixture_artifacts(experiment_id: str, fixture: dict) -> None:
+    import db
+
+    approved_at = "2026-08-08T11:40:00+00:00"
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = {
+            row[0] for row in connection.execute(
+                "SELECT kind FROM aipol_artifacts WHERE experiment_id=?", (experiment_id,)
+            )
+        }
+        for kind, content in fixture["artifacts"].items():
+            if kind in existing:
+                continue
+            digest = _digest(content)
+            approval_id = f"review-artifact:{REVIEW_ID}:{kind}:v1"
+            connection.execute(
+                "INSERT INTO aipol_approval_events(id,experiment_id,object_type,object_id,"
+                "content_hash,approval_id,editor_by,approver_by,approved_at,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    f"review-approval-{kind}", experiment_id, "artifact", kind, digest,
+                    approval_id, "process-review-editor", "process-review-approver",
+                    approved_at, time.time(),
+                ),
+            )
+            connection.execute(
+                "INSERT INTO aipol_artifacts(id,experiment_id,kind,artifact_id,artifact_version,"
+                "content_hash,content,approval_id,approved_by,approved_at,fallback_used,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    f"review-artifact-row-{kind}", experiment_id, kind,
+                    f"review-{kind}-v1", "review-v1", digest, _canonical(content),
+                    approval_id, "process-review-approver", approved_at, 0, time.time(),
+                ),
+            )
+
+
+def _validate_interactive_fixture(experiment_id: str, fixture: dict) -> None:
+    import aipol_store
+
+    experiment = aipol_store.get_experiment(experiment_id)
+    manifest = experiment.get("freeze_manifest") or {}
+    if (
+        experiment.get("experiment_version") != FIXTURE_VERSION
+        or experiment.get("session_id") != REVIEW_ID
+        or experiment.get("procedure_config", {}).get("version")
+        != "aipol-pension-deliberation-v4"
+        or manifest.get("status") != "frozen"
+        or manifest.get("collection_enabled") is not False
+    ):
+        raise RuntimeError("process review experiment fixture mismatch")
+    for kind, expected_content in fixture["artifacts"].items():
+        artifact = aipol_store.artifact_public(experiment_id, kind, include_content=True)
+        if (
+            not artifact
+            or artifact.get("content_hash") != _digest(expected_content)
+            or artifact.get("content") != expected_content
+        ):
+            raise RuntimeError(f"process review artifact fixture mismatch: {kind}")
+
+
+def _ensure_interactive_fixture(event: dict, inputs: dict[str, dict], steps: list[dict]) -> None:
+    import aipol_store
+    import db
+
+    review_path = database_path().resolve()
+    if review_path == db.DB_PATH.resolve():
+        raise RuntimeError("process review database must be physically isolated")
+    fixture = _fixture_definition(event, inputs, steps)
+    fixture_hash = _digest(fixture)
+    with db.use_database(review_path):
+        db.init()
+        aipol_store.init()
+        with db._conn() as connection:
+            binding = connection.execute(
+                "SELECT * FROM aipol_process_review_bindings WHERE review_id=?", (REVIEW_ID,)
+            ).fetchone()
+            experiment_row = connection.execute(
+                "SELECT id FROM aipol_experiments WHERE experiment_version=? AND session_id=?",
+                (FIXTURE_VERSION, REVIEW_ID),
+            ).fetchone()
+        if binding:
+            if (
+                binding["fixture_version"] != FIXTURE_VERSION
+                or binding["fixture_hash"] != fixture_hash
+                or not experiment_row
+                or binding["experiment_id"] != experiment_row["id"]
+            ):
+                raise RuntimeError("process review fixture binding mismatch")
+            experiment_id = binding["experiment_id"]
+        else:
+            if experiment_row:
+                experiment_id = experiment_row["id"]
+            else:
+                experiment_id = aipol_store.create_experiment(**fixture["experiment"])["id"]
+            experiment = aipol_store.get_experiment(experiment_id)
+            if not experiment["freeze_manifest"]:
+                aipol_store.set_freeze_manifest(
+                    experiment_id,
+                    {
+                        "manifest_id": "pension-review-freeze-v1",
+                        "experiment_version": experiment["experiment_version"],
+                        "option_set_version": experiment["measurement_spec"]["option_set_version"],
+                        "measurement_spec_hash": experiment["measurement_spec_hash"],
+                        "status": "frozen",
+                        "collection_enabled": False,
+                        "approvals": [],
+                    },
+                    approved_by="process-review-approver",
+                )
+            _insert_fixture_artifacts(experiment_id, fixture)
+            with db._conn() as connection:
+                connection.execute(
+                    "INSERT INTO aipol_process_review_bindings "
+                    "(review_id,fixture_version,fixture_hash,experiment_id,created_at) "
+                    "VALUES(?,?,?,?,?)",
+                    (
+                        REVIEW_ID, FIXTURE_VERSION, fixture_hash, experiment_id,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+        _validate_interactive_fixture(experiment_id, fixture)
+
+
+def issue_review_session(review_id: str) -> dict:
+    """Register a synthetic participant against the server-owned fixture only."""
+    import aipol_store
+    import db
+
+    if not enabled() or review_id != REVIEW_ID:
+        raise KeyError(review_id)
+    review_path = database_path().resolve()
+    if review_path == db.DB_PATH.resolve():
+        raise RuntimeError("process review database must be physically isolated")
+    # Validate every signing input before creating a participant so a bad
+    # deployment cannot leave an unusable synthetic session behind.
+    _session_secret()
+    ttl_seconds = min(1800, _session_ttl_limit())
+    with db.use_database(review_path):
+        with db._conn() as connection:
+            binding = connection.execute(
+                "SELECT experiment_id FROM aipol_process_review_bindings WHERE review_id=?",
+                (review_id,),
+            ).fetchone()
+        if not binding:
+            raise KeyError(review_id)
+        registration = aipol_store.register_participant(
+            binding["experiment_id"], "synthetic", audit_actor="server:process-review-session"
+        )
+    issued_at = int(time.time())
+    token = issue_session_token(
+        review_id,
+        binding["experiment_id"],
+        registration["participant_token"],
+        now=issued_at,
+        ttl_seconds=ttl_seconds,
+    )
+    return {
+        "review_id": review_id,
+        "experiment_id": binding["experiment_id"],
+        "participant_token": token,
+        "expires_at": datetime.fromtimestamp(
+            issued_at + ttl_seconds, timezone.utc
+        ).isoformat(),
+        "synthetic_review": True,
+        "data_class": "synthetic_review",
+    }
+
+
 def init() -> None:
     if not enabled():
         return
@@ -304,6 +560,7 @@ def init() -> None:
             "INSERT OR IGNORE INTO aipol_process_review_steps (review_id,step_number,payload_json,content_hash) VALUES(?,?,?,?)",
             [(REVIEW_ID, step["number"], _canonical(step), _digest(step)) for step in steps],
         )
+    _ensure_interactive_fixture(event, inputs, steps)
 
 
 def get(review_id: str) -> dict:
