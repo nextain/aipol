@@ -18,11 +18,13 @@
     "Full repository regression passed: 436 passed, 6 skipped; after the Azure Files connection correction, the focused process-review, remote-browser-contract, and DEV-IaC suite passed 16 tests.",
     "git diff --check, conflict-marker scan, changed JavaScript syntax checks, Python compilation, Bicep compilation, and explicit session binding verification passed.",
     "Two superseded deployment attempts exposed and proved the wrong Docker build context and Azure Files SQLite locking gaps; neither failed revision remains active, and both gaps are covered by repository tests and the corrected deployment contract.",
-    "The immutable review image acraipolevtmxajhqb4i5p4o.azurecr.io/aipol/event-tool@sha256:ef6158ecda9e4c0fa3a1afd203d643990e4620f4ec2a99c99ea3128196eac9f2 is deployed only to the isolated DEV Container App as revision ca-aipol-event-tool-dev--review-4b1fdd9; collection, demo, chatbot, batch, and receipt verification remain disabled.",
+    "The restart-safe immutable review image acraipolevtmxajhqb4i5p4o.azurecr.io/aipol/event-tool@sha256:7d74ad511a3a2be53bce9e44fd3a9e9439dd2a0b55c29f234035b9f3bce19243 is deployed only to the isolated DEV Container App as revision ca-aipol-event-tool-dev--review-bb9fa64; collection, demo, chatbot, batch, and receipt verification remain disabled.",
     "Remote browser verification of the canonical query review passed with HTTP 200, ten steps, exactly five M1-derived issues, three AI council records, D acceptability 4.1, no localStorage writes, and no console or page errors; healthz and readyz returned HTTP 200, and exactly one healthy DEV revision is active.",
     "Discord DM delivery was confirmed with HTTP 200 through the one authorized AIPOL DM binding resolved from the matching configured participant and its single durable channel projection; message id 1535824598715863130.",
     "The first DEV revision later entered a restart loop because its legacy plain-text writer lease survived on Azure Files; the replacement wrapper permits only same-replica dead-process recovery and keeps cross-replica overlap fail-closed.",
-    "Post-fix full repository regression passed: 438 passed, 6 skipped; Python compilation, Bicep compilation, git diff checks, and explicit session binding verification also passed."
+    "Post-fix full repository regression passed: 438 passed, 6 skipped; Python compilation, Bicep compilation, git diff checks, and explicit session binding verification also passed.",
+    "The exact stale operational lease artifact event-tool.writer-lease/owner and its now-empty directory were removed after all old revisions were inactive; no database, participant data, or production resource was removed.",
+    "Final remote browser verification against revision ca-aipol-event-tool-dev--review-bb9fa64 passed with HTTP 200, ten steps, five issues, three AI council records, D acceptability 4.1, no personal-calculator stage, no localStorage writes, and no console or page errors; exactly one healthy DEV revision is active."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -39,13 +41,13 @@
     "attempted": true,
     "environment": "isolated_dev",
     "review_url": "https://ca-aipol-event-tool-dev.agreeabledune-0d70826c.koreacentral.azurecontainerapps.io/aipol.html?review=process&dataset=pension-v4-20260808-r1",
-    "image_digest": "sha256:ef6158ecda9e4c0fa3a1afd203d643990e4620f4ec2a99c99ea3128196eac9f2",
-    "revision": "ca-aipol-event-tool-dev--review-4b1fdd9",
+    "image_digest": "sha256:7d74ad511a3a2be53bce9e44fd3a9e9439dd2a0b55c29f234035b9f3bce19243",
+    "revision": "ca-aipol-event-tool-dev--review-bb9fa64",
     "discord_dm": {
       "sent": true,
       "state": "confirmed",
       "message_id": "1535824598715863130"
     }
   },
-  "updated_at": "2026-08-09T10:56:43+09:00"
+  "updated_at": "2026-08-09T11:05:07+09:00"
 }
