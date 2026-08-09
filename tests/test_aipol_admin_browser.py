@@ -157,6 +157,7 @@ def test_process_review_query_renders_stored_read_only_synthetic_event(tmp_path,
     monkeypatch.setenv("EVENT_SQLITE_NOLOCK", "false")
     monkeypatch.setenv("EVENT_SESSION_SECRET", "s" * 48)
     monkeypatch.setenv("AIPOL_PROCESS_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("AIPOL_PROCESS_REVIEW_SESSION_SECRET", "r" * 48)
     monkeypatch.syspath_prepend(str(event_tool))
     for name in MODULES:
         sys.modules.pop(name, None)
@@ -197,6 +198,34 @@ def test_process_review_query_renders_stored_read_only_synthetic_event(tmp_path,
             assert "전문가 수정 전후" in page.locator(".review-step").nth(7).inner_text()
             assert page.locator("#state-review").inner_text().count("4.1") >= 1
             assert "개인 연금 계산 정보는 수집하지 않습니다" in page.locator("#state-review").inner_text()
+            assert page.evaluate("localStorage.length") == 0
+            assert page.evaluate("sessionStorage.length") == 0
+
+            monkeypatch.delenv("AIPOL_PROCESS_REVIEW_SESSION_SECRET")
+            page.locator("#start-process-review").click()
+            page.locator("#process-review-session-error").filter(has_text="다시 시도").wait_for()
+            assert page.locator("#state-review").is_visible()
+            assert page.evaluate("sessionStorage.length") == 0
+            assert any("503" in message for message in console_errors)
+            console_errors.clear()
+
+            monkeypatch.setenv("AIPOL_PROCESS_REVIEW_SESSION_SECRET", "r" * 48)
+            page.locator("#start-process-review").click()
+            page.locator("#state-step").filter(has_text="참여 동의").wait_for()
+            assert "REVIEW · SYNTHETIC DATA" in page.locator("#review-mode-banner").inner_text()
+            assert page.evaluate("localStorage.length") == 0
+            stored_session = page.evaluate(
+                "JSON.parse(sessionStorage.getItem('aipol:process-review:pension-v4-20260808-r1'))"
+            )
+            assert stored_session["review_id"] == "pension-v4-20260808-r1"
+            assert stored_session["synthetic_review"] is True
+            assert stored_session["experiment_id"]
+            assert stored_session["participant_token"].startswith("aipr1.")
+            assert "experiment=" not in page.url
+
+            page.reload()
+            page.locator("#state-step").filter(has_text="참여 동의").wait_for()
+            assert "REVIEW · SYNTHETIC DATA" in page.locator("#review-mode-banner").inner_text()
             assert page.evaluate("localStorage.length") == 0
             assert console_errors == []
             assert page_errors == []

@@ -18,6 +18,9 @@
 .external-link { display: inline-flex; min-height: 54px; align-items: center; padding: 12px 16px; border: 2px solid var(--brand); border-radius: 12px; color: var(--brand-dark); font-weight: 800; text-decoration: none; }
 .error-inline { color: var(--reject); font-weight: 800; min-height: 1.5em; }
 .review-intro { border-color: var(--brand); }
+.review-mode-banner { margin: 14px 0 0; padding: 9px 12px; border: 2px solid #a33a24; border-radius: 9px; background: #fff1ed; color: #7d2818; font-weight: 900; letter-spacing: .04em; }
+.review-session-actions { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.review-session-actions .muted { margin-bottom: 0; font-size: .86rem; }
 .review-integrity { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .review-integrity span, .review-integrity code { padding: 7px 10px; border-radius: 8px; background: #f1f4f9; font-size: .8rem; overflow-wrap: anywhere; }
 .review-integrity code { width: 100%; }

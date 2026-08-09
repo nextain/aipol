@@ -2,9 +2,10 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const V4_VERSION = "aipol-pension-deliberation-v4";
-const experimentId = params.get("experiment");
+let experimentId = params.get("experiment");
 const reviewMode = params.get("review");
 const reviewDataset = params.get("dataset") || "pension-v4-20260808-r1";
+const reviewSessionKey = `aipol:process-review:${reviewDataset}`;
 const tokenKey = experimentId ? `aipol:participant:${experimentId}` : "aipol:participant:missing";
 const registrationNonceKey = `aipol:registration-nonce:${experimentId}`;
 const registrationIdempotencyKey = `aipol:registration-idempotency:${experimentId}`;
@@ -16,13 +17,37 @@ if (reviewToken !== null) {
   if (experimentId && /^S[A-F0-9]{32}$/.test(reviewToken)) pendingReviewToken = reviewToken;
   else reviewTokenError = "합성 검토 링크가 올바르지 않습니다.";
 }
-let storedParticipantToken = localStorage.getItem(tokenKey) || "";
+let storedParticipantToken = reviewMode ? "" : localStorage.getItem(tokenKey) || "";
 let participantToken = pendingReviewToken || storedParticipantToken;
 let current = null;
 let calculatorReceipt = null;
 let stopCalculatorHandshake = null;
 let calculatorFallbackTimer = null;
 let pendingRecoveryCode = "";
+
+if (reviewMode) $("review-mode-banner").classList.remove("hidden");
+
+function participantStorage() { return reviewMode ? sessionStorage : localStorage; }
+function clearReviewSession() {
+  sessionStorage.removeItem(reviewSessionKey);
+  experimentId = null;
+  participantToken = "";
+  storedParticipantToken = "";
+  current = null;
+}
+function restoreReviewSession() {
+  let session;
+  try { session = JSON.parse(sessionStorage.getItem(reviewSessionKey) || "null"); } catch (_) { session = null; }
+  const expiresAt = Date.parse(session?.expires_at || "");
+  if (session?.review_id !== reviewDataset || session?.synthetic_review !== true || !session?.experiment_id || !session?.participant_token || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    clearReviewSession();
+    return false;
+  }
+  experimentId = session.experiment_id;
+  participantToken = session.participant_token;
+  storedParticipantToken = participantToken;
+  return true;
+}
 
 function clearCalculatorIntegration() {
   if (stopCalculatorHandshake) stopCalculatorHandshake();
@@ -34,6 +59,11 @@ function clearCalculatorIntegration() {
 
 function resetParticipant() {
   clearCalculatorIntegration();
+  if (reviewMode) {
+    clearReviewSession();
+    loadProcessReview();
+    return;
+  }
   localStorage.removeItem(tokenKey);
   localStorage.removeItem(registrationNonceKey);
   localStorage.removeItem(registrationIdempotencyKey);
@@ -58,8 +88,9 @@ function esc(value) { return String(value ?? "").replace(/[&<>"']/g, (c) => ({"&
 function show(name) { ["loading","error","review","start","recovery","step","done","withdrawn"].forEach((state) => $("state-" + state).classList.toggle("hidden", state !== name)); }
 function actionKey(stage, revision) {
   const key = `aipol:idem:${experimentId}:${stage}:${revision}`;
-  let value = localStorage.getItem(key);
-  if (!value) { value = crypto.randomUUID(); localStorage.setItem(key, value); }
+  const storage = participantStorage();
+  let value = storage.getItem(key);
+  if (!value) { value = crypto.randomUUID(); storage.setItem(key, value); }
   return { key, value };
 }
 async function api(path, options={}) {
@@ -73,9 +104,13 @@ async function api(path, options={}) {
 async function load() {
   if (reviewMode) {
     if (reviewMode !== "process") { $("error-message").textContent = "지원하지 않는 리뷰 유형입니다."; show("error"); return; }
-    await loadProcessReview();
+    if (restoreReviewSession()) await loadParticipant();
+    else await loadProcessReview();
     return;
   }
+  await loadParticipant();
+}
+async function loadParticipant() {
   if (!experimentId) { $("error-message").textContent = "행사 링크에 experiment 값이 없습니다."; show("error"); return; }
   if (reviewTokenError) { $("error-message").textContent = reviewTokenError; show("error"); return; }
   show("loading");
@@ -114,8 +149,13 @@ async function load() {
       return;
     }
     if (error.status === 401) {
-      $("error-message").textContent = "이 기기에 저장된 참여 토큰을 확인할 수 없습니다.";
-      $("reset-error").classList.remove("hidden");
+      if (reviewMode) {
+        clearReviewSession();
+        $("error-message").textContent = "합성 검토 세션이 만료되었거나 유효하지 않습니다. 다시 확인하면 새 세션을 시작할 수 있습니다.";
+      } else {
+        $("error-message").textContent = "이 기기에 저장된 참여 토큰을 확인할 수 없습니다.";
+        $("reset-error").classList.remove("hidden");
+      }
       show("error");
       return;
     }
@@ -152,11 +192,29 @@ async function loadProcessReview() {
     const inputLabels = {source_bundle:"공개 출처 묶음", constraints:"제약조건", m1:"1차 투표", deliberation_1:"1차 숙의 검수본", five_issues:"5대 쟁점 검수본", m2:"2차 투표", deliberation_2:"2차 숙의 검수본"};
     $("process-review-inputs").innerHTML = Object.entries(snapshot.input_hashes || {}).map(([key, hash]) => `<article><strong>${esc(inputLabels[key] || key)}</strong><code>${esc(hash)}</code></article>`).join("") + `<div class="review-flow-arrow" aria-hidden="true">↓</div><article class="review-flow-result"><strong>3개 AI 협의 → 사람 검수·최종 승인 → D안</strong></article>`;
     $("process-review-steps").innerHTML = snapshot.steps.map((step) => `<section class="step-card review-step"><div class="review-step-number">${esc(step.number)}</div><div><p class="eyebrow">STEP ${esc(step.number)}</p><h2>${esc(step.title)}</h2><p>${esc(step.description)}</p>${reviewDetail(step)}<p class="review-gate"><strong>승인 게이트</strong> ${esc(step.gate)}</p></div></section>`).join("");
+    $("process-review-session-error").textContent = "";
+    $("start-process-review").disabled = false;
     show("review");
   } catch (error) {
     $("error-message").textContent = error.message;
     $("reset-error").classList.add("hidden");
     show("error");
+  }
+}
+async function startProcessReview() {
+  const button = $("start-process-review");
+  button.disabled = true;
+  $("process-review-session-error").textContent = "";
+  try {
+    const session = await api(`/api/aipol/process-reviews/${encodeURIComponent(reviewDataset)}/session`, {method:"POST", body:"{}"});
+    if (session.review_id !== reviewDataset || session.synthetic_review !== true || !session.experiment_id || !session.participant_token || !session.expires_at) throw new Error("서버가 유효한 합성 검토 세션을 반환하지 않았습니다.");
+    sessionStorage.setItem(reviewSessionKey, JSON.stringify(session));
+    if (!restoreReviewSession()) throw new Error("합성 검토 세션을 저장하지 못했습니다.");
+    await loadParticipant();
+  } catch (error) {
+    clearReviewSession();
+    $("process-review-session-error").textContent = `${error.message} 잠시 후 다시 시도해 주세요.`;
+    button.disabled = false;
   }
 }
 async function register() {
@@ -551,19 +609,20 @@ function renderV4Measurement() {
     });
   });
 }
-function bindActions(primary) { $("step-submit").onclick = primary; const row=$("step-submit").parentElement; const withdraw=document.createElement("button");withdraw.type="button";withdraw.className="external-link";withdraw.textContent="참여 철회";withdraw.onclick=async()=>{if(!confirm("참여를 철회하면 이후 단계를 제출할 수 없습니다. 철회할까요?"))return;const idem=actionKey(`withdraw-${current.stage}`,current.state_revision);try{await api(`/api/aipol/experiments/${encodeURIComponent(experimentId)}/withdraw`,{method:"POST",body:JSON.stringify({reason:"participant-request",expected_revision:current.state_revision,idempotency_key:idem.value})});localStorage.removeItem(idem.key);await load();}catch(e){$("step-error").textContent=e.message;}};row.appendChild(withdraw); }
+function bindActions(primary) { $("step-submit").onclick = primary; const row=$("step-submit").parentElement; const withdraw=document.createElement("button");withdraw.type="button";withdraw.className="external-link";withdraw.textContent="참여 철회";withdraw.onclick=async()=>{if(!confirm("참여를 철회하면 이후 단계를 제출할 수 없습니다. 철회할까요?"))return;const idem=actionKey(`withdraw-${current.stage}`,current.state_revision);try{await api(`/api/aipol/experiments/${encodeURIComponent(experimentId)}/withdraw`,{method:"POST",body:JSON.stringify({reason:"participant-request",expected_revision:current.state_revision,idempotency_key:idem.value})});participantStorage().removeItem(idem.key);await load();}catch(e){$("step-error").textContent=e.message;}};row.appendChild(withdraw); }
 async function submitAction(path, body, validate) {
   const valid = validate(); if (valid !== true) { $("step-error").textContent = valid; return; }
   const idem = actionKey(current.stage, current.state_revision); $("step-submit").disabled = true;
   try {
     await api(`/api/aipol/experiments/${encodeURIComponent(experimentId)}/${path}`, {method:"POST", body:JSON.stringify({...body, expected_revision:current.state_revision, idempotency_key:idem.value})});
-    localStorage.removeItem(idem.key); clearCalculatorIntegration(); await load();
+    participantStorage().removeItem(idem.key); clearCalculatorIntegration(); await load();
   } catch (error) { $("step-error").textContent = error.message; $("step-submit").disabled = false; }
 }
 $("register").onclick = register;
 $("recover").onclick = recoverParticipant;
 $("download-recovery-kit").onclick = downloadRecoveryKit;
 $("continue-after-recovery").onclick = continueAfterRecovery;
+$("start-process-review").onclick = startProcessReview;
 $("retry").onclick = load;
 $("reset-error").onclick = resetParticipant;
 $("reset-done").onclick = resetParticipant;
