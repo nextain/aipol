@@ -1,7 +1,7 @@
 {
   "work": "pension-20260808-flow-recovery",
   "status": "in_progress",
-  "current_phase": "pre_deployment_review",
+  "current_phase": "process_review_ready",
   "contract_id": "pension-20260808-flow-recovery-2026-08-09",
   "contract_digest": "4333b54b60ab1e64d8eceb49872bd80743bd508c97aad80bb546dfe7c72b3a67",
   "started_at": "2026-08-09T09:00:00+09:00",
@@ -14,7 +14,10 @@
     "The active v4 contract removes the personal pension calculation and personal-impact stages, derives exactly five issues from M1 opinions with human approval, binds both reviewed deliberation summaries and M1/M2 aggregates into a three-AI D proposal, and stores M3 ABC choice separately from D acceptability and comment.",
     "The same event-tool service now exposes /aipol-process-review.html for a read-only ten-step process review and retains /aipol-preparation.html plus /aipol.html for the later real admin-linked rehearsal.",
     "Full repository regression passed: 433 passed, 6 skipped; the retained legacy browser flow race was fixed by preserving the success message after its admin view refresh.",
-    "git diff --check, conflict-marker scan, changed JavaScript syntax checks, Python compilation, Bicep compilation, and explicit session binding verification passed."
+    "git diff --check, conflict-marker scan, changed JavaScript syntax checks, Python compilation, Bicep compilation, and explicit session binding verification passed.",
+    "The immutable review image acraipolevtmxajhqb4i5p4o.azurecr.io/aipol/event-tool@sha256:794f3f294578fca65876562e55cb82bc9321c918e81a4b626d6ba338beb5d20e is deployed only to the isolated DEV Container App as revision ca-aipol-event-tool-dev--v4-1c0e2e5; collection, demo, chatbot, batch, and receipt verification remain disabled.",
+    "Remote browser verification passed for the ten-step process review, admin entrypoint, and participant entrypoint without console errors; healthz and readyz returned HTTP 200, and exactly one healthy DEV revision is active.",
+    "Discord delivery was not attempted because the session service is stopped and reported zero active or recoverable bindings; no recipient was inferred."
   ],
   "artifacts": [
     "docs/aipol-execution-contract.md",
@@ -25,9 +28,15 @@
     "site/cases/pension/experiment/provenance.json"
   ],
   "deployment": {
-    "attempted": false,
-    "review_url": null,
-    "discord_dm": null
+    "attempted": true,
+    "environment": "isolated_dev",
+    "review_url": "https://ca-aipol-event-tool-dev.agreeabledune-0d70826c.koreacentral.azurecontainerapps.io/aipol-process-review.html",
+    "image_digest": "sha256:794f3f294578fca65876562e55cb82bc9321c918e81a4b626d6ba338beb5d20e",
+    "revision": "ca-aipol-event-tool-dev--v4-1c0e2e5",
+    "discord_dm": {
+      "sent": false,
+      "reason": "no_active_or_recoverable_discord_binding"
+    }
   },
-  "updated_at": "2026-08-09T10:10:00+09:00"
+  "updated_at": "2026-08-09T09:53:39+09:00"
 }
