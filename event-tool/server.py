@@ -44,6 +44,7 @@ _load_env()
 import ai_config as CFG  # noqa: E402
 import db  # noqa: E402
 import aipol_store  # noqa: E402
+import aipol_v4_ai  # noqa: E402
 import aipol_process_review  # noqa: E402
 import aipol_admin_store  # noqa: E402
 import aipol_chat  # noqa: E402
@@ -998,6 +999,100 @@ def aipol_admin_v4_deliberation(
     )
     return _audit_experiment_mutation(
         registered_by, "experiment.v4_deliberation.reviewed", experiment_id, result
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-issue-classification/run")
+def aipol_admin_v4_issue_classification_run(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    actor = require_aipol_mutation(x_admin_token, Action.RUN_BATCH)
+    _require_exact_contract(body, set(), set(), "v4 issue classification run")
+    source = _aipol_call(aipol_store.v4_issue_generation_input, experiment_id)
+    generated = _aipol_call(aipol_v4_ai.generate_issue_classification, source)
+    result = _aipol_call(
+        aipol_store.record_v4_issue_classification,
+        experiment_id,
+        **generated,
+        run_by=actor,
+    )
+    return _audit_experiment_mutation(
+        actor, "experiment.v4_issue_classification.generated", experiment_id, result
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-issue-classification/approve")
+def aipol_admin_v4_issue_classification_approve(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    approved_by = require_aipol_mutation(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    _require_exact_contract(
+        body,
+        {"run_id", "artifact_id", "artifact_version", "title", "body", "approval_id"},
+        set(),
+        "v4 issue classification approval",
+    )
+    if not all(isinstance(body.get(key), str) for key in body):
+        raise HTTPException(400, "쟁점 승인 필드는 문자열이어야 합니다")
+    result = _aipol_call(
+        aipol_store.approve_v4_issue_classification,
+        experiment_id,
+        run_id=body["run_id"],
+        artifact_id=body["artifact_id"],
+        artifact_version=body["artifact_version"],
+        title=body["title"],
+        body=body["body"],
+        approval_id=body["approval_id"],
+        approved_by=approved_by,
+    )
+    return _audit_experiment_mutation(
+        approved_by, "experiment.v4_issue_classification.approved", experiment_id, result
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-council/run")
+def aipol_admin_v4_council_run(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    actor = require_aipol_mutation(x_admin_token, Action.RUN_BATCH)
+    _require_exact_contract(body, set(), set(), "v4 council run")
+    source = _aipol_call(aipol_store.v4_council_generation_input, experiment_id)
+    generated = _aipol_call(aipol_v4_ai.generate_council, source)
+    result = _aipol_call(
+        aipol_store.record_v4_council_generation,
+        experiment_id,
+        **generated,
+        run_by=actor,
+    )
+    return _audit_experiment_mutation(
+        actor, "experiment.v4_council.generated", experiment_id, result
+    )
+
+
+@app.post("/api/admin/aipol/experiments/{experiment_id}/v4-council/approve")
+def aipol_admin_v4_council_approve(
+    experiment_id: str, body: dict, x_admin_token: str = Header(default="")
+):
+    approved_by = require_aipol_mutation(x_admin_token, Action.APPROVE_KNOWLEDGE)
+    _require_exact_contract(
+        body,
+        {"run_id", "artifact_id", "artifact_version", "approval_id"},
+        set(),
+        "v4 council approval",
+    )
+    if not all(isinstance(body.get(key), str) for key in body):
+        raise HTTPException(400, "D안 승인 필드는 문자열이어야 합니다")
+    result = _aipol_call(
+        aipol_store.approve_v4_council_generation,
+        experiment_id,
+        run_id=body["run_id"],
+        artifact_id=body["artifact_id"],
+        artifact_version=body["artifact_version"],
+        approval_id=body["approval_id"],
+        approved_by=approved_by,
+    )
+    return _audit_experiment_mutation(
+        approved_by, "experiment.v4_council.approved", experiment_id, result
     )
 
 

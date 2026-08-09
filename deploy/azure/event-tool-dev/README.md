@@ -9,7 +9,8 @@ resource group. Nothing in this directory has been deployed by adding these file
 - `deployInfrastructure=false` and `deployApp=false`: compile and validation are the default operations.
 - External ingress is off by default. A separately approved synthetic-review deployment may expose only the
   Container Apps managed HTTPS FQDN; no VM, standalone public IP, DNS, or production resource is declared.
-- Collection, chatbot, and batch switches are all `false`; no model API key is accepted by this template.
+- Collection, chatbot, and batch switches are all `false`. The v4 admin-linked rehearsal accepts only three
+  separately version-pinned model API keys; it never accepts literal key values as deployment parameters.
 - Internal ingress uses `EVENT_ENV=development` for the development-only admin workflow. An explicitly approved
   external review deployment switches to `EVENT_ENV=production`, which enforces scrypt password hashes and TOTP
   for every administrator. Demo seeding remains explicitly off in both modes. Neither mode is a production
@@ -19,7 +20,7 @@ resource group. Nothing in this directory has been deployed by adding these file
 - SQLite and the provider roster live on a 5-GiB Azure Files share mounted at `/data`. The image runs as fixed
   non-root UID/GID `10001:10001`; startup writes and reads a probe under `/data` and fails before importing the
   application if the mounted share is not writable by that identity.
-- A user-assigned managed identity pulls the private ACR image and reads six required version-pinned Key Vault references. ACR admin
+- A user-assigned managed identity pulls the private ACR image and reads nine required version-pinned Key Vault references. ACR admin
   credentials are disabled.
 - Receipt verification is disabled by default, so `/readyz` reports `collection_ready=false`. A reviewed full E1a through
   M3 rehearsal can opt in to one version-pinned Ed25519 public-key secret plus exact key ID, issuer, audience, and TTL.
@@ -77,7 +78,7 @@ Key Vault access.
 ## Managed-identity RBAC drift gate
 
 Run this read-only gate before and after every reviewed deployment. The event identity may have `Key Vault Secrets
-User` on exactly the six required named secret scopes, plus the optional receipt public-key scope, never on the vault root.
+User` on exactly the nine required named secret scopes, plus the optional receipt public-key scope, never on the vault root.
 
 ```powershell
 $AipolPrincipalId = az identity show --resource-group rg-aipol-dev --name uami-aipol-event-tool-dev --query principalId -o tsv
@@ -89,7 +90,10 @@ $AipolExpectedSecretScopes = @(
   "$AipolVaultId/secrets/event-admin-roles-json",
   "$AipolVaultId/secrets/event-admin-totp-secrets-json",
   "$AipolVaultId/secrets/event-credential-secrets-json",
-  "$AipolVaultId/secrets/event-audit-checkpoint-secrets-json"
+  "$AipolVaultId/secrets/event-audit-checkpoint-secrets-json",
+  "$AipolVaultId/secrets/friendli-ai-key",
+  "$AipolVaultId/secrets/upstage-key",
+  "$AipolVaultId/secrets/clova-studio-test-key"
 )
 $AipolAssignments = az role assignment list --assignee-object-id $AipolPrincipalId --all -o json | ConvertFrom-Json
 $AipolSecretRoles = @($AipolAssignments | Where-Object { $_.roleDefinitionName -eq 'Key Vault Secrets User' })
@@ -108,7 +112,7 @@ after reviewing the resolved principal and vault IDs; this runbook does not auth
 az role assignment delete --assignee-object-id $AipolPrincipalId --role 'Key Vault Secrets User' --scope $AipolVaultId
 ```
 
-Then rerun the read-only gate and require all six required named-secret scopes before and after deployment.
+Then rerun the read-only gate and require all nine required named-secret scopes before and after deployment.
 
 ## 1. Local verification (no Azure changes)
 
@@ -232,6 +236,9 @@ terminal:
 | `event-admin-totp-secrets-json` | `EVENT_ADMIN_TOTP_SECRETS_JSON` | base32 TOTP secret for every administrator; distribute provisioning data only through an approved secret channel |
 | `event-credential-secrets-json` | `EVENT_CREDENTIAL_SECRETS_JSON` | JSON key-id → 32+ character secret map; retain every key referenced by an active experiment |
 | `event-audit-checkpoint-secrets-json` | `AIPOL_AUDIT_CHECKPOINT_SECRETS_JSON` | JSON key-id → 32+ character HMAC secret map for immutable audit checkpoints |
+| `friendli-ai-key` | `FRIENDLI_AI_KEY` | Friendli API key; v4 issue classification and the first council step |
+| `upstage-key` | `UPSTAGE_KEY` | Upstage API key; the second independent council step |
+| `clova-studio-test-key` | `CLOVA_STUDIO_TEST_KEY` | CLOVA Studio API key; the third independent council step |
 | `aipol-receipt-ed25519-public-key` (optional) | `AIPOL_RECEIPT_ED25519_PUBLIC_KEY_B64` | public key only; required for a full signed-receipt rehearsal |
 
 Example shapes only:
@@ -247,7 +254,7 @@ Do not paste real values into a tracked file, ticket, chat, shell history, or de
 both editor and approver to the same development account. The operator creating the values needs a separately
 approved Key Vault data-plane role; the app identity receives read-only `Key Vault Secrets User`.
 
-Wait for the managed-identity role assignments to propagate, then resolve and pin all six required secret versions.
+Wait for the managed-identity role assignments to propagate, then resolve and pin all nine required secret versions.
 Version pinning prevents ordinary Key Vault rotation from restarting the SQLite process outside the controlled
 maintenance sequence.
 
@@ -264,6 +271,9 @@ $EventAdminRolesSecretVersion = ((az keyvault secret show --vault-name $AipolVau
 $EventAdminTotpSecretVersion = ((az keyvault secret show --vault-name $AipolVault --name event-admin-totp-secrets-json --query id --output tsv) -split '/')[-1]
 $EventCredentialKeysetVersion = ((az keyvault secret show --vault-name $AipolVault --name event-credential-secrets-json --query id --output tsv) -split '/')[-1]
 $EventAuditCheckpointKeysetVersion = ((az keyvault secret show --vault-name $AipolVault --name event-audit-checkpoint-secrets-json --query id --output tsv) -split '/')[-1]
+$FriendliAiKeyVersion = ((az keyvault secret show --vault-name $AipolVault --name friendli-ai-key --query id --output tsv) -split '/')[-1]
+$UpstageKeyVersion = ((az keyvault secret show --vault-name $AipolVault --name upstage-key --query id --output tsv) -split '/')[-1]
+$ClovaStudioKeyVersion = ((az keyvault secret show --vault-name $AipolVault --name clova-studio-test-key --query id --output tsv) -split '/')[-1]
 ```
 
 ## 5. Review and create the Container App
@@ -289,6 +299,9 @@ az deployment group what-if `
                eventCredentialActiveKeyId=event-credentials-2026-01 `
                eventAuditCheckpointKeysetVersion=$EventAuditCheckpointKeysetVersion `
                eventAuditCheckpointActiveKeyId=audit-checkpoints-2026-01 `
+               friendliAiKeyVersion=$FriendliAiKeyVersion `
+               upstageKeyVersion=$UpstageKeyVersion `
+               clovaStudioKeyVersion=$ClovaStudioKeyVersion `
                auditImmutabilityPolicyLocked=true `
                auditImmutabilityLockEvidenceId=$AipolAuditLockEvidenceId `
                enableExternalIngress=false `
@@ -308,7 +321,7 @@ deploy with `receiptVerifierEnabled=true`, `receiptPublicKeySecretVersion=<versi
 contract must match those values exactly. This adds `Key Vault Secrets User` only on that named public-key secret.
 The readiness response must show `receipt_verifier=configured` and `collection_ready=true` before the rehearsal.
 
-The template creates no app unless the image contains `@sha256:` and all six required secret versions are provided. After
+The template creates no app unless the image contains `@sha256:` and all nine required secret versions are provided. After
 the `what-if` output, image digest, and `appInputGuardAccepted=true` are approved, repeat with
 `az deployment group create`. The deployment must show `minReplicas=1`, `maxReplicas=1`, one Uvicorn worker, and
 `/data` mounted from `event-tool-state`. Collection and chatbot parameters accept only `false`; external ingress is
@@ -348,7 +361,8 @@ Acceptance checks:
 3. `/healthz` and `/readyz` return HTTP 200 from an internal test path; disabled receipt verification reports
    `collection_ready=false`, while a full rehearsal requires `collection_ready=true`.
 4. `/data/event.db` and `/data/roster.json` survive a normal revision restart.
-5. No external FQDN is reachable, no model key exists, and collection/chatbot/batch settings remain false.
+5. No model key is exposed by an API or page, and collection/chatbot/batch settings remain false. An externally approved
+   synthetic v4 review may retain only the three version-pinned model secret references required for operator-triggered runs.
 6. Login responses show the explicit editor/approver role split; no account has both roles.
 7. Only synthetic development records are used.
 
@@ -432,7 +446,7 @@ replica/one worker constraint is therefore a security boundary as well as a SQLi
 without replacing the registration limiter with a shared durable service. Only enable trusted proxy headers when
 the Container Apps ingress is the sole path to the application and overwrites client-supplied forwarding headers.
 
-The application identity receives `Key Vault Secrets User` separately on the six required named secrets and the
+The application identity receives `Key Vault Secrets User` separately on the nine required named secrets and the
 optional receipt public-key secret, never on the vault. Container App references remain pinned to explicit secret versions. Adding another secret requires a new
 secret-scoped role assignment and review; widening the role to the vault is prohibited.
 

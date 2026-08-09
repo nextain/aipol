@@ -53,6 +53,15 @@ param eventAuditCheckpointKeysetVersion string = ''
 @description('Active HMAC key id for newly created audit checkpoints.')
 param eventAuditCheckpointActiveKeyId string = ''
 
+@description('Pinned Key Vault version for the Friendli model API key used by the v4 issue and council runs.')
+param friendliAiKeyVersion string = ''
+
+@description('Pinned Key Vault version for the Upstage model API key used by the v4 council run.')
+param upstageKeyVersion string = ''
+
+@description('Pinned Key Vault version for the CLOVA Studio model API key used by the v4 council run.')
+param clovaStudioKeyVersion string = ''
+
 @description('True only after the runbook records Azure state=Locked for the named policy. Never set manually.')
 param auditImmutabilityPolicyLocked bool = false
 
@@ -107,7 +116,7 @@ var tags = {
 
 var resourceGroupGuardPassed = resourceGroup().name == 'rg-aipol-dev'
 var receiptInputGuardPassed = !receiptVerifierEnabled || (!empty(receiptPublicKeySecretVersion) && !empty(receiptKeyId) && !empty(receiptIssuer) && !empty(receiptAudience))
-var appInputGuardPassed = contains(containerImage, '@sha256:') && !empty(eventSessionSecretVersion) && !empty(eventAdminUsersSecretVersion) && !empty(eventAdminRolesSecretVersion) && !empty(eventAdminTotpSecretVersion) && !empty(eventCredentialKeysetVersion) && !empty(eventCredentialActiveKeyId) && !empty(eventAuditCheckpointKeysetVersion) && !empty(eventAuditCheckpointActiveKeyId) && receiptInputGuardPassed
+var appInputGuardPassed = contains(containerImage, '@sha256:') && !empty(eventSessionSecretVersion) && !empty(eventAdminUsersSecretVersion) && !empty(eventAdminRolesSecretVersion) && !empty(eventAdminTotpSecretVersion) && !empty(eventCredentialKeysetVersion) && !empty(eventCredentialActiveKeyId) && !empty(eventAuditCheckpointKeysetVersion) && !empty(eventAuditCheckpointActiveKeyId) && !empty(friendliAiKeyVersion) && !empty(upstageKeyVersion) && !empty(clovaStudioKeyVersion) && receiptInputGuardPassed
 // An externally reachable review app remains a synthetic-only, interactive
 // surface. Background jobs are forbidden while public ingress is enabled.
 var featureGuardPassed = !collectionEnabled && !chatbotEnabled && (!enableExternalIngress || !batchEnabled)
@@ -290,6 +299,21 @@ resource eventAuditCheckpointSecrets 'Microsoft.KeyVault/vaults/secrets@2024-11-
   name: 'event-audit-checkpoint-secrets-json'
 }
 
+resource friendliAiKey 'Microsoft.KeyVault/vaults/secrets@2024-11-01' existing = {
+  parent: keyVault
+  name: 'friendli-ai-key'
+}
+
+resource upstageKey 'Microsoft.KeyVault/vaults/secrets@2024-11-01' existing = {
+  parent: keyVault
+  name: 'upstage-key'
+}
+
+resource clovaStudioKey 'Microsoft.KeyVault/vaults/secrets@2024-11-01' existing = {
+  parent: keyVault
+  name: 'clova-studio-test-key'
+}
+
 resource receiptPublicKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' existing = {
   parent: keyVault
   name: 'aipol-receipt-ed25519-public-key'
@@ -404,6 +428,36 @@ resource eventAuditCheckpointSecretsRole 'Microsoft.Authorization/roleAssignment
   }
 }
 
+resource friendliAiKeyRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (provisionApp) {
+  name: guid(friendliAiKey.id, appIdentity.id, keyVaultSecretsUserRoleId)
+  scope: friendliAiKey
+  properties: {
+    principalId: appIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+  }
+}
+
+resource upstageKeyRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (provisionApp) {
+  name: guid(upstageKey.id, appIdentity.id, keyVaultSecretsUserRoleId)
+  scope: upstageKey
+  properties: {
+    principalId: appIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+  }
+}
+
+resource clovaStudioKeyRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (provisionApp) {
+  name: guid(clovaStudioKey.id, appIdentity.id, keyVaultSecretsUserRoleId)
+  scope: clovaStudioKey
+  properties: {
+    principalId: appIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+  }
+}
+
 resource auditCheckpointWriterRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (provisionApp) {
   name: guid(auditCheckpointContainer.id, appIdentity.id, auditCheckpointWriterRole.id)
   scope: auditCheckpointContainer
@@ -460,6 +514,9 @@ var baseRuntimeEnvironment = [
   { name: 'AIPOL_AUDIT_CHECKPOINT_SECRETS_JSON', secretRef: 'event-audit-checkpoint-secrets-json' }
   { name: 'AIPOL_AUDIT_CHECKPOINT_ACTIVE_KEY_ID', value: eventAuditCheckpointActiveKeyId }
   { name: 'AIPOL_RECEIPT_VERIFIER_MODE', value: receiptVerifierEnabled ? 'ed25519_jws' : 'disabled' }
+  { name: 'FRIENDLI_AI_KEY', secretRef: 'friendli-ai-key' }
+  { name: 'UPSTAGE_KEY', secretRef: 'upstage-key' }
+  { name: 'CLOVA_STUDIO_TEST_KEY', secretRef: 'clova-studio-test-key' }
 ]
 
 var receiptRuntimeEnvironment = receiptVerifierEnabled ? [
@@ -502,6 +559,21 @@ var baseAppSecrets = [
     identity: appIdentity.id
     keyVaultUrl: '${keyVault!.properties.vaultUri}secrets/event-audit-checkpoint-secrets-json/${eventAuditCheckpointKeysetVersion}'
     name: 'event-audit-checkpoint-secrets-json'
+  }
+  {
+    identity: appIdentity.id
+    keyVaultUrl: '${keyVault!.properties.vaultUri}secrets/friendli-ai-key/${friendliAiKeyVersion}'
+    name: 'friendli-ai-key'
+  }
+  {
+    identity: appIdentity.id
+    keyVaultUrl: '${keyVault!.properties.vaultUri}secrets/upstage-key/${upstageKeyVersion}'
+    name: 'upstage-key'
+  }
+  {
+    identity: appIdentity.id
+    keyVaultUrl: '${keyVault!.properties.vaultUri}secrets/clova-studio-test-key/${clovaStudioKeyVersion}'
+    name: 'clova-studio-test-key'
   }
 ]
 
@@ -614,6 +686,9 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (provisionApp) {
     eventAdminTotpSecretRole
     eventCredentialSecretsRole
     eventAuditCheckpointSecretsRole
+    friendliAiKeyRole
+    upstageKeyRole
+    clovaStudioKeyRole
     auditCheckpointWriterRoleAssignment
     receiptPublicKeySecretRole
     policyNewsJobOperatorRole
@@ -634,7 +709,7 @@ output batchJobResourceId string = provisionApp && batchEnabled ? policyNewsJob.
 output registryLoginServer string = provisionInfrastructure ? '${registryName}.azurecr.io' : ''
 output keyVaultResourceName string = provisionInfrastructure ? keyVaultName : ''
 output appFqdn string = provisionApp ? app!.properties.configuration.ingress.fqdn : ''
-output keyVaultSecretsUserScopeMode string = receiptVerifierEnabled ? 'seven-named-secrets-only' : 'six-named-secrets-only'
+output keyVaultSecretsUserScopeMode string = receiptVerifierEnabled ? 'ten-named-secrets-only' : 'nine-named-secrets-only'
 output vaultWideKeyVaultSecretsUserAllowed bool = false
 output blobDataContributorAllowed bool = false
 output auditCheckpointDeleteAllowed bool = false

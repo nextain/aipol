@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 EVENT_TOOL = Path(__file__).parents[1] / "event-tool"
 MODULES = (
-    "server", "db", "aipol_store", "aipol_process_review", "aipol_admin_store",
+    "server", "db", "aipol_store", "aipol_v4_ai", "aipol_process_review", "aipol_admin_store",
     "aipol_audit_checkpoint", "aipol_chat", "aipol_batch", "aipol_receipt",
     "ai_config", "deliberate", "llm",
 )

@@ -29,7 +29,7 @@ RECEIPT_CONTRACT = {
     "signature_algorithm": "EdDSA",
 }
 MODULES = (
-    "server", "db", "aipol_store", "aipol_admin_store", "aipol_audit_checkpoint", "aipol_chat",
+    "server", "db", "aipol_store", "aipol_v4_ai", "aipol_admin_store", "aipol_audit_checkpoint", "aipol_chat",
     "aipol_batch", "aipol_receipt", "aipol_process_review", "ai_config", "deliberate", "llm",
 )
 

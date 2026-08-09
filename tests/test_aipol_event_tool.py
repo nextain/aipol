@@ -37,7 +37,7 @@ RECEIPT_CONTRACT = {
 }
 INTEGRATION_VERSION = "aipol-calculator-return-v2"
 INTEGRATION_TEST_HASH = "9" * 64
-MODULES = ("server", "db", "aipol_store", "aipol_admin_store", "aipol_audit_checkpoint", "aipol_chat", "aipol_receipt", "ai_config", "deliberate", "llm")
+MODULES = ("server", "db", "aipol_store", "aipol_v4_ai", "aipol_admin_store", "aipol_audit_checkpoint", "aipol_chat", "aipol_receipt", "ai_config", "deliberate", "llm")
 CATEGORIES = (
     "policy_options", "calculation", "measurement", "privacy", "research_ethics",
     "source_license", "procedure",
@@ -3221,10 +3221,10 @@ def test_participant_ui_parses_flattened_jws_and_production_verifier_accepts_it(
 
 
 def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_inputs(
-    aipol_app,
+    aipol_app, monkeypatch,
 ) -> None:
     """Exercise the agreed 2026-08-08 flow through real admin and participant APIs."""
-    _, client, db_path = aipol_app
+    server, client, db_path = aipol_app
     headers = _admin_headers(client)
     editor_headers = _admin_headers(client, "editor")
     experiment = _create(
@@ -3369,7 +3369,7 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
         f"/api/admin/aipol/experiments/{experiment_id}/v4-inputs", headers=headers
     ).json()
     assert inputs["m1"]["participant_count"] == 1
-    issues = client.post(
+    manually_pasted_issues = client.post(
         f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
         headers=headers,
         json={
@@ -3392,6 +3392,63 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
             "approval_id": "v4-five-issues-approval",
             "approved_by": "hong",
             "fallback_used": False,
+        },
+    )
+    assert manually_pasted_issues.status_code == 400
+    assert "서버가 실행한 AI 분류 기록" in manually_pasted_issues.text
+
+    def fake_issue_classification(source: dict) -> dict:
+        return {
+            "m1_aggregate_hash": source["m1_aggregate"]["aggregate_hash"],
+            "prompt_version": "test-issues-v1",
+            "model": "issue-model",
+            "provider": "test-provider",
+            "deployment": "test-issue-deployment",
+            "generated_at": "2026-08-09T09:00:00+00:00",
+            "issues": [
+                {
+                    "issue_id": f"issue-{index}",
+                    "title": title,
+                    "summary": f"{title} 관련 실제 M1 의견 분류",
+                    "expert_prompt": f"{title}의 정책 효과와 한계를 설명해 주세요.",
+                }
+                for index, title in enumerate((
+                    "소득대체율", "보험료율", "수급개시연령",
+                    "재정 지속가능성", "세대 간 형평성",
+                ), start=1)
+            ],
+            "assignments": [{
+                "participant": source["opinions"][0]["pseudonym"],
+                "issue_id": "issue-4",
+                "rationale": "급여의 예측 가능성과 재정 지속가능성을 함께 언급함",
+            }],
+        }
+
+    monkeypatch.setattr(
+        server.aipol_v4_ai, "generate_issue_classification", fake_issue_classification
+    )
+    issue_run_response = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-issue-classification/run",
+        headers=headers,
+        json={},
+    )
+    assert issue_run_response.status_code == 200, issue_run_response.text
+    issue_run = issue_run_response.json()
+    assert len(issue_run["issues"]) == 5
+    assert sum(issue["opinion_count"] for issue in issue_run["issues"]) == 1
+    assert next(
+        issue for issue in issue_run["issues"] if issue["issue_id"] == "issue-4"
+    )["opinion_count"] == 1
+    issues = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-issue-classification/approve",
+        headers=headers,
+        json={
+            "run_id": issue_run["run_id"],
+            "artifact_id": "v4-five-issues",
+            "artifact_version": "v1",
+            "title": "1차 의견 기반 5대 쟁점",
+            "body": "AI 분류 결과를 사람이 검수한 2차 숙의 자료",
+            "approval_id": "v4-five-issues-approval",
         },
     )
     assert issues.status_code == 200, issues.text
@@ -3440,7 +3497,7 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
     ).json()
     assert inputs["m2"]["participant_count"] == 1
     assert all(inputs["required_d_input_hashes"].values())
-    d_artifact = client.post(
+    manually_pasted_d = client.post(
         f"/api/admin/aipol/experiments/{experiment_id}/artifacts",
         headers=headers,
         json={
@@ -3461,6 +3518,87 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
             "approval_id": "v4-d-approval",
             "approved_by": "hong",
             "fallback_used": False,
+        },
+    )
+    assert manually_pasted_d.status_code == 400
+    assert "서버가 실행한 3-AI 협의 기록" in manually_pasted_d.text
+
+    def fake_council(source: dict) -> dict:
+        proposal = {
+            "title": "D안 초안", "body": "시민 의견을 반영한 초안",
+            "limitations": "장기 재정 추계의 불확실성",
+            "reflection_map": ["M1 재정 지속가능성 의견"],
+            "tradeoffs": ["급여 적정성과 부담 균형"], "unaddressed": ["세부 시행령"],
+        }
+        review = {
+            "findings": ["M2 선택 변화 이유를 더 명시해야 함"],
+            "required_revisions": ["두 숙의 요약의 반영 근거 추가"],
+            "preserve": ["재정 한계 공개"], "remaining_risks": ["경제 가정 변동"],
+        }
+        revision = {
+            "title": "3개 AI 협의 D안",
+            "body": "승인된 네 입력만 사용해 합성한 절충안과 반영 근거",
+            "limitations": "장기 재정 추계와 경제 가정의 불확실성",
+            "reflection_map": ["M1·M2 실제 의견", "사람이 검수한 1·2차 숙의"],
+            "tradeoffs": ["급여 적정성과 보험료 부담"],
+            "unaddressed": ["세부 시행령과 전환 일정"],
+        }
+        base_hash = source["input_hash"]
+        proposal_hash = content_hash(proposal)
+        review_hash = content_hash(review)
+        values = (
+            ("proposal", "D안 제안", "company-a", "model-a", base_hash, proposal),
+            (
+                "cross_review", "독립 상호검토", "company-b", "model-b",
+                content_hash({"council_input_hash": base_hash, "proposal": proposal_hash}),
+                review,
+            ),
+            (
+                "revision", "검토 반영 최종 수정", "company-c", "model-c",
+                content_hash({
+                    "council_input_hash": base_hash,
+                    "proposal": proposal_hash,
+                    "cross_review": review_hash,
+                }),
+                revision,
+            ),
+        )
+        return {
+            "input_hashes": source["input_hashes"],
+            "prompt_version": "test-council-v1",
+            "generated_at": "2026-08-09T09:30:00+00:00",
+            "steps": [{
+                "phase": phase, "role": role, "company": company,
+                "model": model, "provider": f"provider-{company}",
+                "deployment": f"deployment-{model}",
+                "prompt_version": f"test-council-v1:{phase}",
+                "input_hash": input_hash, "output": output,
+                "output_hash": content_hash(output),
+                "generated_at": "2026-08-09T09:30:00+00:00",
+            } for phase, role, company, model, input_hash, output in values],
+            "final_content": revision,
+        }
+
+    monkeypatch.setattr(server.aipol_v4_ai, "generate_council", fake_council)
+    council_run_response = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-council/run",
+        headers=headers,
+        json={},
+    )
+    assert council_run_response.status_code == 200, council_run_response.text
+    council_run = council_run_response.json()
+    assert [step["phase"] for step in council_run["steps"]] == [
+        "proposal", "cross_review", "revision",
+    ]
+    assert len({step["company"] for step in council_run["steps"]}) == 3
+    d_artifact = client.post(
+        f"/api/admin/aipol/experiments/{experiment_id}/v4-council/approve",
+        headers=headers,
+        json={
+            "run_id": council_run["run_id"],
+            "artifact_id": "v4-d",
+            "artifact_version": "v1",
+            "approval_id": "v4-d-approval",
         },
     )
     assert d_artifact.status_code == 200, d_artifact.text
@@ -3510,6 +3648,24 @@ def test_v4_real_admin_participant_flow_excludes_calculator_and_binds_reviewed_i
             "SELECT COUNT(*) FROM aipol_v4_ai_council_runs WHERE experiment_id=?",
             (experiment_id,),
         ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM aipol_v4_issue_classification_runs WHERE experiment_id=?",
+            (experiment_id,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM aipol_v4_council_generation_runs WHERE experiment_id=?",
+            (experiment_id,),
+        ).fetchone()[0] == 1
+        council_steps = connection.execute(
+            "SELECT s.phase,s.company FROM aipol_v4_council_steps s "
+            "JOIN aipol_v4_council_generation_runs r ON r.id=s.run_id "
+            "WHERE r.experiment_id=? ORDER BY s.sequence",
+            (experiment_id,),
+        ).fetchall()
+        assert [row["phase"] for row in council_steps] == [
+            "proposal", "cross_review", "revision",
+        ]
+        assert len({row["company"] for row in council_steps}) == 3
         final_vote = connection.execute(
             "SELECT choice FROM aipol_measurements m JOIN aipol_participants p "
             "ON p.id=m.participant_id WHERE p.experiment_id=? AND m.measurement_id='M3'",

@@ -60,16 +60,6 @@ function canonicalRows(documents, drafts, categories = PREP_CATEGORIES) {
   }).join("");
 }
 
-function prepArray(id, label) {
-  try {
-    const value = JSON.parse($(id).value || "[]");
-    if (!Array.isArray(value)) throw new Error();
-    return value;
-  } catch (_) {
-    throw new Error(`${label}은 JSON 배열이어야 합니다.`);
-  }
-}
-
 function v4Deliberation(inputs, roundId) {
   return (inputs.deliberations || []).find((item) => item.round_id === roundId);
 }
@@ -87,16 +77,17 @@ async function openV4Preparation(experiment) {
   const first = v4Deliberation(inputs, "first");
   const second = v4Deliberation(inputs, "second");
   const artifact = inputs.artifacts || {};
-  const issueTemplate = [1, 2, 3, 4, 5].map((number) => ({
-    issue_id: `issue-${number}`,
-    title: `${number}번 핵심 쟁점`,
-    opinion_count: 0,
-  }));
-  const councilTemplate = [
-    {role: "재정 지속가능성 검토", output: ""},
-    {role: "세대·소득 형평성 검토", output: ""},
-    {role: "실행 가능성·종합 반론 검토", output: ""},
-  ];
+  const issueRun = inputs.generation_runs?.issue_classification || null;
+  const councilRun = inputs.generation_runs?.ai_council || null;
+  const issueRunCards = (issueRun?.issues || []).map((item) => `
+    <article class="proposal-card"><strong>${esc(item.title)}</strong>
+      <p>${esc(item.summary)}</p><p class="artifact-meta">실제 M1 의견 ${esc(item.opinion_count)}건 · ${esc(item.issue_id)}</p>
+      <p class="artifact-meta">전문가 설명 질문: ${esc(item.expert_prompt)}</p></article>`).join("");
+  const councilRunCards = (councilRun?.steps || []).map((item) => `
+    <article class="proposal-card"><strong>${esc(item.sequence)}. ${esc(item.role)}</strong>
+      <p class="artifact-meta">${esc(item.company)} · ${esc(item.model)} · ${esc(item.phase)}</p>
+      <p class="artifact-meta">입력 ${esc(item.input_hash)} · 출력 ${esc(item.output_hash)}</p>
+      <pre class="artifact-meta">${esc(JSON.stringify(item.output, null, 2))}</pre></article>`).join("");
   const hashes = inputs.required_d_input_hashes || {};
   const dReady = Object.values(hashes).every((value) => typeof value === "string" && value.length === 64);
   $("detail").classList.remove("hidden");
@@ -127,7 +118,10 @@ async function openV4Preparation(experiment) {
     </details>
     <details open><summary>2. M1 의견 기반 AI 분류 5대 쟁점 → 사람 승인</summary>
       <p class="stage-note">실제 M1 투표·의견 집계 ${inputs.m1.participant_count}명 · 해시 ${esc(inputs.m1.aggregate_hash)}. 관심사를 직접 선택시키지 않고 AI가 의견을 분류·계수한 결과만 등록합니다.</p>
-      ${artifact.issue_deliberation ? `<p class="artifact-meta">승인 완료 · ${esc(artifact.issue_deliberation.content_hash)} · ${esc(artifact.issue_deliberation.approved_by)}</p>` : `${field("v4-issue-id", "자료 ID", "text", "pension-five-issues")}${field("v4-issue-version", "자료 버전", "text", experiment.experiment_version)}${field("v4-issue-title", "제목", "text", "1차 투표 의견에서 도출한 5대 핵심 쟁점")}${prepTextarea("v4-issue-body", "전문가 설명용 본문")}${prepTextarea("v4-issues", "AI 분류 결과 5개 JSON 배열", JSON.stringify(issueTemplate, null, 2))}${field("v4-issue-approval", "사람 승인 ID")}<button type="button" id="save-v4-issues" class="btn-primary">5대 쟁점 사람 승인</button>`}
+      ${artifact.issue_deliberation ? `<p class="artifact-meta">승인 완료 · ${esc(artifact.issue_deliberation.content_hash)} · ${esc(artifact.issue_deliberation.approved_by)}</p>` : `
+        <button type="button" id="run-v4-issues" class="btn-primary" ${inputs.m1.participant_count ? "" : "disabled"}>${issueRun ? "현재 M1 원장으로 AI 분류 다시 실행" : "M1 원장으로 AI 5대 쟁점 분류 실행"}</button>
+        ${issueRun ? `<p class="artifact-meta">서버 실행 ${esc(issueRun.run_id)} · ${esc(issueRun.provider)}/${esc(issueRun.model)} · ${esc(issueRun.generated_at)} · ${esc(issueRun.content_hash)}</p>${issueRunCards}
+          ${field("v4-issue-id", "자료 ID", "text", "pension-five-issues")}${field("v4-issue-version", "자료 버전", "text", experiment.experiment_version)}${field("v4-issue-title", "사람 검수 후 공개 제목", "text", "1차 투표 의견에서 도출한 5대 핵심 쟁점")}${prepTextarea("v4-issue-body", "사람이 검수한 전문가 설명용 본문")}${field("v4-issue-approval", "사람 승인 ID")}<button type="button" id="approve-v4-issues" class="btn-primary">이 서버 실행 결과를 사람 승인</button>` : ""}`}
     </details>
     <details open><summary>3. 2차 숙의 녹음 요약 → 사람 검수</summary>
       <p class="stage-note">M1 결과 그래프와 5대 쟁점에 대한 전문가 리딩 뒤 진행한 숙의를 기록합니다.</p>
@@ -136,13 +130,15 @@ async function openV4Preparation(experiment) {
     <details open><summary>4. M1·숙의1·M2·숙의2 기반 3-AI 협의 D안 → 사람 승인</summary>
       <p class="stage-note">M2 ${inputs.m2.participant_count}명. 네 입력 해시는 서버가 실제 데이터에서 계산하며 수동 변경할 수 없습니다. ${dReady ? "D안 승인 입력 준비 완료" : "두 숙의 검수본과 M1/M2 완료 필요"}</p>
       <pre class="artifact-meta">${esc(JSON.stringify(hashes, null, 2))}</pre>
-      ${artifact.ai_opinion ? `<p class="artifact-meta">D안 승인 완료 · ${esc(artifact.ai_opinion.content_hash)} · ${esc(artifact.ai_opinion.approved_by)}</p>` : `${field("v4-d-id", "D안 자료 ID", "text", "pension-council-d")}${field("v4-d-version", "D안 버전", "text", experiment.experiment_version)}${field("v4-d-title", "D안 제목", "text", "3-AI 협의로 생성한 D안")}${prepTextarea("v4-d-body", "D안 종합안")}${prepTextarea("v4-council", "3개 AI 역할·출력 JSON 배열", JSON.stringify(councilTemplate, null, 2))}${prepTextarea("v4-d-limitations", "전문가가 설명할 D안 한계와 의의")}${field("v4-d-approval", "사람 승인 ID")}<button type="button" id="save-v4-d" class="btn-primary" ${dReady ? "" : "disabled"}>D안·협의 기록 사람 승인</button>`}
+      ${artifact.ai_opinion ? `<p class="artifact-meta">D안 승인 완료 · ${esc(artifact.ai_opinion.content_hash)} · ${esc(artifact.ai_opinion.approved_by)}</p>` : `
+        <button type="button" id="run-v4-council" class="btn-primary" ${dReady ? "" : "disabled"}>${councilRun ? "현재 네 입력으로 3-AI 협의 다시 실행" : "3-AI 제안→상호검토→수정 실행"}</button>
+        ${councilRun ? `<p class="artifact-meta">서버 실행 ${esc(councilRun.run_id)} · ${esc(councilRun.generated_at)} · ${esc(councilRun.content_hash)}</p>${councilRunCards}
+          <article class="proposal-card"><strong>${esc(councilRun.final_content.title)}</strong><p>${esc(councilRun.final_content.body)}</p><p class="stage-note">한계와 의의: ${esc(councilRun.final_content.limitations)}</p></article>
+          ${field("v4-d-id", "D안 자료 ID", "text", "pension-council-d")}${field("v4-d-version", "D안 버전", "text", experiment.experiment_version)}${field("v4-d-approval", "사람 승인 ID")}<button type="button" id="approve-v4-d" class="btn-primary">이 3-AI 협의 결과를 사람 승인</button>` : ""}`}
     </details>
     <details open><summary>5. 전문가 D안 설명·한계·질의응답 안내 승인</summary>
       ${artifact.expert_explanation ? `<p class="artifact-meta">승인 완료 · ${esc(artifact.expert_explanation.content_hash)} · ${esc(artifact.expert_explanation.approved_by)}</p>` : `${field("v4-expert-id", "자료 ID", "text", "pension-d-expert")}${field("v4-expert-version", "자료 버전", "text", experiment.experiment_version)}${field("v4-expert-title", "제목", "text", "D안의 의의와 한계")}${prepTextarea("v4-expert-body", "전문가 설명·한계·질의응답 안내")}${field("v4-expert-approval", "사람 승인 ID")}<button type="button" id="save-v4-expert" class="btn-primary">전문가 설명 승인</button>`}
     </details>`;
-  if ($("v4-issues")) $("v4-issues").value = JSON.stringify(issueTemplate, null, 2);
-  if ($("v4-council")) $("v4-council").value = JSON.stringify(councilTemplate, null, 2);
   $("preview-canonical").onclick = previewCanonical;
   $("register-canonical-draft").onclick = registerCanonicalDraft;
   document.querySelectorAll("[data-approve-canonical]").forEach((button) => {
@@ -153,8 +149,10 @@ async function openV4Preparation(experiment) {
     : () => freezePreparation(requiredDocuments, V4_PREP_CATEGORIES);
   if ($("save-v4-first")) $("save-v4-first").onclick = () => saveV4Deliberation("first");
   if ($("save-v4-second")) $("save-v4-second").onclick = () => saveV4Deliberation("second");
-  if ($("save-v4-issues")) $("save-v4-issues").onclick = () => saveV4Issues(inputs.m1.aggregate_hash);
-  if ($("save-v4-d")) $("save-v4-d").onclick = () => saveV4D(hashes);
+  if ($("run-v4-issues")) $("run-v4-issues").onclick = runV4Issues;
+  if ($("approve-v4-issues")) $("approve-v4-issues").onclick = () => approveV4Issues(issueRun.run_id);
+  if ($("run-v4-council")) $("run-v4-council").onclick = runV4Council;
+  if ($("approve-v4-d")) $("approve-v4-d").onclick = () => approveV4D(councilRun.run_id);
   if ($("save-v4-expert")) $("save-v4-expert").onclick = saveV4Expert;
 }
 
@@ -176,16 +174,32 @@ async function saveV4Artifact(payload) {
   });
 }
 
-async function saveV4Issues(m1Hash) {
+async function runV4Issues() {
   try {
-    await saveV4Artifact({kind: "issue_deliberation", artifact_id: $("v4-issue-id").value.trim(), artifact_version: $("v4-issue-version").value.trim(), content: {title: $("v4-issue-title").value.trim(), body: $("v4-issue-body").value.trim(), issues: prepArray("v4-issues", "5대 쟁점"), m1_aggregate_hash: m1Hash, human_reviewed: true}, approval_id: $("v4-issue-approval").value.trim()});
+    prepStatus("실제 M1 의견을 AI가 분류하고 있습니다…");
+    await api(`/api/admin/aipol/experiments/${selected.id}/v4-issue-classification/run`, {method: "POST", body: "{}"});
     await refreshPreparation();
   } catch (error) { $("admin-error").textContent = error.message; }
 }
 
-async function saveV4D(inputHashes) {
+async function approveV4Issues(runId) {
   try {
-    await saveV4Artifact({kind: "ai_opinion", artifact_id: $("v4-d-id").value.trim(), artifact_version: $("v4-d-version").value.trim(), content: {title: $("v4-d-title").value.trim(), body: $("v4-d-body").value.trim(), limitations: $("v4-d-limitations").value.trim(), ai_council: prepArray("v4-council", "3-AI 협의 기록"), input_hashes: inputHashes, human_reviewed: true}, approval_id: $("v4-d-approval").value.trim()});
+    await api(`/api/admin/aipol/experiments/${selected.id}/v4-issue-classification/approve`, {method: "POST", body: JSON.stringify({run_id: runId, artifact_id: $("v4-issue-id").value.trim(), artifact_version: $("v4-issue-version").value.trim(), title: $("v4-issue-title").value.trim(), body: $("v4-issue-body").value.trim(), approval_id: $("v4-issue-approval").value.trim()})});
+    await refreshPreparation();
+  } catch (error) { $("admin-error").textContent = error.message; }
+}
+
+async function runV4Council() {
+  try {
+    prepStatus("세 개 독립 AI가 제안→상호검토→수정을 순서대로 실행하고 있습니다…");
+    await api(`/api/admin/aipol/experiments/${selected.id}/v4-council/run`, {method: "POST", body: "{}"});
+    await refreshPreparation();
+  } catch (error) { $("admin-error").textContent = error.message; }
+}
+
+async function approveV4D(runId) {
+  try {
+    await api(`/api/admin/aipol/experiments/${selected.id}/v4-council/approve`, {method: "POST", body: JSON.stringify({run_id: runId, artifact_id: $("v4-d-id").value.trim(), artifact_version: $("v4-d-version").value.trim(), approval_id: $("v4-d-approval").value.trim()})});
     await refreshPreparation();
   } catch (error) { $("admin-error").textContent = error.message; }
 }

@@ -114,12 +114,18 @@ def test_identity_is_used_for_acr_and_key_vault_without_literal_secrets() -> Non
     assert "secretRef: 'event-admin-roles-json'" in bicep
     assert "secretRef: 'event-credential-secrets-json'" in bicep
     assert "secretRef: 'event-audit-checkpoint-secrets-json'" in bicep
+    assert "secretRef: 'friendli-ai-key'" in bicep
+    assert "secretRef: 'upstage-key'" in bicep
+    assert "secretRef: 'clova-studio-test-key'" in bicep
     assert "secretRef: 'aipol-receipt-ed25519-public-key'" in bicep
     assert "EVENT_SESSION_SECRET', value:" not in bicep
     assert "EVENT_ADMIN_USERS_JSON', value:" not in bicep
     assert "EVENT_ADMIN_ROLES_JSON', value:" not in bicep
     assert "EVENT_CREDENTIAL_SECRETS_JSON', value:" not in bicep
     assert "AIPOL_AUDIT_CHECKPOINT_SECRETS_JSON', value:" not in bicep
+    assert "FRIENDLI_AI_KEY', value:" not in bicep
+    assert "UPSTAGE_KEY', value:" not in bicep
+    assert "CLOVA_STUDIO_TEST_KEY', value:" not in bicep
     assert "AIPOL_RECEIPT_ED25519_PUBLIC_KEY_B64', value:" not in bicep
     assert not re.search(r"(?:value|secretRef):\s*['\"]demo['\"]", bicep, re.IGNORECASE)
     assert "scope: keyVault" not in bicep
@@ -128,9 +134,12 @@ def test_identity_is_used_for_acr_and_key_vault_without_literal_secrets() -> Non
     assert "scope: eventAdminRolesSecret" in bicep
     assert "scope: eventCredentialSecrets" in bicep
     assert "scope: eventAuditCheckpointSecrets" in bicep
+    assert "scope: friendliAiKey" in bicep
+    assert "scope: upstageKey" in bicep
+    assert "scope: clovaStudioKey" in bicep
     assert "scope: receiptPublicKeySecret" in bicep
-    assert "six-named-secrets-only" in bicep
-    assert "seven-named-secrets-only" in bicep
+    assert "nine-named-secrets-only" in bicep
+    assert "ten-named-secrets-only" in bicep
     assert "output vaultWideKeyVaultSecretsUserAllowed bool = false" in bicep
 
 
@@ -157,6 +166,9 @@ def test_deployment_unit_has_no_vm_public_ip_or_production_target() -> None:
     assert "eventAdminRolesSecretVersion" in bicep
     assert "eventCredentialKeysetVersion" in bicep
     assert "eventAuditCheckpointKeysetVersion" in bicep
+    assert "friendliAiKeyVersion" in bicep
+    assert "upstageKeyVersion" in bicep
+    assert "clovaStudioKeyVersion" in bicep
     assert "receiptPublicKeySecretVersion" in bicep
     assert "--resource-group rg-aipol-dev" in runbook
     assert "Do not substitute `rg-aipol-prod`" in runbook

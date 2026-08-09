@@ -97,6 +97,23 @@ v4 실제 수집을 열기 전에 다음 여섯 범주의 정본 문서와 승�
 개인 계산식·계산 영수증은 v4 동결 범주가 아니다. 승인 뒤 본문이나 입력 해시가 바뀌면
 기존 승인을 무효화한다. 수집 스위치는 위 게이트와 운영 준비 검증을 통과한 뒤에만 연다.
 
+### 6.1 실제 AI 실행과 승인 API
+
+- `POST /api/admin/aipol/experiments/{id}/v4-issue-classification/run`은 서버가 현재 M1
+  원장을 읽고 AI 분류를 실행한다. 서버가 모든 고유 M1 참가자를 정확히 한 쟁점에 배정했는지
+  검증하고 쟁점별 의견 수를 직접 계산한다.
+- `POST /api/admin/aipol/experiments/{id}/v4-issue-classification/approve`는 저장된 실행 ID와
+  실행 해시를 참조해야 한다. 클라이언트가 임의로 붙여 넣은 쟁점 JSON은 승인할 수 없다.
+- `POST /api/admin/aipol/experiments/{id}/v4-council/run`은 현재 M1·M2 의견 원장, 두 사람
+  검수 숙의 요약, 승인된 5개 쟁점과 각 입력 해시를 서버에서 스냅숏한 뒤 서로 다른 세 회사의
+  AI를 제안→독립 상호검토→최종 수정 순서로 호출한다.
+- `POST /api/admin/aipol/experiments/{id}/v4-council/approve`는 저장된 협의 실행 ID와 현재
+  입력 해시가 일치할 때만 사람 승인을 허용한다. 클라이언트가 만든 D안이나 AI 이력 JSON은
+  승인할 수 없다.
+- 두 실행 원장과 세 협의 단계 원장은 append-only다. 모델·공급자·프롬프트 버전·입력/출력
+  해시·생성 시각·실행자·승인자를 남기고, API 응답과 참가자 화면에는 키나 숨은 사고과정을
+  노출하지 않는다.
+
 ## 7. 개인정보와 공개 결과
 
 - 이름, 이메일, 전화번호와 원시 IP를 연구 응답에 저장하지 않는다.

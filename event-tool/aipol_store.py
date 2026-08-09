@@ -512,6 +512,56 @@ CREATE TABLE IF NOT EXISTS aipol_v4_deliberation_inputs (
   FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
 );
 
+CREATE TABLE IF NOT EXISTS aipol_v4_issue_classification_runs (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL,
+  m1_aggregate_hash TEXT NOT NULL CHECK(length(m1_aggregate_hash)=64),
+  prompt_version TEXT NOT NULL,
+  model TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  deployment TEXT NOT NULL,
+  generated_at TEXT NOT NULL,
+  issues TEXT NOT NULL,
+  assignments TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  run_by TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_v4_council_generation_runs (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL,
+  input_hash TEXT NOT NULL CHECK(length(input_hash)=64),
+  prompt_version TEXT NOT NULL,
+  final_content TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  generated_at TEXT NOT NULL,
+  run_by TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  FOREIGN KEY(experiment_id) REFERENCES aipol_experiments(id)
+);
+
+CREATE TABLE IF NOT EXISTS aipol_v4_council_steps (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK(sequence BETWEEN 1 AND 3),
+  phase TEXT NOT NULL CHECK(phase IN ('proposal','cross_review','revision')),
+  role TEXT NOT NULL,
+  model TEXT NOT NULL,
+  company TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  deployment TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  input_hash TEXT NOT NULL CHECK(length(input_hash)=64),
+  output TEXT NOT NULL,
+  output_hash TEXT NOT NULL CHECK(length(output_hash)=64),
+  generated_at TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  UNIQUE(run_id, sequence),
+  FOREIGN KEY(run_id) REFERENCES aipol_v4_council_generation_runs(id)
+);
+
 CREATE TABLE IF NOT EXISTS aipol_v4_ai_council_runs (
   id TEXT PRIMARY KEY,
   experiment_id TEXT NOT NULL UNIQUE,
@@ -750,6 +800,18 @@ CREATE TRIGGER IF NOT EXISTS aipol_v4_deliberation_inputs_no_update
 BEFORE UPDATE ON aipol_v4_deliberation_inputs BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_v4_deliberation_inputs_no_delete
 BEFORE DELETE ON aipol_v4_deliberation_inputs BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_issue_classification_runs_no_update
+BEFORE UPDATE ON aipol_v4_issue_classification_runs BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_issue_classification_runs_no_delete
+BEFORE DELETE ON aipol_v4_issue_classification_runs BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_council_generation_runs_no_update
+BEFORE UPDATE ON aipol_v4_council_generation_runs BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_council_generation_runs_no_delete
+BEFORE DELETE ON aipol_v4_council_generation_runs BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_council_steps_no_update
+BEFORE UPDATE ON aipol_v4_council_steps BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS aipol_v4_council_steps_no_delete
+BEFORE DELETE ON aipol_v4_council_steps BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_v4_ai_council_runs_no_update
 BEFORE UPDATE ON aipol_v4_ai_council_runs BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 CREATE TRIGGER IF NOT EXISTS aipol_v4_ai_council_runs_no_delete
@@ -2800,6 +2862,202 @@ def _v4_deliberation_rows(
     return [dict(row) for row in rows]
 
 
+def _v4_issue_run_public(row: sqlite3.Row | dict) -> dict:
+    value = dict(row)
+    return {
+        "run_id": value["id"],
+        "m1_aggregate_hash": value["m1_aggregate_hash"],
+        "prompt_version": value["prompt_version"],
+        "model": value["model"],
+        "provider": value["provider"],
+        "deployment": value["deployment"],
+        "generated_at": value["generated_at"],
+        "issues": json.loads(value["issues"]),
+        "assignments": json.loads(value["assignments"]),
+        "content_hash": value["content_hash"],
+        "run_by": value["run_by"],
+    }
+
+
+def _v4_council_run_public(
+    connection: sqlite3.Connection, row: sqlite3.Row | dict
+) -> dict:
+    value = dict(row)
+    steps = connection.execute(
+        "SELECT sequence,phase,role,model,company,provider,deployment,prompt_version,"
+        "input_hash,output,output_hash,generated_at FROM aipol_v4_council_steps "
+        "WHERE run_id=? ORDER BY sequence",
+        (value["id"],),
+    ).fetchall()
+    return {
+        "run_id": value["id"],
+        "input_hash": value["input_hash"],
+        "prompt_version": value["prompt_version"],
+        "final_content": json.loads(value["final_content"]),
+        "content_hash": value["content_hash"],
+        "generated_at": value["generated_at"],
+        "run_by": value["run_by"],
+        "steps": [
+            {**dict(step), "output": json.loads(step["output"])} for step in steps
+        ],
+    }
+
+
+def _v4_latest_generation_runs(
+    connection: sqlite3.Connection, experiment_id: str
+) -> tuple[dict | None, dict | None]:
+    issue = connection.execute(
+        "SELECT * FROM aipol_v4_issue_classification_runs WHERE experiment_id=? "
+        "ORDER BY created_at DESC LIMIT 1",
+        (experiment_id,),
+    ).fetchone()
+    council = connection.execute(
+        "SELECT * FROM aipol_v4_council_generation_runs WHERE experiment_id=? "
+        "ORDER BY created_at DESC LIMIT 1",
+        (experiment_id,),
+    ).fetchone()
+    return (
+        _v4_issue_run_public(issue) if issue else None,
+        _v4_council_run_public(connection, council) if council else None,
+    )
+
+
+def v4_issue_generation_input(experiment_id: str) -> dict:
+    """Return the private M1 opinion ledger used by the server-side classifier."""
+    with db._conn() as connection:
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("쟁점 AI 분류는 v4 절차에서만 실행할 수 있습니다")
+        snapshot = _v4_m1_aggregate_snapshot(connection, experiment_id)
+        rows = connection.execute(
+            "SELECT p.pseudonym,m.choice,m.stance,m.reason FROM aipol_measurements m "
+            "JOIN aipol_participants p ON p.id=m.participant_id "
+            "WHERE p.experiment_id=? AND p.participant_type='real' "
+            "AND m.measurement_id='M1' ORDER BY p.pseudonym",
+            (experiment_id,),
+        ).fetchall()
+    if not rows:
+        raise ExperimentError("1차 투표·의견이 집계된 뒤 AI 쟁점 분류를 실행할 수 있습니다")
+    return {
+        "experiment_id": experiment_id,
+        "m1_aggregate": snapshot,
+        "opinions": [dict(row) for row in rows],
+    }
+
+
+def record_v4_issue_classification(
+    experiment_id: str,
+    *,
+    m1_aggregate_hash: str,
+    prompt_version: str,
+    model: str,
+    provider: str,
+    deployment: str,
+    generated_at: str,
+    issues: list[dict],
+    assignments: list[dict],
+    run_by: str,
+) -> dict:
+    if not all(str(value).strip() for value in (
+        prompt_version, model, provider, deployment, generated_at, run_by,
+    )):
+        raise ExperimentError("쟁점 AI 실행에는 모델·배포·프롬프트·실행 시각 provenance가 필요합니다")
+    if not isinstance(issues, list) or len(issues) != 5:
+        raise ExperimentError("쟁점 AI는 정확히 5개의 쟁점을 생성해야 합니다")
+    issue_ids: list[str] = []
+    normalized_issues: list[dict] = []
+    for issue in issues:
+        if not isinstance(issue, dict):
+            raise ExperimentError("쟁점 AI 출력 형식이 올바르지 않습니다")
+        issue_id = str(issue.get("issue_id") or "").strip()
+        title = str(issue.get("title") or "").strip()
+        summary = str(issue.get("summary") or "").strip()
+        expert_prompt = str(issue.get("expert_prompt") or "").strip()
+        if not all((issue_id, title, summary, expert_prompt)):
+            raise ExperimentError("각 쟁점에는 ID·제목·요약·전문가 설명 질문이 필요합니다")
+        issue_ids.append(issue_id)
+        normalized_issues.append({
+            "issue_id": issue_id, "title": title, "summary": summary,
+            "expert_prompt": expert_prompt,
+        })
+    if len(set(issue_ids)) != 5:
+        raise ExperimentError("5개 쟁점 ID는 서로 달라야 합니다")
+    if not isinstance(assignments, list):
+        raise ExperimentError("쟁점 AI에는 참가자별 분류 결과가 필요합니다")
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("쟁점 AI 분류는 v4 절차에서만 실행할 수 있습니다")
+        snapshot = _v4_m1_aggregate_snapshot(connection, experiment_id)
+        if not hmac.compare_digest(snapshot["aggregate_hash"], m1_aggregate_hash):
+            raise ExperimentError("AI 분류 중 M1 원장이 변경되어 결과를 폐기했습니다")
+        expected = {
+            row["pseudonym"] for row in connection.execute(
+                "SELECT p.pseudonym FROM aipol_measurements m JOIN aipol_participants p "
+                "ON p.id=m.participant_id WHERE p.experiment_id=? "
+                "AND p.participant_type='real' AND m.measurement_id='M1'",
+                (experiment_id,),
+            ).fetchall()
+        }
+        normalized_assignments: list[dict] = []
+        assigned: set[str] = set()
+        for assignment in assignments:
+            if not isinstance(assignment, dict):
+                raise ExperimentError("참가자별 쟁점 분류 형식이 올바르지 않습니다")
+            participant = str(assignment.get("participant") or "").strip()
+            issue_id = str(assignment.get("issue_id") or "").strip()
+            rationale = str(assignment.get("rationale") or "").strip()
+            if participant not in expected or participant in assigned or issue_id not in issue_ids:
+                raise ExperimentError("쟁점 분류는 실제 M1 참가자를 정확히 한 번씩 포함해야 합니다")
+            if not rationale:
+                raise ExperimentError("각 쟁점 분류에는 검수 가능한 분류 근거가 필요합니다")
+            assigned.add(participant)
+            normalized_assignments.append({
+                "participant": participant, "issue_id": issue_id, "rationale": rationale,
+            })
+        if assigned != expected:
+            raise ExperimentError("쟁점 분류가 실제 M1 참가자 원장 전체를 포함하지 않습니다")
+        counts = {issue_id: 0 for issue_id in issue_ids}
+        for assignment in normalized_assignments:
+            counts[assignment["issue_id"]] += 1
+        normalized_issues = [
+            {**issue, "opinion_count": counts[issue["issue_id"]]}
+            for issue in normalized_issues
+        ]
+        envelope = {
+            "m1_aggregate_hash": m1_aggregate_hash,
+            "prompt_version": prompt_version,
+            "model": model,
+            "provider": provider,
+            "deployment": deployment,
+            "generated_at": generated_at,
+            "issues": normalized_issues,
+            "assignments": normalized_assignments,
+        }
+        digest = content_hash(envelope)
+        run_id = _id("vir")
+        connection.execute(
+            "INSERT INTO aipol_v4_issue_classification_runs(id,experiment_id,"
+            "m1_aggregate_hash,prompt_version,model,provider,deployment,generated_at,issues,"
+            "assignments,content_hash,run_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                run_id, experiment_id, m1_aggregate_hash, prompt_version, model, provider,
+                deployment, generated_at, _json(normalized_issues),
+                _json(normalized_assignments), digest, run_by, time.time(),
+            ),
+        )
+        _queue_experiment_audit(
+            connection, actor=run_by, action="experiment.v4_issue_classification.generated",
+            experiment_id=experiment_id,
+            payload={"run_id": run_id, "content_hash": digest, "m1_aggregate_hash": m1_aggregate_hash},
+        )
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_issue_classification_runs WHERE id=?", (run_id,)
+        ).fetchone()
+    return _v4_issue_run_public(row)
+
+
 def v4_admin_inputs(experiment_id: str) -> dict:
     """Return the only approved inputs that v4 issue and D generation may bind."""
     with db._conn() as connection:
@@ -2816,6 +3074,7 @@ def v4_admin_inputs(experiment_id: str) -> dict:
             (experiment_id,),
         ).fetchall():
             artifacts[row["kind"]] = dict(row)
+        issue_run, council_run = _v4_latest_generation_runs(connection, experiment_id)
     by_round = {row["round_id"]: row for row in deliberations}
     return {
         "m1": m1,
@@ -2828,7 +3087,298 @@ def v4_admin_inputs(experiment_id: str) -> dict:
             "deliberation_2": by_round.get("second", {}).get("content_hash"),
         },
         "artifacts": artifacts,
+        "generation_runs": {
+            "issue_classification": issue_run,
+            "ai_council": council_run,
+        },
     }
+
+
+def _v4_required_d_inputs(connection: sqlite3.Connection, experiment_id: str) -> tuple[dict, dict]:
+    m1 = _v4_m1_aggregate_snapshot(connection, experiment_id)
+    m2 = _m2_aggregate_snapshot(connection, experiment_id)
+    deliberations = {
+        row["round_id"]: row for row in _v4_deliberation_rows(connection, experiment_id)
+    }
+    if not m1["participant_count"] or not m2["participant_count"]:
+        raise ExperimentError("1·2차 투표가 모두 집계된 뒤 D안 협의를 실행할 수 있습니다")
+    if set(deliberations) != {"first", "second"}:
+        raise ExperimentError("사람이 검수한 1·2차 숙의 요약을 모두 등록해야 합니다")
+    hashes = {
+        "m1": m1["aggregate_hash"],
+        "deliberation_1": deliberations["first"]["content_hash"],
+        "m2": m2["aggregate_hash"],
+        "deliberation_2": deliberations["second"]["content_hash"],
+    }
+    return hashes, {
+        "m1": m1,
+        "deliberation_1": deliberations["first"],
+        "m2": m2,
+        "deliberation_2": deliberations["second"],
+    }
+
+
+def v4_council_generation_input(experiment_id: str) -> dict:
+    """Return the private, hash-bound ledger used by the three-model council."""
+    with db._conn() as connection:
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("D안 AI 협의는 v4 절차에서만 실행할 수 있습니다")
+        hashes, approved_inputs = _v4_required_d_inputs(connection, experiment_id)
+        m1_rows = connection.execute(
+            "SELECT p.pseudonym,m.choice,m.stance,m.reason FROM aipol_measurements m "
+            "JOIN aipol_participants p ON p.id=m.participant_id "
+            "WHERE p.experiment_id=? AND p.participant_type='real' "
+            "AND m.measurement_id='M1' ORDER BY p.pseudonym",
+            (experiment_id,),
+        ).fetchall()
+        m2_rows = connection.execute(
+            "SELECT p.pseudonym,m.choice,a.option_id,a.stance,a.reason "
+            "FROM aipol_measurements m JOIN aipol_participants p ON p.id=m.participant_id "
+            "JOIN aipol_m2_option_assessments a ON a.participant_id=p.id "
+            "WHERE p.experiment_id=? AND p.participant_type='real' "
+            "AND m.measurement_id='M2' ORDER BY p.pseudonym,a.option_id",
+            (experiment_id,),
+        ).fetchall()
+    m2_by_participant: dict[str, dict] = {}
+    for row in m2_rows:
+        item = m2_by_participant.setdefault(
+            row["pseudonym"], {"participant": row["pseudonym"], "choice": row["choice"], "assessments": []}
+        )
+        item["assessments"].append({
+            "option_id": row["option_id"], "stance": row["stance"], "reason": row["reason"],
+        })
+    return {
+        "experiment_id": experiment_id,
+        "input_hashes": hashes,
+        "input_hash": content_hash(hashes),
+        "aggregates": {"m1": approved_inputs["m1"], "m2": approved_inputs["m2"]},
+        "deliberations": {
+            "first": approved_inputs["deliberation_1"],
+            "second": approved_inputs["deliberation_2"],
+        },
+        "m1_opinions": [dict(row) for row in m1_rows],
+        "m2_opinions": list(m2_by_participant.values()),
+    }
+
+
+def record_v4_council_generation(
+    experiment_id: str,
+    *,
+    input_hashes: dict,
+    prompt_version: str,
+    generated_at: str,
+    steps: list[dict],
+    final_content: dict,
+    run_by: str,
+) -> dict:
+    if not all(str(value).strip() for value in (prompt_version, generated_at, run_by)):
+        raise ExperimentError("D안 협의에는 프롬프트·실행 시각·실행자 provenance가 필요합니다")
+    if not isinstance(steps, list) or len(steps) != 3 or not isinstance(final_content, dict):
+        raise ExperimentError("D안은 제안·상호검토·수정의 3단계 AI 협의 결과여야 합니다")
+    phases = ("proposal", "cross_review", "revision")
+    normalized_steps: list[dict] = []
+    companies: set[str] = set()
+    models: set[tuple[str, str]] = set()
+    for sequence, (phase, step) in enumerate(zip(phases, steps, strict=True), 1):
+        if not isinstance(step, dict) or step.get("phase") != phase:
+            raise ExperimentError("D안 AI 협의 단계 순서가 올바르지 않습니다")
+        required = (
+            "role", "model", "company", "provider", "deployment", "prompt_version",
+            "input_hash", "output_hash", "generated_at",
+        )
+        if any(not str(step.get(key) or "").strip() for key in required):
+            raise ExperimentError("각 AI 협의 단계에는 모델·회사·입출력 해시·시각 provenance가 필요합니다")
+        output = step.get("output")
+        if not isinstance(output, dict) or content_hash(output) != step["output_hash"]:
+            raise ExperimentError("AI 협의 단계 출력과 출력 해시가 일치하지 않습니다")
+        companies.add(str(step["company"]).strip())
+        models.add((str(step["provider"]).strip(), str(step["model"]).strip()))
+        normalized_steps.append({
+            "sequence": sequence,
+            "phase": phase,
+            **{key: str(step[key]).strip() for key in required if key not in ("output_hash",)},
+            "output": output,
+            "output_hash": str(step["output_hash"]).strip(),
+        })
+    if len(companies) != 3 or len(models) != 3:
+        raise ExperimentError("D안 협의에는 서로 다른 3개 회사·모델이 필요합니다")
+    if final_content != normalized_steps[-1]["output"]:
+        raise ExperimentError("D안 최종안은 수정 단계의 출력과 정확히 같아야 합니다")
+    for key in ("title", "body", "limitations"):
+        if not str(final_content.get(key) or "").strip():
+            raise ExperimentError("D안 최종안에는 제목·본문·한계와 의의가 필요합니다")
+    with db._conn() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("D안 AI 협의는 v4 절차에서만 실행할 수 있습니다")
+        expected_hashes, _ = _v4_required_d_inputs(connection, experiment_id)
+        if set(input_hashes) != set(expected_hashes) or any(
+            not isinstance(input_hashes.get(key), str)
+            or not hmac.compare_digest(input_hashes[key], value)
+            for key, value in expected_hashes.items()
+        ):
+            raise ExperimentError("AI 협의 중 투표·숙의 원장이 변경되어 결과를 폐기했습니다")
+        base_hash = content_hash(expected_hashes)
+        expected_step_hashes = (
+            base_hash,
+            content_hash({"council_input_hash": base_hash, "proposal": normalized_steps[0]["output_hash"]}),
+            content_hash({
+                "council_input_hash": base_hash,
+                "proposal": normalized_steps[0]["output_hash"],
+                "cross_review": normalized_steps[1]["output_hash"],
+            }),
+        )
+        if any(
+            not hmac.compare_digest(step["input_hash"], expected)
+            for step, expected in zip(normalized_steps, expected_step_hashes, strict=True)
+        ):
+            raise ExperimentError("D안 AI 협의의 입력·출력 해시 체인이 끊어졌습니다")
+        envelope = {
+            "input_hash": base_hash,
+            "prompt_version": prompt_version,
+            "generated_at": generated_at,
+            "steps": normalized_steps,
+            "final_content": final_content,
+        }
+        digest = content_hash(envelope)
+        run_id = _id("vcr")
+        connection.execute(
+            "INSERT INTO aipol_v4_council_generation_runs(id,experiment_id,input_hash,"
+            "prompt_version,final_content,content_hash,generated_at,run_by,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                run_id, experiment_id, base_hash, prompt_version, _json(final_content),
+                digest, generated_at, run_by, time.time(),
+            ),
+        )
+        connection.executemany(
+            "INSERT INTO aipol_v4_council_steps(id,run_id,sequence,phase,role,model,company,"
+            "provider,deployment,prompt_version,input_hash,output,output_hash,generated_at,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                (
+                    _id("vcs"), run_id, step["sequence"], step["phase"], step["role"],
+                    step["model"], step["company"], step["provider"], step["deployment"],
+                    step["prompt_version"], step["input_hash"], _json(step["output"]),
+                    step["output_hash"], step["generated_at"], time.time(),
+                )
+                for step in normalized_steps
+            ],
+        )
+        _queue_experiment_audit(
+            connection, actor=run_by, action="experiment.v4_council.generated",
+            experiment_id=experiment_id,
+            payload={"run_id": run_id, "content_hash": digest, "input_hash": base_hash},
+        )
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_council_generation_runs WHERE id=?", (run_id,)
+        ).fetchone()
+        public_run = _v4_council_run_public(connection, row)
+    return public_run
+
+
+def approve_v4_issue_classification(
+    experiment_id: str,
+    *,
+    run_id: str,
+    artifact_id: str,
+    artifact_version: str,
+    title: str,
+    body: str,
+    approval_id: str,
+    approved_by: str,
+) -> dict:
+    with db._conn() as connection:
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_issue_classification_runs WHERE id=? AND experiment_id=?",
+            (run_id, experiment_id),
+        ).fetchone()
+        if not row:
+            raise ExperimentError("승인할 쟁점 AI 실행 기록을 찾을 수 없습니다")
+        run = _v4_issue_run_public(row)
+    content = {
+        "title": title.strip(),
+        "body": body.strip(),
+        "issues": run["issues"],
+        "m1_aggregate_hash": run["m1_aggregate_hash"],
+        "classification_run_id": run["run_id"],
+        "classification_run_hash": run["content_hash"],
+        "model": run["model"],
+        "provider": run["provider"],
+        "deployment": run["deployment"],
+        "prompt_version": run["prompt_version"],
+        "generated_at": run["generated_at"],
+        "human_reviewed": True,
+    }
+    return set_artifact(
+        experiment_id,
+        kind=ArtifactKind.ISSUE_DELIBERATION.value,
+        artifact_id=artifact_id,
+        artifact_version=artifact_version,
+        content=content,
+        approval_id=approval_id,
+        approved_by=approved_by,
+        registered_by=approved_by,
+    )
+
+
+def approve_v4_council_generation(
+    experiment_id: str,
+    *,
+    run_id: str,
+    artifact_id: str,
+    artifact_version: str,
+    approval_id: str,
+    approved_by: str,
+) -> dict:
+    with db._conn() as connection:
+        experiment = get_experiment(experiment_id, connection)
+        if not _uses_v4_procedure(experiment):
+            raise ExperimentError("D안 AI 협의는 v4 절차에서만 승인할 수 있습니다")
+        row = connection.execute(
+            "SELECT * FROM aipol_v4_council_generation_runs WHERE id=? AND experiment_id=?",
+            (run_id, experiment_id),
+        ).fetchone()
+        if not row:
+            raise ExperimentError("승인할 D안 AI 협의 실행 기록을 찾을 수 없습니다")
+        run = _v4_council_run_public(connection, row)
+        input_hashes, _ = _v4_required_d_inputs(connection, experiment_id)
+        if not hmac.compare_digest(content_hash(input_hashes), run["input_hash"]):
+            raise ExperimentError("D안 생성 뒤 투표·숙의 입력이 변경되어 승인할 수 없습니다")
+    final = run["final_content"]
+    content = {
+        "title": str(final.get("title") or "").strip(),
+        "body": str(final.get("body") or "").strip(),
+        "limitations": str(final.get("limitations") or "").strip(),
+        "input_hashes": input_hashes,
+        "council_run_id": run["run_id"],
+        "council_run_hash": run["content_hash"],
+        "prompt_version": run["prompt_version"],
+        "generated_at": run["generated_at"],
+        "ai_council": [
+            {
+                key: step[key] for key in (
+                    "sequence", "phase", "role", "model", "company", "provider",
+                    "deployment", "prompt_version", "input_hash", "output",
+                    "output_hash", "generated_at",
+                )
+            }
+            for step in run["steps"]
+        ],
+        "human_reviewed": True,
+    }
+    return set_artifact(
+        experiment_id,
+        kind=ArtifactKind.AI_OPINION.value,
+        artifact_id=artifact_id,
+        artifact_version=artifact_version,
+        content=content,
+        approval_id=approval_id,
+        approved_by=approved_by,
+        registered_by=approved_by,
+    )
 
 
 def set_v4_deliberation_input(
@@ -3622,6 +4172,24 @@ def set_artifact(
                 raise ExperimentError("쟁점 자료의 1차 투표·의견 집계 해시가 실제 집계와 다릅니다")
             if content.get("human_reviewed") is not True:
                 raise ExperimentError("AI 쟁점 분류는 사람 검수 완료 후에만 승인할 수 있습니다")
+            run_id = str(content.get("classification_run_id") or "")
+            run_hash = str(content.get("classification_run_hash") or "")
+            run_row = connection.execute(
+                "SELECT * FROM aipol_v4_issue_classification_runs WHERE id=? AND experiment_id=?",
+                (run_id, experiment_id),
+            ).fetchone()
+            if not run_row:
+                raise ExperimentError("쟁점 자료는 서버가 실행한 AI 분류 기록을 참조해야 합니다")
+            run = _v4_issue_run_public(run_row)
+            if (
+                not hmac.compare_digest(run["content_hash"], run_hash)
+                or content.get("issues") != run["issues"]
+                or content.get("m1_aggregate_hash") != run["m1_aggregate_hash"]
+                or any(content.get(key) != run[key] for key in (
+                    "model", "provider", "deployment", "prompt_version", "generated_at"
+                ))
+            ):
+                raise ExperimentError("쟁점 승인 내용이 서버 AI 실행 기록과 다릅니다")
         if artifact_kind is ArtifactKind.AI_OPINION and is_v4:
             members = content.get("ai_council")
             if not isinstance(members, list) or len(members) != 3:
@@ -3656,6 +4224,36 @@ def set_artifact(
                 raise ExperimentError("D안 입력 해시가 실제 투표 집계·숙의 검수본과 다릅니다")
             if content.get("human_reviewed") is not True:
                 raise ExperimentError("D안은 어드민 사람 검수 뒤에만 승인할 수 있습니다")
+            run_id = str(content.get("council_run_id") or "")
+            run_hash = str(content.get("council_run_hash") or "")
+            run_row = connection.execute(
+                "SELECT * FROM aipol_v4_council_generation_runs WHERE id=? AND experiment_id=?",
+                (run_id, experiment_id),
+            ).fetchone()
+            if not run_row:
+                raise ExperimentError("D안은 서버가 실행한 3-AI 협의 기록을 참조해야 합니다")
+            run = _v4_council_run_public(connection, run_row)
+            expected_council = [
+                {
+                    key: step[key] for key in (
+                        "sequence", "phase", "role", "model", "company", "provider",
+                        "deployment", "prompt_version", "input_hash", "output",
+                        "output_hash", "generated_at",
+                    )
+                }
+                for step in run["steps"]
+            ]
+            final = run["final_content"]
+            if (
+                not hmac.compare_digest(run["content_hash"], run_hash)
+                or content.get("ai_council") != expected_council
+                or content.get("title") != final.get("title")
+                or content.get("body") != final.get("body")
+                or content.get("limitations") != final.get("limitations")
+                or content.get("prompt_version") != run["prompt_version"]
+                or content.get("generated_at") != run["generated_at"]
+            ):
+                raise ExperimentError("D안 승인 내용이 서버 3-AI 협의 실행 기록과 다릅니다")
         if (
             experiment["freeze_manifest"]
             and artifact_kind is not ArtifactKind.FINAL_AI_OPINION

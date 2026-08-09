@@ -30,7 +30,7 @@ ROLES = {
     "editor": ["editor"], "approver": ["approver"], "operator": ["operator"],
     "admin": ["admin"], "auditor": ["auditor"],
 }
-MODULES = ("server", "db", "aipol_store", "aipol_admin_store", "aipol_audit_checkpoint", "aipol_chat", "aipol_batch", "ai_config", "deliberate", "llm")
+MODULES = ("server", "db", "aipol_store", "aipol_v4_ai", "aipol_admin_store", "aipol_audit_checkpoint", "aipol_chat", "aipol_batch", "ai_config", "deliberate", "llm")
 
 
 def _clear_modules() -> None:
