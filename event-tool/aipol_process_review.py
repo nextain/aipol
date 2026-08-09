@@ -48,7 +48,13 @@ def database_path() -> Path:
 def _conn() -> sqlite3.Connection:
     path = database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path, timeout=30)
+    # Azure Files uses the same explicitly reviewed single-writer/no-lock
+    # contract as the participant database. The process-review DB remains a
+    # physically separate file; this only selects the compatible SQLite URI.
+    if os.environ.get("EVENT_SQLITE_NOLOCK", "false").lower() == "true":
+        connection = sqlite3.connect(f"file:{path}?mode=rwc&nolock=1", uri=True, timeout=30)
+    else:
+        connection = sqlite3.connect(path, timeout=30)
     connection.row_factory = sqlite3.Row
     return connection
 

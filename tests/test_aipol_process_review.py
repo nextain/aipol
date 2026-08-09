@@ -23,7 +23,8 @@ def test_process_review_snapshot_is_flagged_isolated_and_append_only(tmp_path, m
     review_db_path = tmp_path / "isolated-process-review.db"
     monkeypatch.setenv("EVENT_ENV", "development")
     monkeypatch.setenv("EVENT_DB_PATH", str(event_db_path))
-    monkeypatch.setenv("EVENT_SQLITE_NOLOCK", "false")
+    # Exercise the Azure Files-compatible connection contract used by DEV.
+    monkeypatch.setenv("EVENT_SQLITE_NOLOCK", "true")
     monkeypatch.setenv("EVENT_SESSION_SECRET", "s" * 48)
     monkeypatch.setenv("AIPOL_PROCESS_REVIEW_DB_PATH", str(review_db_path))
     monkeypatch.delenv("AIPOL_PROCESS_REVIEW_ENABLED", raising=False)
