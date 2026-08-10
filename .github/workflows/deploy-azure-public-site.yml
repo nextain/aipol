@@ -35,7 +35,7 @@ jobs:
 
       - name: Install public-site test dependencies
         run: |
-          python -m pip install -e ".[test]"
+          python -m pip install -e ".[test,event-tool]"
           python -m playwright install --with-deps chromium webkit
 
       - name: Verify static pages, metadata, browser behavior, RSS, and live-smoke contracts
