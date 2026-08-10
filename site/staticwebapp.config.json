@@ -1,6 +1,17 @@
 {
   "routes": [
     {
+      "route": "/cases/pension/admin",
+      "redirect": "/cases/pension/experiment/admin/",
+      "statusCode": 302
+    },
+    {
+      "route": "/cases/pension/experiment/admin/*",
+      "headers": {
+        "X-Robots-Tag": "noindex, nofollow, noarchive"
+      }
+    },
+    {
       "route": "/README.md",
       "redirect": "/",
       "statusCode": 301
