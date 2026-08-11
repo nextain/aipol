@@ -250,6 +250,7 @@ def test_sitemap_uses_current_origin_and_excludes_private_routes() -> None:
     locations = [node.text or "" for node in root.findall("{*}url/{*}loc")]
     assert locations
     assert f"{CANONICAL_ORIGIN}/cases/pension/experiment/" not in locations
+    assert f"{CANONICAL_ORIGIN}/cases/pension/process-report/" in locations
     assert f"{CANONICAL_ORIGIN}/cases/pension/experiment/terms/" in locations
     assert f"{CANONICAL_ORIGIN}/cases/pension/experiment/privacy/" in locations
     for location in locations:
@@ -283,11 +284,28 @@ def test_event_page_is_rehearsal_only_and_uses_confirmed_schedule() -> None:
     assert "모바일 투표 2회 예정" in parsed.text
     assert "1차 모바일 투표" in parsed.text and "2차 모바일 투표" in parsed.text
     assert "3차 모바일 투표" not in parsed.text
-    assert 'href="/cases/pension/experiment/"' in (
-        SITE / "cases" / "pension" / "index.html"
-    ).read_text(encoding="utf-8")
+    pension_source = (SITE / "cases" / "pension" / "index.html").read_text(encoding="utf-8")
+    assert 'href="/cases/pension/experiment/' not in pension_source
+    assert 'href="/cases/pension/process-report/"' in pension_source
     assert "session.policylab.nextain.io" not in source
     assert "행사 전 안내" in parsed.text
+
+
+def test_pension_process_report_is_public_static_and_pre_event_scoped() -> None:
+    report_path = SITE / "cases" / "pension" / "process-report" / "index.html"
+    source = report_path.read_text(encoding="utf-8")
+    parsed = _parse(report_path)
+    assert "AI 정책개발 프로세스 사전 검증 보고서" in parsed.text
+    assert "현장 적용 전 사전 검증" in parsed.text
+    assert "1차 100명, 2차 250명" in parsed.text
+    assert "25명 검증" not in parsed.text
+    assert "실제 시민 참여" not in parsed.text
+    assert 'href="/cases/pension/"' in source
+    assert 'rel="canonical" href="https://aipol.kaps.or.kr/cases/pension/process-report/"' in source
+    assert "<style" not in source
+    assert 'src="/assets/site.js"' in source
+    assert "cdn.jsdelivr.net" not in source
+    assert source.count('class="report-diagram"') == 3
 
 
 def test_public_copy_scopes_observed_change_and_keeps_logo_approval_gate() -> None:

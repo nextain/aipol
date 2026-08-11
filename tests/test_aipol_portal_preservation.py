@@ -101,12 +101,15 @@ def test_aipol_participant_surface_has_portal_return_and_role_attribution() -> N
     assert (WEB / "favicon.svg").exists()
 
 
-def test_pension_case_discovers_the_two_ballot_scenario_and_built_app_returns_to_portal() -> None:
+def test_pension_case_discovers_the_public_report_and_built_app_returns_to_portal() -> None:
     case = BeautifulSoup((SITE / "cases" / "pension" / "index.html").read_text("utf-8"), "html.parser")
     experiment_path = SITE / "cases" / "pension" / "experiment" / "index.html"
     experiment = BeautifulSoup(experiment_path.read_text("utf-8"), "html.parser")
+    assert not case.find("a", href="/cases/pension/experiment/")
     assert case.find(
-        "a", href="/cases/pension/experiment/", string=lambda value: value and "시나리오 검토 시작" in value
+        "a",
+        href="/cases/pension/process-report/",
+        string=lambda value: value and "사전 검증 보고서" in value,
     )
     assert case.find(id="scenario-review")
     assert experiment.find("a", href="/cases/pension/", string="프로젝트 소개")
