@@ -1,6 +1,6 @@
 project: "AIPOL"
-version: "0.3.1"
-updated: "2026-07-31"
+version: "0.4.0"
+updated: "2026-08-11"
 description: |
   Human+AI 정책 설계·실험 프레임워크. 도메인 중립 숙의 프로토콜 + 방어장치 내장 엔진.
   연금(domains/pension)이 첫 레퍼런스 구현. 한국정책학회 "연금개혁-AI 정책실험"(2026-08-12) 발.
@@ -79,3 +79,14 @@ context_priority:
   - AGENTS.md
   - RFC-0001-framework.md
   - .agents/context/project-index.yaml
+
+# 2026-08-11 갱신 — 행사(8/12) 직전 상태
+site_notes:
+  - "site/cases/pension/: Development record = 1차 합성 실험(experiment-1/, 100명) → 2차 합성 실험(experiment-2/, 250명) → 현장 적용(8/12). 참가자 여정 7단계 현행화."
+  - "site/cases/pension/experiment/{,results/,admin/}index.html = 실행 서버로 가는 리다이렉트(쿼리 유지). 터널 URL 변경 시 세 파일 갱신 후 SWA 재배포."
+  - "배포: az staticwebapp secrets list(구독 83b29893-…, swa-nextain-policy-lab, rg-nextain-koreacentral) 토큰으로 npx @azure/static-web-apps-cli deploy site --env production."
+  - "session.aipol.kaps.or.kr = Azure Container App aipol-session-prod(rg_aipol): 실험 앱 직접 서빙 전환 중. 롤백 리비전 rmfa03(구 설문 서버)."
+execution_app:
+  repo: "https://github.com/armybonita/Pension-Policy-Lab-"
+  branch: "feat/event-admin-vmodel"
+  note: "행사 실행 앱(참가자·어드민·결과·AI 협의)은 이 저장소가 아니라 위 저장소다. 운영 런북: nextain/aipol-lab internal/operations/event-day-runbook-20260812.md"
