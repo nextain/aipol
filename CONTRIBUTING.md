@@ -27,6 +27,21 @@ pip install -e ".[test]"
 pytest -q
 ```
 
+## Codex·Claude로 참여하기
+
+AI 코딩 도구는 저장소 루트에서 시작하고 먼저 `AGENTS.md`를 읽게 하세요. `AGENTS.md`가 정본이며
+`CLAUDE.md`와 `GEMINI.md`는 같은 내용을 제공하는 도구별 미러입니다. 공개 저장소 작업에는 실제
+참가자 응답, 내부 회의자료, 인증정보를 프롬프트·이슈·PR에 넣지 않습니다.
+
+- Codex 예: “`AGENTS.md`와 관련 문서를 읽고, 공개 범위 안에서 이 근거 링크의 기준일을 검증해 줘.”
+- Claude 예: “`CLAUDE.md`를 읽고, 이 PR이 합성 결과를 실제 여론처럼 표현하는지 적대적으로 검토해 줘.”
+- 장기 공동연구·운영 작업은 일관된 계약·증거·검증 흐름을 위해
+  [`naia-adk`](https://github.com/nextain/naia-adk) 하네스를 권장합니다.
+
+저장소 선택과 공개 가능 자료의 기준은
+[`docs/repository-boundary-and-contribution.ko.md`](docs/repository-boundary-and-contribution.ko.md)를
+먼저 확인하세요.
+
 ## 방어장치는 헌장이다 (Charter)
 
 `policy_lab/core/guards.py`의 가드와 `DeliberationProtocol.validate()`의 불변식은 이

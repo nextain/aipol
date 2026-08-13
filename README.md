@@ -7,6 +7,13 @@
 연금개혁은 **첫 활용 사례(Application 01)**입니다. 공개 저장소에는 재사용 가능한 정책개발 계약과
 도구만 두며, 행사 진행안·회의 자료·미공개 정책안과 원시 연구 데이터는 비공개 저장소에서 관리합니다.
 
+> **저장소 정본:** 지금 보고 있는 [`nextain/aipol`](https://github.com/nextain/aipol)은 공개
+> 프레임워크·사이트·재현 가능한 집계의 정본입니다. 실제 연금 행사 앱과 비공개 연구·운영 자료의
+> 정본은 비공개 `nextain/aipol-lab`의 `apps/pension-policy-lab/`입니다.
+> `nextain/pension-policy-lab`과 `armybonita/Pension-Policy-Lab-`은 현재 변경·배포에 사용하지
+> 않는 과거 이력입니다. 자세한 경계와 참여 방법은
+> [`docs/repository-boundary-and-contribution.ko.md`](docs/repository-boundary-and-contribution.ko.md)를 보세요.
+
 이 프로젝트는 연금개혁 정책실험을 준비하며 시작했습니다. 여기서 개발한 정책개발 방법론, 연구 엔진,
 온라인·현장 참여 도구와 검증 기록을 다른 정책 분야에서도 활용할 수 있는 오픈소스 공동 연구 기반으로
 발전시키고 있습니다.
@@ -19,6 +26,8 @@
 | 첫 사례 보기 | [연금개혁 사례](https://aipol.kaps.or.kr/cases/pension/) |
 | 코드로 구조 확인하기 | 아래 [도메인 중립 엔진](#2-도메인-중립-엔진--방어장치--policy_lab) · [`examples/quickstart.py`](examples/quickstart.py) |
 | 문서·근거·코드에 기여하기 | [`CONTRIBUTING.md`](CONTRIBUTING.md)의 첫 기여 5단계 |
+| Codex·Claude로 참여하기 | [AI 도구별 시작 방법과 공개 경계](docs/repository-boundary-and-contribution.ko.md) |
+| 250명 성능검증 보기 | [JMeter + Chromium 실측 보고서](docs/performance/jmeter-playwright-250-participants-2026-08-14.ko.md) |
 | 공개 행사 정보 확인하기 | [이벤트 안내](https://aipol.kaps.or.kr/events/) |
 
 ## 공개 사이트
@@ -64,10 +73,10 @@
 
 돌려보는 법과 상세 운영 흐름은 [`event-tool/README.md`](event-tool/README.md)를 따르세요.
 
-> **현재 상태:** `session.aipol.kaps.or.kr`에 통제된 연구 검토 환경을 배포했습니다. 영속 SQLite,
-> 개인 운영자 인증, 역할 분리와 불변 감사 체크포인트를 적용했지만 실제 시민 수집은 닫혀 있습니다.
-> 상시 공개 수집이나 다중 인스턴스가 필요하면 관리형 PostgreSQL, 작업 큐, 백업·복구 계보와
-> 개인정보 보유·파기 운영을 먼저 갖춰야 합니다.
+> **구분:** 이 절의 `event-tool/`은 공개된 범용 참고 구현입니다. 현재
+> `session.aipol.kaps.or.kr`의 연금 참가자·어드민·결과 앱은 이 디렉터리에서 배포하지 않으며,
+> 비공개 `nextain/aipol-lab:apps/pension-policy-lab/`이 정본입니다. 공개 도구를 실제 시민 수집에
+> 쓰려면 별도의 인증, 관리형 DB, 백업·복구, 개인정보 보유·파기와 운영 승인이 필요합니다.
 
 ```bash
 cd event-tool
@@ -150,5 +159,7 @@ aipol/
 ## 상태
 
 설계(RFC), 도메인 중립 코어·연금 도메인, 방어장치, 라이브 행사 도구(event-tool)와 대외 소개
-사이트까지 구현했습니다. 현장 실증은 2026년 8월 12일 예정이며 아직 완료 결과는 없습니다.
-저장소: <https://github.com/nextain/aipol>. 라이선스: Apache-2.0.
+사이트를 구현했습니다. 연금개혁 현장 정책실험은 2026년 8월 12일 수행됐습니다. 운영 참가자 앱은
+비공개 `nextain/aipol-lab`에서 관리하며, 이 공개 저장소에는 일반화 가능한 방법·코드·비식별
+집계만 반영합니다. 2026년 8월 14일 공개 외부 경로에서 JMeter 250세션과 실제 Chromium 250개
+성능시험을 완료했습니다. 저장소: <https://github.com/nextain/aipol>. 라이선스: Apache-2.0.

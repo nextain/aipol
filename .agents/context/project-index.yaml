@@ -1,6 +1,6 @@
 project: "AIPOL"
-version: "0.4.1"
-updated: "2026-08-13"
+version: "0.4.2"
+updated: "2026-08-14"
 description: |
   Human+AI 정책 설계·실험 프레임워크. 도메인 중립 숙의 프로토콜 + 방어장치 내장 엔진.
   연금(domains/pension)이 첫 레퍼런스 구현. 한국정책학회 "연금개혁-AI 정책실험"(2026-08-12) 발.
@@ -38,8 +38,8 @@ design_docs:
 # 온디맨드 로딩 — 필요한 것만
 on_demand_loading:
   private_materials:
-    - repository: nextain/policy-lab-private
-      local_path: private/
+    - repository: nextain/aipol-lab
+      local_path: ../aipol-lab/
       tracked: false
       topics: [수신 원문, 내부 논의, 회의록, 미공개 초안, 공개 경계]
       rule: "이 자료는 AIPOL 공개 저장소에 넣지 않고 비공개 저장소만 사용한다. 공개 전환 전 Git 전체 이력을 검사한다."
@@ -88,6 +88,11 @@ site_notes:
   - "session.aipol.kaps.or.kr = 같은 VM의 nginx가 127.0.0.1:3210 aipol-app.service로 프록시하는 실험·설문·결과·어드민 실행 앱."
   - "2026-08-13 복구에서 두 호스트를 분리했고 주요 공개/실험/API 경로의 외부 HTTP 200과 행사 상태 second_deliberation을 확인했다. nginx 복구 전 설정은 /etc/nginx/sites-available/aipol-app.pre-portal-restore-20260813."
 execution_app:
-  repo: "https://github.com/armybonita/Pension-Policy-Lab-"
-  branch: "feat/event-admin-vmodel"
-  note: "행사 실행 앱(참가자·어드민·결과·AI 협의)은 이 저장소가 아니라 위 저장소다. 운영 런북: nextain/aipol-lab internal/operations/event-day-runbook-20260812.md"
+  repo: "https://github.com/nextain/aipol-lab"
+  branch: "main"
+  path: "apps/pension-policy-lab/"
+  production_url: "https://session.aipol.kaps.or.kr/cases/pension/experiment/"
+  legacy_repositories:
+    - "nextain/pension-policy-lab (read-only history)"
+    - "armybonita/Pension-Policy-Lab- (external historical prototype; never deploy)"
+  note: "참가자·어드민·결과·AI 협의 실행 앱의 코드·시험·배포 정본은 nextain/aipol-lab@main:apps/pension-policy-lab/이다."
