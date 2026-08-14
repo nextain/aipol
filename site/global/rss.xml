@@ -6,6 +6,16 @@
     <description>KAPS Human + AI Collaboration Policy Lab(AIPOL)의 정부·국제기구 AI 기반 정책개발 공식 자료 한국어 요약</description>
     <language>ko</language>
     <item>
+      <title>영국, 총리실 중심 AI 태스크포스 출범…공공서비스 혁신과 정부 AI 전략 총괄</title>
+      <link>https://www.gov.uk/government/news/ai-to-power-change-at-the-heart-of-government-as-lord-vallance-appointed-chair-of-new-pm-ai-taskforce</link>
+      <guid isPermaLink="false">2026-07-24-uk-pm-ai-taskforce</guid>
+      <description>영국 정부는 로스 밸런스 경을 의장으로 하는 총리 AI 태스크포스를 출범시켰다. 태스크포스는 총리·내각실 안에서 정부 AI 전략의 방향과 이행을 맡고, 공공서비스 혁신과 공공부문 전반의 AI 도입을 지원한다. AI 담당 장관이 조직을 이끌며 의장은 총리에게 직접 보고한다.
+
+AIPOL 시사점: 한국의 범정부 AI 정책을 설계할 때 전략 수립, 부처 간 조정, 공공서비스 적용과 안전 책임을 어느 기관에 두고 어떻게 최고 의사결정권자에게 보고할지 비교할 수 있는 사례다.
+한계: 보도자료 단계의 발표이므로 법적 권한, 예산, 세부 일정과 성과지표는 제시되지 않았다. 실제 운영 성과는 후속 공식 문서와 집행 결과를 통해 확인해야 한다.</description>
+      <pubDate>Fri, 24 Jul 2026 00:00:00 GMT</pubDate>
+    </item>
+    <item>
       <title>일본 정부 AI ‘겐나이’, 농정 설문 8천 건의 정책가설 검증 지원</title>
       <link>https://www.digital.go.jp/policies/genai</link>
       <guid isPermaLink="false">2026-07-17-japan-government-ai-gennai</guid>
