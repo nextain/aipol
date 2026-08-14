@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,10 +16,11 @@ sys.path.insert(0, str(BOT))
 import adapters  # noqa: E402
 import azure_blob_store  # noqa: E402
 import collector  # noqa: E402
+import orchestrator  # noqa: E402
 import scheduled_job  # noqa: E402
 from adapters import AnyLlmDraftAdapter, AnyLlmReviewAdapter, PermanentProviderError  # noqa: E402
 from config import RuntimeConfig, validate_anyllm_endpoint  # noqa: E402
-from contracts import SourcePacket  # noqa: E402
+from contracts import ApprovalState, SourcePacket  # noqa: E402
 
 
 def _source_packet() -> SourcePacket:
@@ -238,3 +241,59 @@ def test_scheduled_job_uses_naia_draft_and_deepseek_review_without_openrouter(mo
     monkeypatch.setattr(collector, "collect", lambda **_kwargs: [])
     assert scheduled_job.main() == 0
     assert created == ["draft", "review"]
+
+
+def test_scheduled_job_isolates_one_provider_failure_and_completes_remaining_items(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = RuntimeConfig(
+        enabled=True,
+        dry_run=False,
+        require_kb_compile=False,
+        provider_approval="passed",
+        provider_evidence_sha256="a" * 64,
+        draft_provider="anyllm",
+        review_provider="anyllm",
+        anyllm_endpoint="https://api.nextain.io/v1",
+    )
+    packets = [_source_packet(), SourcePacket.from_dict({
+        **_source_packet().provider_payload(),
+        "source_url": "https://example.gov/item-2",
+        "title": "Policy 2",
+        "source_text": "Second official source text",
+        "source_id": "item-2",
+        "content_sha256": "",
+    })]
+
+    class Store:
+        def claim_source(self, _digest: str):
+            return nullcontext()
+
+    class Orchestrator:
+        calls = 0
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def run(self, _packet):
+            self.calls += 1
+            if self.calls == 1:
+                raise PermanentProviderError("malformed provider response")
+            return SimpleNamespace(run_id="run-2", state=ApprovalState.REVIEW_BLOCKED)
+
+    monkeypatch.setattr(scheduled_job.RuntimeConfig, "from_env", classmethod(lambda cls: config))
+    monkeypatch.setenv("AZURE_STORAGE_BLOB_URL", "https://staipolprod01.blob.core.windows.net")
+    monkeypatch.setattr(adapters, "AnyLlmDraftAdapter", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(adapters, "AnyLlmReviewAdapter", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(azure_blob_store, "AzureBlobRunStore", lambda *_args, **_kwargs: Store())
+    monkeypatch.setattr(collector, "collect", lambda **_kwargs: packets)
+    monkeypatch.setattr(orchestrator, "PolicyNewsOrchestrator", Orchestrator)
+
+    assert scheduled_job.main() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "completed_with_errors"
+    assert result["completed"] == 1
+    assert result["failed"] == 1
+    assert result["runs"][0]["state"] == "provider_failed"
+    assert "malformed provider response" not in json.dumps(result)

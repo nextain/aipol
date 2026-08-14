@@ -14,6 +14,7 @@
 - AnyLLM 주소는 `https://api.nextain.io/v1`로 고정합니다.
 - 모델은 `upstage:solar-pro4`, `azure:deepseek-v4-pro`, `azure:gpt-5.6-luna`, `azure:deepseek-v4-flash`로 고정합니다.
 - 적대검토 JSON이 중간에 잘리지 않도록 완료 한도를 2,048 토큰으로 고정하고 배포 지문에 포함합니다.
+- 한 자료의 공급자 응답이 잘못돼도 다른 자료는 계속 처리하며, 모두 실패한 경우에만 작업 전체를 실패로 종료합니다.
 - Blob 사용자 정의 역할은 읽기·쓰기만 허용하고 삭제 권한은 포함하지 않습니다.
 - 이미지 태그는 거부하며 검증한 ACR digest만 배포합니다.
 
