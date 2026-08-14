@@ -13,6 +13,7 @@
 - Upstage 직접 키는 연결하지 않고 Solar도 Naia 게이트웨이를 통해 호출합니다.
 - AnyLLM 주소는 `https://api.nextain.io/v1`로 고정합니다.
 - 모델은 `upstage:solar-pro4`, `azure:deepseek-v4-pro`, `azure:gpt-5.6-luna`, `azure:deepseek-v4-flash`로 고정합니다.
+- 적대검토 JSON이 중간에 잘리지 않도록 완료 한도를 2,048 토큰으로 고정하고 배포 지문에 포함합니다.
 - Blob 사용자 정의 역할은 읽기·쓰기만 허용하고 삭제 권한은 포함하지 않습니다.
 - 이미지 태그는 거부하며 검증한 ACR digest만 배포합니다.
 

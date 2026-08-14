@@ -69,8 +69,10 @@ def test_prod_job_is_digest_pinned_manual_first_and_fail_closed() -> None:
     assert "parallelism: 1" in bicep
     assert "replicaCompletionCount: 1" in bicep
     assert "param maxEstimatedCostUsd string = '2.00'" in bicep
+    assert "param maxCompletionTokens int = 2048" in bicep
     assert "{ name: 'POLICY_NEWS_MAX_COST_USD', value: maxEstimatedCostUsd }" in bicep
-    assert "|${maxItemsPerRun}|${maxEstimatedCostUsd}|${cronExpression}" in bicep
+    assert "{ name: 'AZURE_AI_FOUNDRY_MAX_COMPLETION_TOKENS', value: string(maxCompletionTokens) }" in bicep
+    assert "|${maxItemsPerRun}|${maxEstimatedCostUsd}|${maxCompletionTokens}|${cronExpression}" in bicep
     assert "command: ['python']" in bicep
     assert "args: ['scheduled_job.py']" in bicep
     assert "OPENROUTER_API_KEY" not in bicep

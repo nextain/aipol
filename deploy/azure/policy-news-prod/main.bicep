@@ -54,6 +54,10 @@ param maxItemsPerRun int = 3
 @description('Conservative per-execution reservation ceiling for three draft and review pairs.')
 param maxEstimatedCostUsd string = '2.00'
 
+@allowed([2048])
+@description('Fixed completion ceiling large enough for the strict adversarial-review JSON envelope.')
+param maxCompletionTokens int = 2048
+
 @minValue(60)
 @maxValue(1800)
 param replicaTimeoutSeconds int = 600
@@ -93,7 +97,7 @@ var anyllmSecretPrefix = '${vaultSecretPrefix}policy-news-anyllm-key/'
 var anyllmVersion = startsWith(anyllmSecretUri, anyllmSecretPrefix) ? substring(anyllmSecretUri, length(anyllmSecretPrefix)) : ''
 var anyllmVersionRemainder = replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(anyllmVersion, '0', ''), '1', ''), '2', ''), '3', ''), '4', ''), '5', ''), '6', ''), '7', ''), '8', ''), '9', ''), 'a', ''), 'b', ''), 'c', ''), 'd', ''), 'e', ''), 'f', '')
 var secretsValid = length(anyllmVersion) == 32 && anyllmVersion == toLower(anyllmVersion) && empty(anyllmVersionRemainder)
-var runtimeConfigurationFingerprint = base64('${imageDigest}|${qualityDigest}|${anyllmVersion}|${anyllmEndpoint}|${anyllmAnalysisModel}|${anyllmVerificationModel}|${anyllmTranslationModel}|${anyllmReviewModel}|${maxItemsPerRun}|${maxEstimatedCostUsd}|${cronExpression}|${replicaTimeoutSeconds}|${replicaRetryLimit}')
+var runtimeConfigurationFingerprint = base64('${imageDigest}|${qualityDigest}|${anyllmVersion}|${anyllmEndpoint}|${anyllmAnalysisModel}|${anyllmVerificationModel}|${anyllmTranslationModel}|${anyllmReviewModel}|${maxItemsPerRun}|${maxEstimatedCostUsd}|${maxCompletionTokens}|${cronExpression}|${replicaTimeoutSeconds}|${replicaRetryLimit}')
 var manualReceiptValid = manualRunVerified && manualRunImageDigest == imageDigest && startsWith(manualRunExecutionName, '${jobName}-') && manualRunConfigurationFingerprint == runtimeConfigurationFingerprint && length(manualDigest) == 64 && manualDigest == toLower(manualDigest) && empty(manualDigestRemainder)
 var runtimeEnabled = !policyNewsEnabled ? false : qualityApproved && secretsValid ? true : fail('policyNewsEnabled requires passed private quality evidence and exact versioned AIPOL secrets')
 var scheduleEnabled = !enableSchedule ? false : runtimeEnabled && manualReceiptValid ? true : fail('enableSchedule requires a successful manual execution receipt for this exact image digest')
@@ -166,6 +170,7 @@ var baseEnv = [
   { name: 'POLICY_NEWS_ESTIMATED_REVIEW_COST_USD', value: '0.05' }
   { name: 'POLICY_NEWS_MAX_ATTEMPTS', value: '2' }
   { name: 'POLICY_NEWS_TIMEOUT_SECONDS', value: '240' }
+  { name: 'AZURE_AI_FOUNDRY_MAX_COMPLETION_TOKENS', value: string(maxCompletionTokens) }
   { name: 'POLICY_NEWS_DRAFT_PROVIDER', value: 'anyllm' }
   { name: 'POLICY_NEWS_REVIEW_PROVIDER', value: 'anyllm' }
   { name: 'POLICY_NEWS_PROVIDER_APPROVAL', value: providerQualityStatus }

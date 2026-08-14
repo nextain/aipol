@@ -13,6 +13,7 @@
     "anyllmTranslationModel": { "value": "azure:gpt-5.6-luna" },
     "anyllmReviewModel": { "value": "azure:deepseek-v4-flash" },
     "maxEstimatedCostUsd": { "value": "2.00" },
+    "maxCompletionTokens": { "value": 2048 },
     "anyllmSecretUri": { "value": "https://kv-aipol-prod-01.vault.azure.net/secrets/policy-news-anyllm-key/REPLACE_VERSION" },
     "manualRunVerified": { "value": false },
     "manualRunImageDigest": { "value": "" },
