@@ -1,6 +1,6 @@
 # 해외 정책 동향 일일 작업 운영
 
-이 디렉터리는 `rg_aipol`의 Azure Container Apps Job을 정의합니다. 작업은 매일 오전 6시(한국시간)에 최대 3개의 해외 공식기관 자료를 수집하고, AIPOL 전용 Naia 계정에서 Solar Pro 4 분석 → DeepSeek V4 Pro 검증 → GPT-5.6 Luna 번역 → DeepSeek V4 Flash 적대검토를 수행합니다.
+이 디렉터리는 `rg_aipol`의 Azure Container Apps Job을 정의합니다. 작업은 매일 오전 6시(한국시간)에 최대 3개의 해외 공식기관 자료를 수집하고, AIPOL 전용 Naia 계정에서 Solar Pro 4 분석 → DeepSeek V4 Pro 검증·근거 기반 교정 → GPT-5.6 Luna 번역 → DeepSeek V4 Flash 적대검토를 수행합니다.
 
 결과는 비공개 Blob 컨테이너에만 저장합니다. 공개 사이트 게시, Git 커밋, 병합, 사람 승인 처리는 수행하지 않습니다. 검토 결과가 `PASS`여도 자동 공개하지 않습니다.
 

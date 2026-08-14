@@ -801,7 +801,19 @@ def test_anyllm_draft_runs_the_three_approved_stages_and_records_provenance(
             "relevance": "Relevant to public-sector AI policy.",
             "caveat": "The announcement does not report outcomes.",
         },
-        {"verdict": "PASS", "issues": [], "summary": "All claims are supported."},
+        {
+            "verdict": "PASS",
+            "issues": [],
+            "summary": "All claims are supported.",
+            "corrected_analysis": {
+                "title": "Official policy title",
+                "summary": "The agency announced a policy measure.",
+                "policy_use": "Compare implementation choices.",
+                "human_review": "Verify the cited source.",
+                "relevance": "Relevant to public-sector AI policy.",
+                "caveat": "The announcement does not report outcomes.",
+            },
+        },
         {
             "title_ko": "공식 정책 제목",
             "summary_ko": "기관이 정책 조치를 발표했다.",
@@ -849,7 +861,7 @@ def test_anyllm_draft_runs_the_three_approved_stages_and_records_provenance(
     assert "secret-value" not in json.dumps(draft.pipeline)
 
 
-def test_anyllm_draft_stops_before_translation_when_verification_blocks(
+def test_anyllm_draft_translates_only_the_corrected_analysis_when_verification_blocks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     responses = [
@@ -871,6 +883,22 @@ def test_anyllm_draft_stops_before_translation_when_verification_blocks(
                 }
             ],
             "summary": "Unsupported claim detected.",
+            "corrected_analysis": {
+                "title": "Official title",
+                "summary": "The agency announced a measure.",
+                "policy_use": "Compare implementation choices.",
+                "human_review": "Review the official source.",
+                "relevance": "Relevant to policy implementation.",
+                "caveat": "The source reports no outcome.",
+            },
+        },
+        {
+            "title_ko": "공식 제목",
+            "summary_ko": "기관이 조치를 발표했다.",
+            "policy_use": "이행 선택지를 비교한다.",
+            "human_review": "공식 원문을 확인한다.",
+            "relevance": "정책 이행과 관련된다.",
+            "caveat": "원문은 성과를 보고하지 않는다.",
         },
     ]
     calls: list[str] = []
@@ -887,10 +915,10 @@ def test_anyllm_draft_stops_before_translation_when_verification_blocks(
         anyllm_endpoint="https://api.nextain.io/v1",
     )
 
-    with pytest.raises(adapters.PermanentProviderError, match="blocked the source analysis"):
-        adapters.AnyLlmDraftAdapter(config, api_key="secret-value").draft(SourcePacket.from_dict(packet()))
+    draft = adapters.AnyLlmDraftAdapter(config, api_key="secret-value").draft(SourcePacket.from_dict(packet()))
 
-    assert calls == ["upstage:solar-pro4", "azure:deepseek-v4-pro"]
+    assert calls == ["upstage:solar-pro4", "azure:deepseek-v4-pro", "azure:gpt-5.6-luna"]
+    assert draft.pipeline[1]["output"]["verdict"] == "BLOCK"
 
 
 @pytest.mark.parametrize("endpoint", [

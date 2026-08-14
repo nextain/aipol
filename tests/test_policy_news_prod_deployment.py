@@ -137,7 +137,15 @@ def test_anyllm_draft_uses_virtual_key_and_strict_contract(monkeypatch: pytest.M
             result = {"title": "Title", "summary": "Summary", "policy_use": "Use", "human_review": "Review", "relevance": "Relevant", "caveat": "Caveat"}
             response_id = "analysis-1"
         elif payload["model"] == "azure:deepseek-v4-pro":
-            result = {"verdict": "PASS", "issues": [], "summary": "Verified"}
+            result = {
+                "verdict": "PASS",
+                "issues": [],
+                "summary": "Verified",
+                "corrected_analysis": {
+                    "title": "Title", "summary": "Summary", "policy_use": "Use",
+                    "human_review": "Review", "relevance": "Relevant", "caveat": "Caveat",
+                },
+            }
             response_id = "verification-1"
         else:
             result = {"title_ko": "제목", "summary_ko": "요약", "policy_use": "활용", "human_review": "검토", "relevance": "관련", "caveat": "한계"}
