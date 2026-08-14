@@ -267,6 +267,20 @@ def test_sitemap_uses_current_origin_and_excludes_private_routes() -> None:
         assert f"{CANONICAL_ORIGIN}{_route_for(path)}" not in locations, path
 
 
+def test_global_admin_is_excluded_from_all_public_discovery_files() -> None:
+    robots = (SITE / "robots.txt").read_text(encoding="utf-8")
+    sitemap = (SITE / "sitemap.xml").read_text(encoding="utf-8")
+    llms = (SITE / "llms.txt").read_text(encoding="utf-8")
+
+    assert "Disallow: /global/admin/" in robots
+    assert "Disallow: /api/global-admin/" in robots
+    assert "/global/admin/" not in sitemap
+    assert "/api/global-admin/" not in sitemap
+    assert "https://aipol.kaps.or.kr/global/admin/" not in llms
+    assert "https://aipol.kaps.or.kr/api/global-admin/" not in llms
+    assert "Human approval does not itself publish an item" in llms
+
+
 def test_korean_descriptions_and_titles_do_not_duplicate_brand_suffix() -> None:
     for path in _pages():
         parsed = _parse(path)
