@@ -1,0 +1,14 @@
+{
+  "id": "2026-07-24-uk-pm-ai-taskforce",
+  "published": "2026-07-24",
+  "source_name": "영국 내각부 GOV.UK",
+  "source_url": "https://www.gov.uk/government/news/ai-to-power-change-at-the-heart-of-government-as-lord-vallance-appointed-chair-of-new-pm-ai-taskforce",
+  "country": "영국",
+  "title_ko": "영국, 총리실 중심 AI 태스크포스 출범…공공서비스 혁신과 정부 AI 전략 총괄",
+  "summary_ko": "영국 정부는 로스 밸런스 경을 의장으로 하는 총리 AI 태스크포스를 출범시켰다. 태스크포스는 총리·내각실 안에서 정부 AI 전략의 방향과 이행을 맡고, 공공서비스 혁신과 공공부문 전반의 AI 도입을 지원한다. AI 담당 장관이 조직을 이끌며 의장은 총리에게 직접 보고한다.",
+  "policy_use": "AI 정책을 개별 부처 사업이 아니라 총리·내각 차원의 조정 체계로 운영하는 사례다. 정책 책임자, 보고 체계, 실행 조직과 공공부문 도입 기능을 한 구조 안에 배치하는 거버넌스 설계에 참고할 수 있다.",
+  "human_review": "GOV.UK 원문에서 발표일, 인명과 직책, 보고 체계, 태스크포스의 임무와 AI 보안연구소 소관 이전을 확인했다. AI가 정책 결정을 대신한다는 내용은 없으며 정부 전략과 공공서비스 혁신을 추진하는 조직에 관한 발표다.",
+  "relevance": "한국의 범정부 AI 정책을 설계할 때 전략 수립, 부처 간 조정, 공공서비스 적용과 안전 책임을 어느 기관에 두고 어떻게 최고 의사결정권자에게 보고할지 비교할 수 있는 사례다.",
+  "caveat": "보도자료 단계의 발표이므로 법적 권한, 예산, 세부 일정과 성과지표는 제시되지 않았다. 실제 운영 성과는 후속 공식 문서와 집행 결과를 통해 확인해야 한다.",
+  "review_status": "Solar Pro 4 분석 · DeepSeek V4 Pro 검증·교정 · GPT-5.6 Luna 번역 · DeepSeek V4 Flash 적대검토 PASS · 사람 공개 승인"
+}

@@ -31,6 +31,10 @@ def test_global_page_builder_keeps_aipol_brand_and_metadata() -> None:
     assert "AIPOL 시사점" in html
     assert "POLICY LAB Open Source" not in html
     assert "policylab.nextain.io" not in html
+    assert "자동 수집·AI 검토와 공개 승인을 분리합니다." in html
+    assert "Solar Pro 4 분석" in html
+    assert "현재 공개 자료는 1건입니다." in html
+    assert "정기발행: 미가동" not in html
 
 
 def test_global_rss_builder_keeps_current_origin_and_brand() -> None:
