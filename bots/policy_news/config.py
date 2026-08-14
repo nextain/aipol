@@ -109,14 +109,16 @@ def _float(name: str, default: float, minimum: float, maximum: float) -> float:
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    revision: str = "aipol-policy-news-v1"
+    revision: str = "aipol-policy-news-v2"
     enabled: bool = False
     dry_run: bool = True
     max_items_per_run: int = 3
-    max_provider_calls_per_run: int = 9
-    max_estimated_cost_usd_per_run: float = 1.00
-    estimated_draft_cost_usd: float = 0.30
-    estimated_review_cost_usd: float = 0.30
+    max_provider_calls_per_run: int = 12
+    max_estimated_cost_usd_per_run: float = 2.00
+    estimated_analysis_cost_usd: float = 0.10
+    estimated_verification_cost_usd: float = 0.10
+    estimated_translation_cost_usd: float = 0.10
+    estimated_review_cost_usd: float = 0.05
     estimated_kb_cost_usd: float = 0.05
     max_attempts: int = 3
     retry_base_seconds: float = 0.25
@@ -133,8 +135,10 @@ class RuntimeConfig:
     review_provider: str = "nemotron"
     draft_provider: str = "solar"
     anyllm_endpoint: str = ""
-    anyllm_model: str = "gpt-5.6-sol"
-    anyllm_review_model: str = "xai:grok-4.3"
+    anyllm_analysis_model: str = "upstage:solar-pro4"
+    anyllm_verification_model: str = "azure:deepseek-v4-pro"
+    anyllm_model: str = "azure:gpt-5.6-luna"
+    anyllm_review_model: str = "azure:deepseek-v4-flash"
     anyllm_api_key_env: str = "ANYLLM_API_KEY"
     provider_approval: str = ""
     provider_evidence_sha256: str = ""
@@ -155,17 +159,24 @@ class RuntimeConfig:
     kb_compiler_max_response_bytes: int = 1_000_000
     kb_compiler_contract_max_bytes: int = 65_536
 
+    @property
+    def estimated_draft_cost_usd(self) -> float:
+        """Compatibility estimate for legacy single-stage draft adapters."""
+        return self.estimated_analysis_cost_usd
+
     @classmethod
     def from_env(cls) -> "RuntimeConfig":
         config = cls(
-            revision=os.getenv("POLICY_NEWS_CONFIG_REVISION", "aipol-policy-news-v1").strip(),
+            revision=os.getenv("POLICY_NEWS_CONFIG_REVISION", "aipol-policy-news-v2").strip(),
             enabled=_bool("POLICY_NEWS_ENABLED", False),
             dry_run=_bool("POLICY_NEWS_DRY_RUN", True),
             max_items_per_run=_int("POLICY_NEWS_MAX_ITEMS", 3, 1, 20),
-            max_provider_calls_per_run=_int("POLICY_NEWS_MAX_CALLS", 9, 1, 100),
-            max_estimated_cost_usd_per_run=_float("POLICY_NEWS_MAX_COST_USD", 1.00, 0, 100),
-            estimated_draft_cost_usd=_float("POLICY_NEWS_ESTIMATED_DRAFT_COST_USD", 0.30, 0, 100),
-            estimated_review_cost_usd=_float("POLICY_NEWS_ESTIMATED_REVIEW_COST_USD", 0.30, 0, 100),
+            max_provider_calls_per_run=_int("POLICY_NEWS_MAX_CALLS", 12, 1, 100),
+            max_estimated_cost_usd_per_run=_float("POLICY_NEWS_MAX_COST_USD", 2.00, 0, 100),
+            estimated_analysis_cost_usd=_float("POLICY_NEWS_ESTIMATED_ANALYSIS_COST_USD", 0.10, 0, 100),
+            estimated_verification_cost_usd=_float("POLICY_NEWS_ESTIMATED_VERIFICATION_COST_USD", 0.10, 0, 100),
+            estimated_translation_cost_usd=_float("POLICY_NEWS_ESTIMATED_TRANSLATION_COST_USD", 0.10, 0, 100),
+            estimated_review_cost_usd=_float("POLICY_NEWS_ESTIMATED_REVIEW_COST_USD", 0.05, 0, 100),
             estimated_kb_cost_usd=_float("POLICY_NEWS_ESTIMATED_KB_COST_USD", 0.05, 0, 100),
             max_attempts=_int("POLICY_NEWS_MAX_ATTEMPTS", 3, 1, 5),
             retry_base_seconds=_float("POLICY_NEWS_RETRY_BASE_SECONDS", 0.25, 0, 30),
@@ -182,8 +193,10 @@ class RuntimeConfig:
             review_provider=os.getenv("POLICY_NEWS_REVIEW_PROVIDER", "nemotron").strip().lower(),
             draft_provider=os.getenv("POLICY_NEWS_DRAFT_PROVIDER", "solar").strip().lower(),
             anyllm_endpoint=os.getenv("ANYLLM_ENDPOINT", "").strip().rstrip("/"),
-            anyllm_model=os.getenv("ANYLLM_MODEL", "gpt-5.6-sol").strip(),
-            anyllm_review_model=os.getenv("ANYLLM_REVIEW_MODEL", "xai:grok-4.3").strip(),
+            anyllm_analysis_model=os.getenv("ANYLLM_ANALYSIS_MODEL", "upstage:solar-pro4").strip(),
+            anyllm_verification_model=os.getenv("ANYLLM_VERIFICATION_MODEL", "azure:deepseek-v4-pro").strip(),
+            anyllm_model=os.getenv("ANYLLM_MODEL", "azure:gpt-5.6-luna").strip(),
+            anyllm_review_model=os.getenv("ANYLLM_REVIEW_MODEL", "azure:deepseek-v4-flash").strip(),
             anyllm_api_key_env=os.getenv("ANYLLM_API_KEY_ENV", "ANYLLM_API_KEY").strip(),
             provider_approval=os.getenv("POLICY_NEWS_PROVIDER_APPROVAL", "").strip().lower(),
             provider_evidence_sha256=os.getenv("POLICY_NEWS_PROVIDER_EVIDENCE_SHA256", "").strip().lower(),
@@ -233,17 +246,23 @@ class RuntimeConfig:
         if self.draft_provider == "anyllm" or self.review_provider == "anyllm":
             validate_anyllm_endpoint(self.anyllm_endpoint)
         if self.draft_provider == "anyllm":
-            if self.anyllm_model not in {"grok-4-3", "grok-4.3", "gpt-5-6-sol", "gpt-5.6-sol"}:
-                raise ValueError("Naia AnyLLM fallback model must use an approved Grok or gpt-5.6-sol route")
+            expected_models = {
+                "analysis": (self.anyllm_analysis_model, "upstage:solar-pro4"),
+                "verification": (self.anyllm_verification_model, "azure:deepseek-v4-pro"),
+                "translation": (self.anyllm_model, "azure:gpt-5.6-luna"),
+            }
+            invalid = [stage for stage, (actual, expected) in expected_models.items() if actual != expected]
+            if invalid:
+                raise ValueError(f"Naia AnyLLM draft pipeline has unapproved model routes: {', '.join(invalid)}")
             if not self.anyllm_api_key_env:
                 raise ValueError("ANYLLM_API_KEY_ENV is required for the AnyLLM fallback")
         if self.review_provider == "anyllm":
-            if self.anyllm_review_model not in {"xai:grok-4.3"}:
-                raise ValueError("Naia AnyLLM independent review must use an approved Grok route")
+            if self.anyllm_review_model != "azure:deepseek-v4-flash":
+                raise ValueError("Naia AnyLLM independent review must use azure:deepseek-v4-flash")
             if not self.anyllm_api_key_env:
                 raise ValueError("ANYLLM_API_KEY_ENV is required for AnyLLM review")
-            if self.draft_provider == "anyllm" and self.anyllm_model not in {"gpt-5-6-sol", "gpt-5.6-sol"}:
-                raise ValueError("AnyLLM independent flow requires gpt-5.6-sol for draft and Grok for review")
+            if self.draft_provider == "anyllm" and self.anyllm_model != "azure:gpt-5.6-luna":
+                raise ValueError("AnyLLM independent flow requires azure:gpt-5.6-luna for translation")
         if self.kb_compiler_mode not in {"disabled", "http", "command", "mock"}:
             raise ValueError("KB compiler mode must be disabled, http, command, or mock")
         if self.kb_compiler_mode == "http" and not self.kb_compiler_endpoint:

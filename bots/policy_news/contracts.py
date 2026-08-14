@@ -159,13 +159,29 @@ class EditorialDraft:
     model: str
     generated_at: str
     response_id: str = ""
+    pipeline: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any], *, provider: str, model: str, generated_at: str) -> "EditorialDraft":
+    def from_dict(
+        cls,
+        value: dict[str, Any],
+        *,
+        provider: str,
+        model: str,
+        generated_at: str,
+        pipeline: list[dict[str, Any]] | None = None,
+    ) -> "EditorialDraft":
         limits = {"title_ko": 160, "summary_ko": 900, "policy_use": 600, "human_review": 600, "relevance": 600, "caveat": 600}
         fields = {name: _require_nonempty(name, str(value.get(name, "")), limits[name]) for name in EDITORIAL_FIELDS}
         datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
-        return cls(**fields, provider=provider, model=model, generated_at=generated_at, response_id=str(value.get("response_id") or ""))
+        return cls(
+            **fields,
+            provider=provider,
+            model=model,
+            generated_at=generated_at,
+            response_id=str(value.get("response_id") or ""),
+            pipeline=list(pipeline or value.get("pipeline") or []),
+        )
 
     def editorial_fields(self) -> dict[str, str]:
         value = asdict(self)

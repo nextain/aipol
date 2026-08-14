@@ -788,6 +788,111 @@ def test_foundry_adapter_uses_openai_v1_deployment_and_keeps_key_out_of_payload(
     assert draft.response_id == "response-123"
 
 
+def test_anyllm_draft_runs_the_three_approved_stages_and_records_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    responses = [
+        {
+            "title": "Official policy title",
+            "summary": "The agency announced a policy measure.",
+            "policy_use": "Compare implementation choices.",
+            "human_review": "Verify the cited source.",
+            "relevance": "Relevant to public-sector AI policy.",
+            "caveat": "The announcement does not report outcomes.",
+        },
+        {"verdict": "PASS", "issues": [], "summary": "All claims are supported."},
+        {
+            "title_ko": "공식 정책 제목",
+            "summary_ko": "기관이 정책 조치를 발표했다.",
+            "policy_use": "이행 선택지를 비교할 수 있다.",
+            "human_review": "인용한 원문을 확인해야 한다.",
+            "relevance": "공공부문 AI 정책과 관련된다.",
+            "caveat": "발표문에는 성과가 제시되지 않았다.",
+        },
+    ]
+
+    def fake_post(url: str, payload: dict, headers: dict, timeout: int):
+        calls.append({"url": url, "payload": payload, "headers": headers, "timeout": timeout})
+        content = responses[len(calls) - 1]
+        return {
+            "id": f"response-{len(calls)}",
+            "choices": [{"message": {"content": json.dumps(content)}}],
+        }, f"request-{len(calls)}"
+
+    monkeypatch.setattr(adapters, "_post_json", fake_post)
+    config = enabled_config(
+        dry_run=False,
+        draft_provider="anyllm",
+        review_provider="anyllm",
+        anyllm_endpoint="https://api.nextain.io/v1",
+        require_kb_compile=False,
+        provider_approval="passed",
+        provider_evidence_sha256="a" * 64,
+    )
+    budget = Budget(config)
+    draft = adapters.AnyLlmDraftAdapter(config, api_key="secret-value", budget=budget).draft(
+        SourcePacket.from_dict(packet())
+    )
+
+    assert [call["payload"]["model"] for call in calls] == [  # type: ignore[index]
+        "upstage:solar-pro4",
+        "azure:deepseek-v4-pro",
+        "azure:gpt-5.6-luna",
+    ]
+    assert all(call["url"] == "https://api.nextain.io/v1/chat/completions" for call in calls)
+    assert all(call["headers"] == {"Authorization": "Bearer secret-value"} for call in calls)
+    assert [stage["stage"] for stage in draft.pipeline] == ["analysis", "verification", "translation"]
+    assert draft.pipeline[1]["output"]["verdict"] == "PASS"
+    assert "output" not in draft.pipeline[2]
+    assert budget.calls == 3
+    assert "secret-value" not in json.dumps(draft.pipeline)
+
+
+def test_anyllm_draft_stops_before_translation_when_verification_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        {
+            "title": "Unsupported title",
+            "summary": "An unsupported outcome claim.",
+            "policy_use": "Compare outcomes.",
+            "human_review": "Review source.",
+            "relevance": "Policy relevance.",
+            "caveat": "No caveat.",
+        },
+        {
+            "verdict": "BLOCK",
+            "issues": [
+                {
+                    "field": "summary",
+                    "severity": "high",
+                    "description": "The source does not support the outcome claim.",
+                }
+            ],
+            "summary": "Unsupported claim detected.",
+        },
+    ]
+    calls: list[str] = []
+
+    def fake_post(url: str, payload: dict, headers: dict, timeout: int):
+        calls.append(payload["model"])
+        content = responses[len(calls) - 1]
+        return {"choices": [{"message": {"content": json.dumps(content)}}]}, f"request-{len(calls)}"
+
+    monkeypatch.setattr(adapters, "_post_json", fake_post)
+    config = enabled_config(
+        draft_provider="anyllm",
+        review_provider="anyllm",
+        anyllm_endpoint="https://api.nextain.io/v1",
+    )
+
+    with pytest.raises(adapters.PermanentProviderError, match="blocked the source analysis"):
+        adapters.AnyLlmDraftAdapter(config, api_key="secret-value").draft(SourcePacket.from_dict(packet()))
+
+    assert calls == ["upstage:solar-pro4", "azure:deepseek-v4-pro"]
+
+
 @pytest.mark.parametrize("endpoint", [
     "https://example.com",
     "http://aipol.services.ai.azure.com",

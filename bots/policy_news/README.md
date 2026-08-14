@@ -9,8 +9,10 @@ Request 승인 뒤에만 가능하다.
 - 일정: 매일 06:00 KST (`0 21 * * *` UTC)
 - 실행 환경: Azure Container Apps Job `aipol-policy-news-daily`
 - 수집 한도: 실행당 공식 출처 최대 3건
-- 초안: Upstage `solar-open2`
-- 독립 검토: AIPOL 전용 AnyLLM 계정의 `xai:grok-4.3`
+- 원문 분석: AIPOL 전용 Naia 계정의 `upstage:solar-pro4`
+- 분석 검증: `azure:deepseek-v4-pro`
+- 한국어 번역: `azure:gpt-5.6-luna`
+- 최종 적대검토: `azure:deepseek-v4-flash`
 - 저장: 비공개 Azure Blob `policy-news-sources`, `policy-news-runs`
 - 공개: 자동 게시 없음
 
@@ -32,8 +34,8 @@ Request 승인 뒤에만 가능하다.
 
 - `collector.py`: 허용된 공식 Atom 피드에서 최대 3건을 수집한다. 리디렉션, 응답 크기, 시간,
   추출 문자의 상한을 둔다.
-- `solar_adapter.py`: 공식 원문 패킷으로 구조화된 한국어 초안을 만든다.
-- `adapters.py`: AnyLLM을 통해 Grok 4.3 독립 원문 대조를 수행한다. 최상위 필드, 필수 대조 항목,
+- `adapters.py`: Naia AnyLLM 한 계정에서 Solar 분석 → DeepSeek Pro 검증 → Luna 번역 → DeepSeek Flash
+  적대검토를 수행한다. 최상위 필드, 필수 대조 항목,
   issue 필드와 심각도, 판정 일관성을 모두 검증한다.
 - `orchestrator.py`: 호출 횟수·비용 예약·재시도·중단 규칙을 적용하고 단계별 레코드를 남긴다.
 - `azure_blob_store.py`: 조건부 쓰기, 실행 간 임대, SHA 주소 원문을 비공개 Blob에 저장한다.
