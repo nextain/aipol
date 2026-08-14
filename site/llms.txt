@@ -22,14 +22,16 @@
 
 ## Editorial and safety notes
 
-- AI는 정책결정을 대신하지 않습니다. AI does not make policy decisions.
+- AI는 정책결정을 대체하지 않습니다. AI does not make policy decisions.
 - 연금개혁은 첫 적용 사례입니다. Pension reform is the first application.
 - 연금 사례는 행정안전부 자료로 연령 구성을 정하고 NVIDIA Nemotron-Personas-Korea의 합성 페르소나 100명을 사용했습니다. 실제 사람이나 대표 표본이 아닙니다.
 - The pension case uses MOIS data for its age allocation and 100 synthetic personas from NVIDIA Nemotron-Personas-Korea. They are not real people or a representative sample.
-- 해외동향은 공식 원문을 기반으로 Solar Open2가 번역·요약하고 Nemotron 3 Ultra가 적대 검토합니다.
-- Global-watch drafts are translated and summarized with Solar Open2 and adversarially checked with Nemotron 3 Ultra against official sources.
-- 공개 연구·프로젝트·법적 안내 페이지는 검색엔진 색인을 허용합니다. 설문·실험 입력 화면과 관리자 화면은 제외합니다.
-- Public research, project, and legal-information pages may be indexed. Survey, experiment-input, and administration interfaces are excluded.
+- 해외동향은 공식 원문을 기준으로 Solar Pro 4가 분석하고 DeepSeek V4 Pro가 사실을 검증합니다. GPT-5.6 Luna가 번역하고 DeepSeek V4 Flash가 적대 검토한 뒤 사람이 승인해야 공개할 수 있습니다.
+- Global-watch items use Solar Pro 4 for analysis, DeepSeek V4 Pro for verification, GPT-5.6 Luna for translation, and DeepSeek V4 Flash for adversarial review. Human approval is required before publication.
+- 공개 연구·프로젝트·법적 안내 페이지만 검색엔진과 LLM이 색인할 수 있습니다. 설문·실험 입력·관리자 화면과 API는 제외합니다.
+- Public research, project, and legal-information pages may be indexed. Survey, experiment-input, administration interfaces, and administration APIs are excluded.
+- 사람의 승인은 게시가 아닙니다. 승인된 항목도 공개 Git 반영, 배포, 실제 URL 검증을 거쳐야 공개됩니다.
+- Human approval does not itself publish an item; public Git review, deployment, and live-URL verification remain separate gates.
 
 ## Organisations
 

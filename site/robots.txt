@@ -4,5 +4,7 @@ Disallow: /cases/pension/experiment/
 Allow: /cases/pension/experiment/terms/
 Allow: /cases/pension/experiment/privacy/
 Disallow: /admin/
+Disallow: /global/admin/
+Disallow: /api/global-admin/
 
 Sitemap: https://aipol.kaps.or.kr/sitemap.xml
