@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,10 +16,11 @@ sys.path.insert(0, str(BOT))
 import adapters  # noqa: E402
 import azure_blob_store  # noqa: E402
 import collector  # noqa: E402
+import orchestrator  # noqa: E402
 import scheduled_job  # noqa: E402
 from adapters import AnyLlmDraftAdapter, AnyLlmReviewAdapter, PermanentProviderError  # noqa: E402
 from config import RuntimeConfig, validate_anyllm_endpoint  # noqa: E402
-from contracts import SourcePacket  # noqa: E402
+from contracts import ApprovalState, SourcePacket  # noqa: E402
 
 
 def _source_packet() -> SourcePacket:
@@ -69,8 +72,10 @@ def test_prod_job_is_digest_pinned_manual_first_and_fail_closed() -> None:
     assert "parallelism: 1" in bicep
     assert "replicaCompletionCount: 1" in bicep
     assert "param maxEstimatedCostUsd string = '2.00'" in bicep
+    assert "param maxCompletionTokens int = 2048" in bicep
     assert "{ name: 'POLICY_NEWS_MAX_COST_USD', value: maxEstimatedCostUsd }" in bicep
-    assert "|${maxItemsPerRun}|${maxEstimatedCostUsd}|${cronExpression}" in bicep
+    assert "{ name: 'AZURE_AI_FOUNDRY_MAX_COMPLETION_TOKENS', value: string(maxCompletionTokens) }" in bicep
+    assert "|${maxItemsPerRun}|${maxEstimatedCostUsd}|${maxCompletionTokens}|${cronExpression}" in bicep
     assert "command: ['python']" in bicep
     assert "args: ['scheduled_job.py']" in bicep
     assert "OPENROUTER_API_KEY" not in bicep
@@ -80,16 +85,19 @@ def test_prod_job_is_digest_pinned_manual_first_and_fail_closed() -> None:
     assert "Microsoft.KeyVault/vaults/secrets/providers/roleAssignments@2022-04-01" in bicep
     assert "scope: upstageSecret" not in bicep
     assert "scope: anyllmSecret" not in bicep
-    assert bicep.count("'secret-scope-v2'") == 2
+    assert bicep.count("'secret-scope-v2'") == 1
 
 
-def test_prod_job_fixes_solar_draft_anyllm_grok_review_and_no_delete_role() -> None:
+def test_prod_job_fixes_four_stage_naia_pipeline_and_no_delete_role() -> None:
     bicep = (ROOT / "deploy/azure/policy-news-prod/main.bicep").read_text(encoding="utf-8")
     role = (ROOT / "deploy/azure/policy-news-prod/blob-role.bicep").read_text(encoding="utf-8")
-    assert "{ name: 'POLICY_NEWS_DRAFT_PROVIDER', value: 'solar' }" in bicep
+    assert "{ name: 'POLICY_NEWS_DRAFT_PROVIDER', value: 'anyllm' }" in bicep
     assert "{ name: 'POLICY_NEWS_REVIEW_PROVIDER', value: 'anyllm' }" in bicep
-    assert "param anyllmReviewModel string = 'xai:grok-4.3'" in bicep
-    assert "UPSTAGE_API_KEY" in bicep
+    assert "param anyllmAnalysisModel string = 'upstage:solar-pro4'" in bicep
+    assert "param anyllmVerificationModel string = 'azure:deepseek-v4-pro'" in bicep
+    assert "param anyllmTranslationModel string = 'azure:gpt-5.6-luna'" in bicep
+    assert "param anyllmReviewModel string = 'azure:deepseek-v4-flash'" in bicep
+    assert "UPSTAGE_API_KEY" not in bicep
     assert "ANYLLM_API_KEY" in bicep
     assert "blobs/delete" not in role
     assert "containers/delete" not in role
@@ -126,26 +134,47 @@ def test_anyllm_endpoint_rejects_noncanonical_targets(endpoint: str) -> None:
 
 
 def test_anyllm_draft_uses_virtual_key_and_strict_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
+    captured: dict[str, object] = {"calls": []}
 
     def fake_post(url, payload, headers, timeout, **kwargs):
-        captured.update(url=url, payload=payload, headers=headers, timeout=timeout)
-        result = {"title_ko": "제목", "summary_ko": "요약", "policy_use": "활용", "human_review": "검토", "relevance": "관련", "caveat": "한계"}
-        return {"id": "response-1", "choices": [{"message": {"content": json.dumps(result)}}]}, ""
+        captured["calls"].append({"url": url, "payload": payload, "headers": headers, "timeout": timeout})
+        if payload["model"] == "upstage:solar-pro4":
+            result = {"title": "Title", "summary": "Summary", "policy_use": "Use", "human_review": "Review", "relevance": "Relevant", "caveat": "Caveat"}
+            response_id = "analysis-1"
+        elif payload["model"] == "azure:deepseek-v4-pro":
+            result = {
+                "verdict": "PASS",
+                "issues": [],
+                "summary": "Verified",
+                "corrected_analysis": {
+                    "title": "Title", "summary": "Summary", "policy_use": "Use",
+                    "human_review": "Review", "relevance": "Relevant", "caveat": "Caveat",
+                },
+            }
+            response_id = "verification-1"
+        else:
+            result = {"title_ko": "제목", "summary_ko": "요약", "policy_use": "활용", "human_review": "검토", "relevance": "관련", "caveat": "한계"}
+            response_id = "translation-1"
+        return {"id": response_id, "choices": [{"message": {"content": json.dumps(result)}}]}, ""
 
     monkeypatch.setattr(adapters, "_post_json", fake_post)
-    config = RuntimeConfig(anyllm_endpoint="https://api.nextain.io/v1", anyllm_model="gpt-5.6-sol", draft_provider="anyllm")
+    config = RuntimeConfig(anyllm_endpoint="https://api.nextain.io/v1", draft_provider="anyllm")
     result = AnyLlmDraftAdapter(config, api_key="virtual-key").draft(_source_packet())
     assert result.provider == "naia-anyllm"
-    assert captured["url"] == "https://api.nextain.io/v1/chat/completions"
-    assert captured["headers"] == {"Authorization": "Bearer virtual-key"}
-    schema = captured["payload"]["response_format"]["json_schema"]
+    calls = captured["calls"]
+    assert [call["payload"]["model"] for call in calls] == [
+        "upstage:solar-pro4", "azure:deepseek-v4-pro", "azure:gpt-5.6-luna"
+    ]
+    assert all(call["url"] == "https://api.nextain.io/v1/chat/completions" for call in calls)
+    assert all(call["headers"] == {"Authorization": "Bearer virtual-key"} for call in calls)
+    assert [stage["stage"] for stage in result.pipeline] == ["analysis", "verification", "translation"]
+    schema = calls[2]["payload"]["response_format"]["json_schema"]
     assert schema["strict"] is True
     assert schema["schema"]["additionalProperties"] is False
 
 
 def test_anyllm_draft_fails_closed_without_key() -> None:
-    config = RuntimeConfig(anyllm_endpoint="https://api.nextain.io/v1", anyllm_model="gpt-5.6-sol", draft_provider="anyllm")
+    config = RuntimeConfig(anyllm_endpoint="https://api.nextain.io/v1", draft_provider="anyllm")
     with pytest.raises(PermanentProviderError, match="virtual key"):
         AnyLlmDraftAdapter(config, api_key="").draft(_source_packet())
 
@@ -159,11 +188,11 @@ def test_anyllm_review_accepts_exact_coverage_map(monkeypatch: pytest.MonkeyPatc
         return {"id": "review-1", "choices": [{"message": {"content": json.dumps(result, ensure_ascii=False)}}]}, ""
 
     monkeypatch.setattr(adapters, "_post_json", fake_post)
-    config = RuntimeConfig(review_provider="anyllm", anyllm_endpoint="https://api.nextain.io/v1", anyllm_review_model="xai:grok-4.3")
+    config = RuntimeConfig(review_provider="anyllm", anyllm_endpoint="https://api.nextain.io/v1", anyllm_review_model="azure:deepseek-v4-flash")
     review = AnyLlmReviewAdapter(config, api_key="dedicated-key").review(_source_packet(), _editorial_draft())
     assert review.verdict == "PASS"
     assert set(review.coverage) == set(_coverage())
-    assert review.model == "xai:grok-4.3"
+    assert review.model == "azure:deepseek-v4-flash"
     assert captured["headers"] == {"Authorization": "Bearer dedicated-key"}
     assert "response_format" not in captured["payload"]
     system_prompt = captured["payload"]["messages"][0]["content"]
@@ -184,12 +213,12 @@ def test_anyllm_review_accepts_exact_coverage_map(monkeypatch: pytest.MonkeyPatc
 )
 def test_anyllm_review_fails_closed(monkeypatch: pytest.MonkeyPatch, result, error) -> None:
     monkeypatch.setattr(adapters, "_post_json", lambda *args, **kwargs: ({"choices": [{"message": {"content": json.dumps(result)}}]}, ""))
-    config = RuntimeConfig(review_provider="anyllm", anyllm_endpoint="https://api.nextain.io/v1", anyllm_review_model="xai:grok-4.3")
+    config = RuntimeConfig(review_provider="anyllm", anyllm_endpoint="https://api.nextain.io/v1", anyllm_review_model="azure:deepseek-v4-flash")
     with pytest.raises(PermanentProviderError, match=error):
         AnyLlmReviewAdapter(config, api_key="key").review(_source_packet(), _editorial_draft())
 
 
-def test_scheduled_job_uses_solar_and_anyllm_without_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scheduled_job_uses_naia_draft_and_deepseek_review_without_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
     created: list[str] = []
     config = RuntimeConfig(
         enabled=True,
@@ -197,17 +226,74 @@ def test_scheduled_job_uses_solar_and_anyllm_without_openrouter(monkeypatch: pyt
         require_kb_compile=False,
         provider_approval="passed",
         provider_evidence_sha256="a" * 64,
-        draft_provider="solar",
+        draft_provider="anyllm",
         review_provider="anyllm",
         anyllm_endpoint="https://api.nextain.io/v1",
-        anyllm_review_model="xai:grok-4.3",
+        anyllm_model="azure:gpt-5.6-luna",
+        anyllm_review_model="azure:deepseek-v4-flash",
     )
     monkeypatch.setattr(scheduled_job.RuntimeConfig, "from_env", classmethod(lambda cls: config))
     monkeypatch.setenv("AZURE_STORAGE_BLOB_URL", "https://staipolprod01.blob.core.windows.net")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setattr(adapters, "SolarDraftAdapter", lambda *_args, **_kwargs: created.append("draft") or object())
+    monkeypatch.setattr(adapters, "AnyLlmDraftAdapter", lambda *_args, **_kwargs: created.append("draft") or object())
     monkeypatch.setattr(adapters, "AnyLlmReviewAdapter", lambda *_args, **_kwargs: created.append("review") or object())
     monkeypatch.setattr(azure_blob_store, "AzureBlobRunStore", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(collector, "collect", lambda **_kwargs: [])
     assert scheduled_job.main() == 0
     assert created == ["draft", "review"]
+
+
+def test_scheduled_job_isolates_one_provider_failure_and_completes_remaining_items(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = RuntimeConfig(
+        enabled=True,
+        dry_run=False,
+        require_kb_compile=False,
+        provider_approval="passed",
+        provider_evidence_sha256="a" * 64,
+        draft_provider="anyllm",
+        review_provider="anyllm",
+        anyllm_endpoint="https://api.nextain.io/v1",
+    )
+    packets = [_source_packet(), SourcePacket.from_dict({
+        **_source_packet().provider_payload(),
+        "source_url": "https://example.gov/item-2",
+        "title": "Policy 2",
+        "source_text": "Second official source text",
+        "source_id": "item-2",
+        "content_sha256": "",
+    })]
+
+    class Store:
+        def claim_source(self, _digest: str):
+            return nullcontext()
+
+    class Orchestrator:
+        calls = 0
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def run(self, _packet):
+            self.calls += 1
+            if self.calls == 1:
+                raise PermanentProviderError("malformed provider response")
+            return SimpleNamespace(run_id="run-2", state=ApprovalState.REVIEW_BLOCKED)
+
+    monkeypatch.setattr(scheduled_job.RuntimeConfig, "from_env", classmethod(lambda cls: config))
+    monkeypatch.setenv("AZURE_STORAGE_BLOB_URL", "https://staipolprod01.blob.core.windows.net")
+    monkeypatch.setattr(adapters, "AnyLlmDraftAdapter", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(adapters, "AnyLlmReviewAdapter", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(azure_blob_store, "AzureBlobRunStore", lambda *_args, **_kwargs: Store())
+    monkeypatch.setattr(collector, "collect", lambda **_kwargs: packets)
+    monkeypatch.setattr(orchestrator, "PolicyNewsOrchestrator", Orchestrator)
+
+    assert scheduled_job.main() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "completed_with_errors"
+    assert result["completed"] == 1
+    assert result["failed"] == 1
+    assert result["runs"][0]["state"] == "provider_failed"
+    assert "malformed provider response" not in json.dumps(result)

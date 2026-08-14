@@ -68,7 +68,15 @@ def main() -> int:
     # Keep the disabled path independent of provider, Azure SDK and workspace-
     # only modules. A stopped job must be able to exit before cloud imports as
     # well as before cloud access.
-    from adapters import AnyLlmDraftAdapter, AnyLlmReviewAdapter, AzureFoundryDraftAdapter, NemotronReviewAdapter, SolarDraftAdapter
+    from adapters import (
+        AnyLlmDraftAdapter,
+        AnyLlmReviewAdapter,
+        AzureFoundryDraftAdapter,
+        NemotronReviewAdapter,
+        PermanentProviderError,
+        SolarDraftAdapter,
+        TransientProviderError,
+    )
     from azure_blob_store import ActiveRunError, AzureBlobRunStore
     from collector import collect
     from orchestrator import PolicyNewsOrchestrator, configured_official_hosts
@@ -108,15 +116,36 @@ def main() -> int:
 
     packets = collect(max_items=config.max_items_per_run, timeout=min(config.timeout_seconds, 30))
     results: list[dict[str, str]] = []
+    completed_count = 0
+    failed_count = 0
     for packet in packets:
         try:
             with store.claim_source(packet.content_sha256):
                 record = orchestrator.run(packet.provider_payload())
                 results.append({"run_id": record.run_id, "state": record.state.value, "source_id": packet.source_id})
+                completed_count += 1
         except ActiveRunError:
             results.append({"run_id": "", "state": "already_active", "source_id": packet.source_id})
-    print(json.dumps({"status": "completed", "collected": len(packets), "provider_calls": budget.calls, "estimated_cost_usd": budget.estimated_cost_usd, "runs": results}, ensure_ascii=False))
-    return 0
+            completed_count += 1
+        except (PermanentProviderError, TransientProviderError) as exc:
+            results.append({
+                "run_id": "",
+                "state": "provider_failed",
+                "source_id": packet.source_id,
+                "error_type": type(exc).__name__,
+            })
+            failed_count += 1
+    status = "completed_with_errors" if failed_count else "completed"
+    print(json.dumps({
+        "status": status,
+        "collected": len(packets),
+        "completed": completed_count,
+        "failed": failed_count,
+        "provider_calls": budget.calls,
+        "estimated_cost_usd": budget.estimated_cost_usd,
+        "runs": results,
+    }, ensure_ascii=False))
+    return 0 if completed_count or not packets else 1
 
 
 if __name__ == "__main__":
