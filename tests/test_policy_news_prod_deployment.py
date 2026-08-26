@@ -194,7 +194,7 @@ def test_anyllm_review_accepts_exact_coverage_map(monkeypatch: pytest.MonkeyPatc
     assert set(review.coverage) == set(_coverage())
     assert review.model == "azure:deepseek-v4-flash"
     assert captured["headers"] == {"Authorization": "Bearer dedicated-key"}
-    assert "response_format" not in captured["payload"]
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
     system_prompt = captured["payload"]["messages"][0]["content"]
     assert "exactly field, severity, description" in system_prompt
     assert "low, medium, high, critical" in system_prompt
