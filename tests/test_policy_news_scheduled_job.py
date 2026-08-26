@@ -45,6 +45,19 @@ def collector_config(tmp_path: Path) -> Path:
     return path
 
 
+def multi_feed_config(tmp_path: Path) -> Path:
+    path = tmp_path / "sources.json"
+    path.write_text(json.dumps({
+        "feeds": [
+            {"name": "Agency A", "country": "A", "url": "https://a.example/feed.atom", "allowed_hosts": ["a.example"]},
+            {"name": "Agency B", "country": "B", "url": "https://b.example/feed.atom", "allowed_hosts": ["b.example"]},
+        ],
+        "ai_terms": ["artificial intelligence"],
+        "relevance_terms": ["policy", "public sector", "evaluation"],
+    }), encoding="utf-8")
+    return path
+
+
 def test_collector_is_bounded_allowlisted_and_provenance_complete(tmp_path: Path) -> None:
     def fetch(url: str, *, allowed_hosts: set[str], max_bytes: int, timeout: int):
         assert allowed_hosts == {"official.example"}
@@ -76,6 +89,29 @@ def test_collector_rejects_unbounded_or_untrusted_inputs(tmp_path: Path) -> None
     with pytest.raises(CollectionError, match="HTTPS"):
         from collector import bounded_fetch
         bounded_fetch("http://official.example/feed", allowed_hosts={"official.example"}, max_bytes=10)
+
+
+def test_collector_round_robins_feeds_and_rejected_packets_do_not_use_quota(tmp_path: Path) -> None:
+    def feed(host: str) -> bytes:
+        return ATOM.replace(b"official.example", host.encode())
+
+    def fetch(url: str, *, allowed_hosts: set[str], max_bytes: int, timeout: int):
+        host = next(iter(allowed_hosts))
+        if url.endswith("feed.atom"):
+            return feed(host), url, "application/atom+xml"
+        return b"<main>Official public sector policy evidence.</main>", url, "text/html"
+
+    packets = collect(
+        max_items=3,
+        fetcher=fetch,
+        config_path=multi_feed_config(tmp_path),
+        accept_packet=lambda packet: not packet.source_url.endswith("a.example/item-1"),
+    )
+    assert [packet.source_url for packet in packets] == [
+        "https://b.example/item-1",
+        "https://a.example/item-2",
+        "https://b.example/item-2",
+    ]
 
 
 class FakeStorageError(Exception):

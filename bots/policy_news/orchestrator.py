@@ -203,6 +203,19 @@ class PolicyNewsOrchestrator:
             self.store.save(record)
         return record
 
+    def should_process(self, packet: SourcePacket) -> bool:
+        """Return false only for records that cannot need automatic resumption."""
+        prompt_hash = sha256_text(PROMPT.read_text(encoding="utf-8"))
+        key = idempotency_key(packet, self.config.revision, prompt_hash)
+        record = self.store.load_by_idempotency_key(key)
+        return record is None or record.state not in {
+            ApprovalState.REVIEW_BLOCKED,
+            ApprovalState.KB_COMPILED,
+            ApprovalState.HUMAN_APPROVED,
+            ApprovalState.REJECTED,
+            ApprovalState.PUBLISHED,
+        }
+
     def human_approve(self, key: str, *, actor: str, reason: str) -> RunRecord:
         if not actor.strip() or not reason.strip():
             raise ValueError("human approver and reason are required")
