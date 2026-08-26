@@ -67,12 +67,13 @@ def test_generated_rss_matches_content() -> None:
 def test_generated_html_marks_ai_editorial_boundary() -> None:
     html = (SITE / "index.html").read_text(encoding="utf-8")
     normalized = " ".join(html.split())
-    assert "현재 발행분과 자동화 준비 상태를 구분" in normalized
-    assert "현재 공개된 8건은 Codex" in normalized
-    assert "solar-open2" in normalized
-    assert "비공개 초안 1건" in normalized
-    assert "nvidia/nemotron-3-ultra-550b-a55b:free" in normalized
-    assert "정기 자동발행은 아직 가동하지 않았습니다" in normalized
+    assert "자동 수집·AI 검토와 공개 승인을 분리" in normalized
+    assert "Solar Pro 4 분석" in normalized
+    assert "DeepSeek V4 Pro 검증·교정" in normalized
+    assert "GPT-5.6 Luna 번역" in normalized
+    assert "DeepSeek V4 Flash 적대검토" in normalized
+    assert "PASS 자료도 자동 공개하지 않으며" in normalized
+    assert f"현재 공개 자료는 {len(records())}건입니다" in normalized
     for item in records():
         assert item["title_ko"] in html
         assert item["source_url"] in html

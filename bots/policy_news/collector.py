@@ -122,6 +122,7 @@ def collect(
     fetcher: Callable[..., tuple[bytes, str, str]] = bounded_fetch,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     config_path: Path = CONFIG,
+    accept_packet: Callable[[SourcePacket], bool] = lambda _packet: True,
 ) -> list[SourcePacket]:
     if not 1 <= max_items <= 3:
         raise ValueError("collector max_items must be between 1 and 3")
@@ -132,18 +133,28 @@ def collect(
     seen: set[str] = set()
     article_attempts = 0
 
+    feed_entries: list[tuple[dict[str, object], list[ET.Element]]] = []
     for feed in config["feeds"]:
-        if len(packets) >= max_items or article_attempts >= MAX_ARTICLE_ATTEMPTS:
-            break
         allowed_hosts = {host.lower() for host in feed["allowed_hosts"]}
         feed_body, _, _ = fetcher(feed["url"], allowed_hosts=allowed_hosts, max_bytes=MAX_FEED_BYTES, timeout=timeout)
         try:
             root = ET.fromstring(feed_body)
         except ET.ParseError as exc:
             raise CollectionError("official feed is malformed XML") from exc
-        for entry in root.findall("a:entry", ATOM):
-            if len(packets) >= max_items or article_attempts >= MAX_ARTICLE_ATTEMPTS:
-                break
+        feed_entries.append((feed, root.findall("a:entry", ATOM)))
+
+    # Take one candidate from each feed per round. A busy source therefore
+    # cannot consume the whole daily allowance before other official sources
+    # are considered.
+    round_index = 0
+    while len(packets) < max_items and article_attempts < MAX_ARTICLE_ATTEMPTS:
+        found_entry = False
+        for feed, entries in feed_entries:
+            if round_index >= len(entries):
+                continue
+            found_entry = True
+            entry = entries[round_index]
+            allowed_hosts = {host.lower() for host in feed["allowed_hosts"]}
             title = (entry.findtext("a:title", default="", namespaces=ATOM) or "").strip()
             summary = (entry.findtext("a:summary", default="", namespaces=ATOM) or "").strip()
             original_searchable = f"{title} {summary}"
@@ -172,6 +183,12 @@ def collect(
                 # A single oversized, malformed or moved article does not abort
                 # the bounded run; it is skipped without a provider call.
                 continue
-            packets.append(packet)
             seen.add(final_url)
+            if accept_packet(packet):
+                packets.append(packet)
+                if len(packets) >= max_items or article_attempts >= MAX_ARTICLE_ATTEMPTS:
+                    break
+        if not found_entry:
+            break
+        round_index += 1
     return packets

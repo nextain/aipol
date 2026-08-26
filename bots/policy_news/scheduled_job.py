@@ -114,7 +114,11 @@ def main() -> int:
         allowed_hosts=configured_official_hosts(),
     )
 
-    packets = collect(max_items=config.max_items_per_run, timeout=min(config.timeout_seconds, 30))
+    packets = collect(
+        max_items=config.max_items_per_run,
+        timeout=min(config.timeout_seconds, 30),
+        accept_packet=getattr(orchestrator, "should_process", lambda _packet: True),
+    )
     results: list[dict[str, str]] = []
     completed_count = 0
     failed_count = 0
