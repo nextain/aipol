@@ -299,6 +299,21 @@ class AnyLlmDraftAdapter:
                 {"role": "user", "content": canonical_json(packet.provider_payload())},
             ],
             "max_tokens": self.config.foundry_max_completion_tokens,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "aipol_policy_news_analysis",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {field: {"type": "string", "minLength": 1} for field in (
+                            "title", "summary", "policy_use", "human_review", "relevance", "caveat"
+                        )},
+                        "required": ["title", "summary", "policy_use", "human_review", "relevance", "caveat"],
+                    },
+                },
+            },
             "stream": False,
         }
         if self.budget:
@@ -342,6 +357,42 @@ class AnyLlmDraftAdapter:
                 },
             ],
             "max_tokens": self.config.foundry_max_completion_tokens,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "aipol_policy_news_verification",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "verdict": {"type": "string", "enum": ["PASS", "BLOCK"]},
+                            "issues": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        field: {"type": "string", "minLength": 1}
+                                        for field in ("field", "severity", "description")
+                                    },
+                                    "required": ["field", "severity", "description"],
+                                },
+                            },
+                            "summary": {"type": "string", "minLength": 1},
+                            "corrected_analysis": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {field: {"type": "string", "minLength": 1} for field in (
+                                    "title", "summary", "policy_use", "human_review", "relevance", "caveat"
+                                )},
+                                "required": ["title", "summary", "policy_use", "human_review", "relevance", "caveat"],
+                            },
+                        },
+                        "required": ["verdict", "issues", "summary", "corrected_analysis"],
+                    },
+                },
+            },
             "stream": False,
         }
         if self.budget:
