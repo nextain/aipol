@@ -854,6 +854,12 @@ def test_anyllm_draft_runs_the_three_approved_stages_and_records_provenance(
     ]
     assert all(call["url"] == "https://api.nextain.io/v1/chat/completions" for call in calls)
     assert all(call["headers"] == {"Authorization": "Bearer secret-value"} for call in calls)
+    analysis_schema = calls[0]["payload"]["response_format"]["json_schema"]["schema"]  # type: ignore[index]
+    verification_schema = calls[1]["payload"]["response_format"]["json_schema"]["schema"]  # type: ignore[index]
+    assert analysis_schema["additionalProperties"] is False
+    assert set(analysis_schema["required"]) == {"title", "summary", "policy_use", "human_review", "relevance", "caveat"}
+    assert verification_schema["properties"]["verdict"]["enum"] == ["PASS", "BLOCK"]
+    assert verification_schema["properties"]["issues"]["items"]["additionalProperties"] is False
     translation_schema = calls[2]["payload"]["response_format"]["json_schema"]["schema"]  # type: ignore[index]
     assert translation_schema["properties"]["title_ko"]["maxLength"] == 160
     assert translation_schema["properties"]["summary_ko"]["maxLength"] == 900
