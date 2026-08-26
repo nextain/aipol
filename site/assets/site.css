@@ -274,6 +274,7 @@ body.nav-open .nav-toggle::after {
 .hero-case-chip span { color: var(--signal-dark); }
 .hero-case-chip b { margin-left: 4px; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+.experiment-report-action { margin-top: 24px; }
 .button {
   display: inline-flex;
   min-height: 48px;
