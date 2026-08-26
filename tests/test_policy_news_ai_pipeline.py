@@ -854,11 +854,49 @@ def test_anyllm_draft_runs_the_three_approved_stages_and_records_provenance(
     ]
     assert all(call["url"] == "https://api.nextain.io/v1/chat/completions" for call in calls)
     assert all(call["headers"] == {"Authorization": "Bearer secret-value"} for call in calls)
+    translation_schema = calls[2]["payload"]["response_format"]["json_schema"]["schema"]  # type: ignore[index]
+    assert translation_schema["properties"]["title_ko"]["maxLength"] == 160
+    assert translation_schema["properties"]["summary_ko"]["maxLength"] == 900
+    assert translation_schema["properties"]["caveat"]["maxLength"] == 600
     assert [stage["stage"] for stage in draft.pipeline] == ["analysis", "verification", "translation"]
     assert draft.pipeline[1]["output"]["verdict"] == "PASS"
     assert "output" not in draft.pipeline[2]
     assert budget.calls == 3
     assert "secret-value" not in json.dumps(draft.pipeline)
+
+
+def test_anyllm_draft_normalizes_editorial_length_violation(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = [
+        {
+            "title": "Title", "summary": "Summary", "policy_use": "Use",
+            "human_review": "Review", "relevance": "Relevant", "caveat": "Caveat",
+        },
+        {
+            "verdict": "PASS", "issues": [], "summary": "Supported",
+            "corrected_analysis": {
+                "title": "Title", "summary": "Summary", "policy_use": "Use",
+                "human_review": "Review", "relevance": "Relevant", "caveat": "Caveat",
+            },
+        },
+        {
+            "title_ko": "제목", "summary_ko": "요" * 901, "policy_use": "활용",
+            "human_review": "검토", "relevance": "관련", "caveat": "한계",
+        },
+    ]
+
+    def fake_post(*_args, **_kwargs):
+        content = responses.pop(0)
+        return {"choices": [{"message": {"content": json.dumps(content)}}]}, "request-id"
+
+    monkeypatch.setattr(adapters, "_post_json", fake_post)
+    config = enabled_config(
+        dry_run=False,
+        draft_provider="anyllm",
+        review_provider="anyllm",
+        anyllm_endpoint="https://api.nextain.io/v1",
+    )
+    with pytest.raises(adapters.PermanentProviderError, match="editorial contract"):
+        adapters.AnyLlmDraftAdapter(config, api_key="key").draft(SourcePacket.from_dict(packet()))
 
 
 def test_anyllm_draft_translates_only_the_corrected_analysis_when_verification_blocks(

@@ -265,6 +265,14 @@ class AnyLlmDraftAdapter:
     """Three-stage Naia draft: Solar analysis, DeepSeek verification, Luna translation."""
 
     name = "naia-anyllm"
+    translation_field_limits = {
+        "title_ko": 160,
+        "summary_ko": 900,
+        "policy_use": 600,
+        "human_review": 600,
+        "relevance": 600,
+        "caveat": 600,
+    }
 
     def __init__(self, config: RuntimeConfig, *, api_key: str | None = None, budget: Budget | None = None) -> None:
         self.config = config
@@ -386,7 +394,8 @@ class AnyLlmDraftAdapter:
                     "content": (
                         "Translate the verified policy analysis for Korean policy researchers. Preserve every fact, "
                         "date, number, institution, uncertainty, and limitation. Return JSON only with exactly "
-                        "title_ko, summary_ko, policy_use, human_review, relevance, caveat. Do not add new claims."
+                        "title_ko, summary_ko, policy_use, human_review, relevance, caveat. Do not add new claims. "
+                        "Character limits are title_ko 160, summary_ko 900, and 600 for every other field."
                     ),
                 },
                 {"role": "user", "content": canonical_json(corrected_analysis)},
@@ -401,11 +410,8 @@ class AnyLlmDraftAdapter:
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            field: {"type": "string", "minLength": 1}
-                            for field in (
-                                "title_ko", "summary_ko", "policy_use",
-                                "human_review", "relevance", "caveat",
-                            )
+                            field: {"type": "string", "minLength": 1, "maxLength": max_length}
+                            for field, max_length in self.translation_field_limits.items()
                         },
                         "required": [
                             "title_ko", "summary_ko", "policy_use",
@@ -455,13 +461,16 @@ class AnyLlmDraftAdapter:
                 "response_id": str(translation_body.get("id") or translation_request_id),
             },
         ]
-        return EditorialDraft.from_dict(
-            result,
-            provider=self.name,
-            model=self.model,
-            generated_at=_utcnow(),
-            pipeline=pipeline,
-        )
+        try:
+            return EditorialDraft.from_dict(
+                result,
+                provider=self.name,
+                model=self.model,
+                generated_at=_utcnow(),
+                pipeline=pipeline,
+            )
+        except ValueError as exc:
+            raise PermanentProviderError("Luna translation response violates the editorial contract") from exc
 
 
 class AnyLlmReviewAdapter:
