@@ -299,21 +299,9 @@ class AnyLlmDraftAdapter:
                 {"role": "user", "content": canonical_json(packet.provider_payload())},
             ],
             "max_tokens": self.config.foundry_max_completion_tokens,
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "aipol_policy_news_analysis",
-                    "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {field: {"type": "string", "minLength": 1} for field in (
-                            "title", "summary", "policy_use", "human_review", "relevance", "caveat"
-                        )},
-                        "required": ["title", "summary", "policy_use", "human_review", "relevance", "caveat"],
-                    },
-                },
-            },
+            # Solar currently rejects json_schema at the gateway. Request a
+            # JSON object and enforce the exact contract immediately below.
+            "response_format": {"type": "json_object"},
             "stream": False,
         }
         if self.budget:
