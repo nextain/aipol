@@ -343,11 +343,7 @@ def test_public_copy_scopes_observed_change_and_keeps_logo_approval_gate() -> No
 
 
 def test_pension_experiment_uses_local_csp_compatible_fonts() -> None:
-    experiment = SITE / "cases" / "pension" / "experiment"
-    html = (experiment / "index.html").read_text(encoding="utf-8")
-    css_href = re.search(r'href="(/cases/pension/experiment/assets/[^"]+\.css)"', html)
-    assert css_href is not None
-    css = (SITE / css_href.group(1).lstrip("/")).read_text(encoding="utf-8")
+    css = (SITE / "assets" / "site.css").read_text(encoding="utf-8")
     source = (
         ROOT / "integrations" / "kaps-pension-experiment" / "vendor" / "src" / "index.css"
     ).read_text(encoding="utf-8")

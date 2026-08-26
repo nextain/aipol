@@ -114,12 +114,12 @@ def test_pension_case_discovers_the_public_report_and_built_app_returns_to_porta
     assert case.find(id="scenario-review")
     assert experiment.find("a", href="/cases/pension/", string="프로젝트 소개")
     assert experiment.find("a", href="/", attrs={"aria-label": "AIPOL 홈"})
-    assert not experiment.find("img", alt="한국정책학회")
-    assert not experiment.find("img", alt="Nextain")
-    assert experiment.find("meta", attrs={"name": "aipol-source-commit"})["content"] == (
-        "fcbae3c0dab18476e2274f9e4ff91dadeb2db944"
+    redirect_script = experiment.find("script", src=False).string
+    assert "https://session.aipol.kaps.or.kr/cases/pension/experiment/" in redirect_script
+    assert "location.search + location.hash" in redirect_script
+    assert experiment.find("meta", attrs={"name": "robots"})["content"] == (
+        "noindex,nofollow,noarchive"
     )
-    assert experiment.find("script", src=lambda value: value and value.startswith("/cases/pension/experiment/assets/"))
     provenance = json.loads((experiment_path.parent / "provenance.json").read_text("utf-8"))
     assert provenance["measurement_flow"].endswith("second final vote")
 

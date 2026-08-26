@@ -30,7 +30,6 @@ ROUTES = (
     "/platform/",
     "/cases/",
     "/cases/pension/",
-    "/cases/pension/experiment/",
     "/cases/pension/experiment/terms/",
     "/cases/pension/experiment/privacy/",
     "/events/",
@@ -150,6 +149,21 @@ def test_routes_render_without_browser_errors(browser, site_url):
         assert page.locator("h1").count() == 1, route
 
     assert errors == []
+    context.close()
+
+
+def test_experiment_redirect_has_an_accessible_no_javascript_fallback(browser, site_url):
+    context = _context(browser, java_script_enabled=False)
+    page = context.new_page()
+    response = page.goto(f"{site_url}/cases/pension/experiment/", wait_until="load")
+    assert response is not None and response.ok
+    assert page.locator("h1").count() == 1
+    assert page.get_by_role("link", name="정책실험 참여").get_attribute("href") == (
+        "https://session.aipol.kaps.or.kr/cases/pension/experiment/"
+    )
+    assert page.get_by_role("link", name="프로젝트 소개").get_attribute("href") == (
+        "/cases/pension/"
+    )
     context.close()
 
 

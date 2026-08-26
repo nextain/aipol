@@ -82,8 +82,11 @@ def test_every_public_page_has_accessible_structure_and_is_indexable() -> None:
         assert parser.forms == 0, path
         source = path.read_text(encoding="utf-8")
         assert 'class="skip-link"' in source
-        assert "data-nav-toggle" in source
-        assert "data-nav" in source
+        if path == SITE / "cases" / "pension" / "process-report" / "index.html":
+            assert 'class="report-nav"' in source
+        else:
+            assert "data-nav-toggle" in source
+            assert "data-nav" in source
 
 
 def test_internal_links_and_external_link_safety() -> None:
@@ -104,7 +107,9 @@ def test_search_exposure_and_privacy_contract() -> None:
         "Disallow: /cases/pension/experiment/\n"
         "Allow: /cases/pension/experiment/terms/\n"
         "Allow: /cases/pension/experiment/privacy/\n"
-        "Disallow: /admin/\n\n"
+        "Disallow: /admin/\n"
+        "Disallow: /global/admin/\n"
+        "Disallow: /api/global-admin/\n\n"
         "Sitemap: https://aipol.kaps.or.kr/sitemap.xml\n"
     )
     sitemap = SITE / "sitemap.xml"
@@ -187,7 +192,10 @@ def test_bilingual_metadata_and_machine_discovery_files() -> None:
     assert (SITE / "llms.txt").exists()
     llms = (SITE / "llms.txt").read_text(encoding="utf-8")
     assert "no-index soft launch" not in llms
-    assert "Survey, experiment-input, and administration interfaces are excluded." in llms
+    assert (
+        "Survey, experiment-input, administration interfaces, and administration APIs are excluded."
+        in llms
+    )
     assert (SITE / "assets" / "og-policy-lab.png").exists()
     for route in ("", "project", "method", "cases", "events", "participate", "global"):
         ko = SITE / route / "index.html" if route else SITE / "index.html"

@@ -291,6 +291,7 @@ body.nav-open .nav-toggle::after {
 .button:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(8, 47, 80, 0.14); }
 .button-primary { background: linear-gradient(135deg, var(--signal-dark), #087f91); color: var(--paper-light); }
 .button-primary:hover { background: linear-gradient(135deg, #064d7d, #076b7a); }
+.actions-spaced { margin-top: 24px; }
 .button-secondary { background: transparent; }
 .button-secondary:hover { background: var(--paper-light); }
 
