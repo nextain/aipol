@@ -30,7 +30,6 @@ ROUTES = (
     "/platform/",
     "/cases/",
     "/cases/pension/",
-    "/cases/pension/experiment/",
     "/cases/pension/experiment/terms/",
     "/cases/pension/experiment/privacy/",
     "/events/",

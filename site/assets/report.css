@@ -93,3 +93,15 @@
       .mermaid-wrap.future-diagram .mermaid{min-width:220px!important}.mermaid-wrap.future-diagram .mermaid svg{width:220px!important;min-width:220px!important}
       .footer{padding:8mm 7mm}
     }
+/* Keyboard users can bypass the report navigation. */
+.skip-link {
+  position: fixed;
+  top: 0;
+  left: 1rem;
+  z-index: 100;
+  padding: .7rem 1rem;
+  color: #fff;
+  background: #173b36;
+  transform: translateY(-120%);
+}
+.skip-link:focus { transform: translateY(0); }

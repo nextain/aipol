@@ -82,8 +82,12 @@ def test_every_public_page_has_accessible_structure_and_is_indexable() -> None:
         assert parser.forms == 0, path
         source = path.read_text(encoding="utf-8")
         assert 'class="skip-link"' in source
-        assert "data-nav-toggle" in source
-        assert "data-nav" in source
+        if path == SITE / "cases" / "pension" / "process-report" / "index.html":
+            assert 'class="report-nav"' in source
+            assert 'href="/cases/pension/"' in source
+        else:
+            assert "data-nav-toggle" in source
+            assert "data-nav" in source
 
 
 def test_internal_links_and_external_link_safety() -> None:
@@ -104,7 +108,9 @@ def test_search_exposure_and_privacy_contract() -> None:
         "Disallow: /cases/pension/experiment/\n"
         "Allow: /cases/pension/experiment/terms/\n"
         "Allow: /cases/pension/experiment/privacy/\n"
-        "Disallow: /admin/\n\n"
+        "Disallow: /admin/\n"
+        "Disallow: /global/admin/\n"
+        "Disallow: /api/global-admin/\n\n"
         "Sitemap: https://aipol.kaps.or.kr/sitemap.xml\n"
     )
     sitemap = SITE / "sitemap.xml"
@@ -152,6 +158,23 @@ def test_assets_are_local_and_no_third_party_imports() -> None:
     assert "url(http" not in css
     assert "fetch(" not in js
     assert "XMLHttpRequest" not in js
+
+
+def test_experiment_entry_redirects_to_the_separate_session_host() -> None:
+    entry = SITE / "cases" / "pension" / "experiment" / "index.html"
+    parser = parse(entry)
+    source = entry.read_text(encoding="utf-8")
+    redirect = (entry.parent / "redirect.js").read_text(encoding="utf-8")
+
+    assert parser.h1_count == 1
+    assert {"noindex", "nofollow", "noarchive"} <= set(parser.robots.split(","))
+    assert parser.inline_scripts == 0
+    assert 'src="/cases/pension/experiment/redirect.js"' in source
+    assert "https://session.aipol.kaps.or.kr" in source
+    assert '"https://session.aipol.kaps.or.kr"' in redirect
+    assert "window.location.search" in redirect
+    assert "window.location.hash" in redirect
+    assert "window.location.replace(destination.href)" in redirect
 
 
 def test_ga4_is_loaded_once_from_the_shared_script() -> None:
