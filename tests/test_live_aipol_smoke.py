@@ -32,10 +32,19 @@ def _rss(*, forbidden: str = "") -> str:
     return ET.tostring(rss, encoding="unicode")
 
 
+def _session_redirect(*, forbidden: str = "") -> str:
+    return f'''<html><head><title>AIPOL session redirect</title>
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <script defer src="/cases/pension/experiment/redirect.js"></script></head>
+    <body><a href="https://session.aipol.kaps.or.kr/cases/pension/experiment/">continue</a>{forbidden}</body></html>'''
+
+
 def test_live_smoke_checks_all_routes(monkeypatch) -> None:
     visited: list[str] = []
     def fetch(url: str):
         visited.append(url)
+        if url.endswith(smoke.SESSION_REDIRECT_ROUTE):
+            return url, _session_redirect()
         return url, _rss() if url.endswith("rss.xml") else _page(url)
 
     monkeypatch.setattr(smoke, "fetch", fetch)
@@ -48,6 +57,8 @@ def test_dev_smoke_fetches_dev_but_keeps_production_canonical(monkeypatch) -> No
     def fetch(url: str):
         visited.append(url)
         canonical = url.replace("aipol-dev.example", "aipol.kaps.or.kr")
+        if url.endswith(smoke.SESSION_REDIRECT_ROUTE):
+            return url, _session_redirect()
         return url, _rss() if url.endswith("rss.xml") else _page(canonical)
 
     monkeypatch.setattr(smoke, "fetch", fetch)
@@ -56,10 +67,17 @@ def test_dev_smoke_fetches_dev_but_keeps_production_canonical(monkeypatch) -> No
 
 
 def test_live_smoke_fails_on_stale_origin(monkeypatch) -> None:
+    def fetch(url: str):
+        if url.endswith("rss.xml"):
+            return url, _rss(forbidden="aipol.nextain.io")
+        if url.endswith(smoke.SESSION_REDIRECT_ROUTE):
+            return url, _session_redirect(forbidden="aipol.nextain.io")
+        return url, _page(url, forbidden="aipol.nextain.io")
+
     monkeypatch.setattr(
         smoke,
         "fetch",
-        lambda url: (url, _rss(forbidden="aipol.nextain.io") if url.endswith("rss.xml") else _page(url)),
+        fetch,
     )
     with pytest.raises(RuntimeError, match="forbidden copy"):
         smoke.verify("https://aipol.kaps.or.kr", attempts=1, delay_seconds=0)
@@ -69,6 +87,8 @@ def test_live_smoke_fails_on_stale_rss_origin(monkeypatch) -> None:
     def fetch(url: str):
         if url.endswith("rss.xml"):
             return url, _rss().replace("aipol.kaps.or.kr", "policylab.nextain.io")
+        if url.endswith(smoke.SESSION_REDIRECT_ROUTE):
+            return url, _session_redirect()
         return url, _page(url)
 
     monkeypatch.setattr(smoke, "fetch", fetch)
@@ -79,3 +99,16 @@ def test_live_smoke_fails_on_stale_rss_origin(monkeypatch) -> None:
 def test_live_smoke_rejects_non_https_origin() -> None:
     with pytest.raises(ValueError, match="HTTPS"):
         smoke.verify("http://aipol.kaps.or.kr", attempts=1, delay_seconds=0)
+
+
+def test_live_smoke_rejects_broken_session_redirect(monkeypatch) -> None:
+    def fetch(url: str):
+        if url.endswith("rss.xml"):
+            return url, _rss()
+        if url.endswith(smoke.SESSION_REDIRECT_ROUTE):
+            return url, "<html><head><title>redirect</title></head></html>"
+        return url, _page(url)
+
+    monkeypatch.setattr(smoke, "fetch", fetch)
+    with pytest.raises(RuntimeError, match="missing CSP-compatible redirect script"):
+        smoke.verify("https://aipol.kaps.or.kr", attempts=1, delay_seconds=0)
