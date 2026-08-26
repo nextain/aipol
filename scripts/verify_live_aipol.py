@@ -19,6 +19,8 @@ HTML_ROUTES = (
     "/status/",
 )
 RSS_ROUTE = "/global/rss.xml"
+SESSION_REDIRECT_ROUTE = "/cases/pension/experiment/"
+SESSION_ORIGIN = "https://session.aipol.kaps.or.kr"
 ROUTES = (*HTML_ROUTES, RSS_ROUTE)
 SITE_NAME = "AIPOL"
 CANONICAL_ORIGIN = "https://aipol.kaps.or.kr"
@@ -85,6 +87,21 @@ def _verify_html(route: str, body: str, failures: list[str]) -> None:
     _forbidden_copy(route, body, failures)
 
 
+def _verify_session_redirect(route: str, body: str, failures: list[str]) -> None:
+    parsed = _Head()
+    parsed.feed(body)
+    if not parsed.title.strip():
+        failures.append(f"{route}: missing title")
+    compact = body.replace(" ", "").replace("\n", "").casefold()
+    if 'name="robots"content="noindex,nofollow,noarchive"' not in compact:
+        failures.append(f"{route}: redirect shell must remain excluded from indexing")
+    if 'src="/cases/pension/experiment/redirect.js"' not in body:
+        failures.append(f"{route}: missing CSP-compatible redirect script")
+    if f'href="{SESSION_ORIGIN}{route}"' not in body:
+        failures.append(f"{route}: missing session fallback link")
+    _forbidden_copy(route, body, failures)
+
+
 def _verify_rss(route: str, body: str, failures: list[str]) -> None:
     try:
         channel = ET.fromstring(body).find("channel")
@@ -118,6 +135,8 @@ def verify(origin: str, attempts: int = 6, delay_seconds: float = 5) -> None:
                     failures.append(f"{route}: redirected outside {split.netloc}")
                 if route == RSS_ROUTE:
                     _verify_rss(route, body, failures)
+                elif route == SESSION_REDIRECT_ROUTE:
+                    _verify_session_redirect(route, body, failures)
                 else:
                     _verify_html(route, body, failures)
             except Exception as exc:  # deployment propagation/network failures are retried
