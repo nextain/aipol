@@ -581,9 +581,7 @@ class AnyLlmReviewAdapter:
             ],
             "temperature": 0,
             "max_tokens": self.config.foundry_max_completion_tokens,
-            # Keep the independent review on plain JSON output. The response remains fail-closed:
-            # exact fields, coverage, issue schema, and verdict consistency are
-            # all validated below before a result can be accepted.
+            "response_format": {"type": "json_object"},
             "stream": False,
         }
         body, request_id = _post_json(
