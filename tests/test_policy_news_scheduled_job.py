@@ -165,6 +165,19 @@ def test_scheduled_window_accepts_explicit_backfill_dates(monkeypatch: pytest.Mo
     assert end.isoformat() == "2026-08-30T15:00:00+00:00"
 
 
+def test_forced_source_ids_are_bounded_and_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POLICY_NEWS_FORCE_SOURCE_IDS", "source-1,source_2")
+    assert scheduled_job.forced_source_ids() == {"source-1", "source_2"}
+
+    monkeypatch.setenv("POLICY_NEWS_FORCE_SOURCE_IDS", "one,two,three,four")
+    with pytest.raises(ValueError, match="at most 3"):
+        scheduled_job.forced_source_ids()
+
+    monkeypatch.setenv("POLICY_NEWS_FORCE_SOURCE_IDS", "invalid/source")
+    with pytest.raises(ValueError, match="valid comma-separated"):
+        scheduled_job.forced_source_ids()
+
+
 class FakeStorageError(Exception):
     def __init__(self, status_code: int):
         self.status_code = status_code

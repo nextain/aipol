@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -16,6 +17,18 @@ from config import Budget, RuntimeConfig
 
 
 KST = ZoneInfo("Asia/Seoul")
+SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+
+
+def forced_source_ids() -> set[str]:
+    """Return an explicit, bounded recovery allowlist for one-off backfills."""
+    raw = os.getenv("POLICY_NEWS_FORCE_SOURCE_IDS", "").strip()
+    if not raw:
+        return set()
+    values = {value.strip() for value in raw.split(",") if value.strip()}
+    if len(values) > 3 or any(not SOURCE_ID_PATTERN.fullmatch(value) for value in values):
+        raise ValueError("POLICY_NEWS_FORCE_SOURCE_IDS must contain at most 3 valid comma-separated source IDs")
+    return values
 
 
 def collection_window(*, now: datetime | None = None) -> tuple[datetime, datetime]:
@@ -140,19 +153,21 @@ def main() -> int:
 
     try:
         published_from, published_before = collection_window()
+        forced_ids = forced_source_ids()
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     considered: list[dict[str, str]] = []
 
     def accept_packet(packet) -> bool:
-        accepted = orchestrator.should_process(packet)
+        forced = packet.source_id in forced_ids
+        accepted = forced or orchestrator.should_process(packet)
         key = idempotency_key(packet, config.revision, sha256_text(PROMPT.read_text(encoding="utf-8")))
         considered.append({
             "source_id": packet.source_id,
             "run_id": key[:24],
             "published": packet.published,
-            "decision": "process" if accepted else "already_terminal",
+            "decision": "force_process" if forced else ("process" if accepted else "already_terminal"),
         })
         return accepted
 
