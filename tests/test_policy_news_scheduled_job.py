@@ -114,6 +114,42 @@ def test_collector_round_robins_feeds_and_rejected_packets_do_not_use_quota(tmp_
     ]
 
 
+def test_collector_applies_half_open_publication_window_before_fetch(tmp_path: Path) -> None:
+    fetched_articles: list[str] = []
+
+    def fetch(url: str, *, allowed_hosts: set[str], max_bytes: int, timeout: int):
+        if url.endswith("feed.atom"):
+            return ATOM, url, "application/atom+xml"
+        fetched_articles.append(url)
+        return b"<main>Official public sector policy evidence.</main>", url, "text/html"
+
+    packets = collect(
+        max_items=3,
+        fetcher=fetch,
+        config_path=collector_config(tmp_path),
+        published_from=datetime(2026, 7, 19, tzinfo=timezone.utc),
+        published_before=datetime(2026, 7, 21, tzinfo=timezone.utc),
+    )
+    assert [packet.published for packet in packets] == ["2026-07-20", "2026-07-19"]
+    assert fetched_articles == ["https://official.example/item-1", "https://official.example/item-2"]
+
+
+def test_scheduled_window_defaults_to_previous_complete_kst_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("POLICY_NEWS_PUBLISHED_FROM", raising=False)
+    monkeypatch.delenv("POLICY_NEWS_PUBLISHED_BEFORE", raising=False)
+    start, end = scheduled_job.collection_window(now=datetime(2026, 8, 30, 1, 0, tzinfo=timezone.utc))
+    assert start.isoformat() == "2026-08-28T15:00:00+00:00"
+    assert end.isoformat() == "2026-08-29T15:00:00+00:00"
+
+
+def test_scheduled_window_accepts_explicit_backfill_dates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POLICY_NEWS_PUBLISHED_FROM", "2026-07-24")
+    monkeypatch.setenv("POLICY_NEWS_PUBLISHED_BEFORE", "2026-08-31")
+    start, end = scheduled_job.collection_window()
+    assert start.isoformat() == "2026-07-23T15:00:00+00:00"
+    assert end.isoformat() == "2026-08-30T15:00:00+00:00"
+
+
 class FakeStorageError(Exception):
     def __init__(self, status_code: int):
         self.status_code = status_code

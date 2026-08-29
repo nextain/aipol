@@ -115,6 +115,23 @@ def _entry_link(entry: ET.Element, feed_url: str) -> str:
     return urllib.parse.urljoin(feed_url, link_node.attrib.get("href", "")) if link_node is not None else ""
 
 
+def _entry_datetime(entry: ET.Element) -> datetime | None:
+    raw = (
+        entry.findtext("a:published", default="", namespaces=ATOM)
+        or entry.findtext("a:updated", default="", namespaces=ATOM)
+        or ""
+    ).strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def collect(
     *,
     max_items: int = 3,
@@ -123,9 +140,16 @@ def collect(
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     config_path: Path = CONFIG,
     accept_packet: Callable[[SourcePacket], bool] = lambda _packet: True,
+    published_from: datetime | None = None,
+    published_before: datetime | None = None,
 ) -> list[SourcePacket]:
     if not 1 <= max_items <= 3:
         raise ValueError("collector max_items must be between 1 and 3")
+    for name, value in (("published_from", published_from), ("published_before", published_before)):
+        if value is not None and value.tzinfo is None:
+            raise ValueError(f"{name} must be timezone-aware")
+    if published_from and published_before and published_from >= published_before:
+        raise ValueError("published_from must be earlier than published_before")
     config = json.loads(config_path.read_text(encoding="utf-8"))
     ai_terms = tuple(term.lower() for term in config["ai_terms"])
     relevance_terms = tuple(term.lower() for term in config["relevance_terms"])
@@ -154,6 +178,11 @@ def collect(
                 continue
             found_entry = True
             entry = entries[round_index]
+            entry_datetime = _entry_datetime(entry)
+            if published_from is not None and (entry_datetime is None or entry_datetime < published_from):
+                continue
+            if published_before is not None and (entry_datetime is None or entry_datetime >= published_before):
+                continue
             allowed_hosts = {host.lower() for host in feed["allowed_hosts"]}
             title = (entry.findtext("a:title", default="", namespaces=ATOM) or "").strip()
             summary = (entry.findtext("a:summary", default="", namespaces=ATOM) or "").strip()
@@ -165,7 +194,7 @@ def collect(
             url = _entry_link(entry, feed["url"])
             if not url or url in seen or _host(url) not in allowed_hosts:
                 continue
-            published = (entry.findtext("a:published", default="", namespaces=ATOM) or entry.findtext("a:updated", default="", namespaces=ATOM) or "")[:10]
+            published = entry_datetime.date().isoformat() if entry_datetime else ""
             try:
                 article_attempts += 1
                 article_body, final_url, content_type = fetcher(url, allowed_hosts=allowed_hosts, max_bytes=MAX_ARTICLE_BYTES, timeout=timeout)
