@@ -102,7 +102,8 @@ def main() -> int:
     )
     from azure_blob_store import ActiveRunError, AzureBlobRunStore
     from collector import collect
-    from orchestrator import PolicyNewsOrchestrator, configured_official_hosts
+    from contracts import idempotency_key, sha256_text
+    from orchestrator import PROMPT, PolicyNewsOrchestrator, configured_official_hosts
 
     draft_provider = config.draft_provider
     budget = Budget(config)
@@ -146,8 +147,10 @@ def main() -> int:
 
     def accept_packet(packet) -> bool:
         accepted = orchestrator.should_process(packet)
+        key = idempotency_key(packet, config.revision, sha256_text(PROMPT.read_text(encoding="utf-8")))
         considered.append({
             "source_id": packet.source_id,
+            "run_id": key[:24],
             "published": packet.published,
             "decision": "process" if accepted else "already_terminal",
         })
@@ -188,6 +191,7 @@ def main() -> int:
         "failed": failed_count,
         "provider_calls": budget.calls,
         "estimated_cost_usd": budget.estimated_cost_usd,
+        "config_revision": config.revision,
         "published_from": published_from.isoformat(),
         "published_before": published_before.isoformat(),
         "considered": considered,
