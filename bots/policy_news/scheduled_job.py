@@ -9,8 +9,31 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from config import Budget, RuntimeConfig
+
+
+KST = ZoneInfo("Asia/Seoul")
+
+
+def collection_window(*, now: datetime | None = None) -> tuple[datetime, datetime]:
+    """Return an explicit backfill window or the previous complete KST day."""
+    since = os.getenv("POLICY_NEWS_PUBLISHED_FROM", "").strip()
+    before = os.getenv("POLICY_NEWS_PUBLISHED_BEFORE", "").strip()
+    if bool(since) != bool(before):
+        raise ValueError("POLICY_NEWS_PUBLISHED_FROM and POLICY_NEWS_PUBLISHED_BEFORE must be set together")
+    if since:
+        start = datetime.combine(datetime.strptime(since, "%Y-%m-%d").date(), time.min, KST)
+        end = datetime.combine(datetime.strptime(before, "%Y-%m-%d").date(), time.min, KST)
+    else:
+        local_today = (now or datetime.now(timezone.utc)).astimezone(KST).date()
+        end = datetime.combine(local_today, time.min, KST)
+        start = end - timedelta(days=1)
+    if start >= end:
+        raise ValueError("policy-news collection window must have a positive duration")
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
 
 def build_knowledge_compiler(config: RuntimeConfig, budget: Budget):
@@ -114,10 +137,17 @@ def main() -> int:
         allowed_hosts=configured_official_hosts(),
     )
 
+    try:
+        published_from, published_before = collection_window()
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     packets = collect(
         max_items=config.max_items_per_run,
         timeout=min(config.timeout_seconds, 30),
         accept_packet=getattr(orchestrator, "should_process", lambda _packet: True),
+        published_from=published_from,
+        published_before=published_before,
     )
     results: list[dict[str, str]] = []
     completed_count = 0
@@ -147,6 +177,8 @@ def main() -> int:
         "failed": failed_count,
         "provider_calls": budget.calls,
         "estimated_cost_usd": budget.estimated_cost_usd,
+        "published_from": published_from.isoformat(),
+        "published_before": published_before.isoformat(),
         "runs": results,
     }, ensure_ascii=False))
     return 0 if completed_count or not packets else 1
