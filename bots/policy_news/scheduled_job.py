@@ -142,10 +142,21 @@ def main() -> int:
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    considered: list[dict[str, str]] = []
+
+    def accept_packet(packet) -> bool:
+        accepted = orchestrator.should_process(packet)
+        considered.append({
+            "source_id": packet.source_id,
+            "published": packet.published,
+            "decision": "process" if accepted else "already_terminal",
+        })
+        return accepted
+
     packets = collect(
         max_items=config.max_items_per_run,
         timeout=min(config.timeout_seconds, 30),
-        accept_packet=getattr(orchestrator, "should_process", lambda _packet: True),
+        accept_packet=accept_packet,
         published_from=published_from,
         published_before=published_before,
     )
@@ -179,6 +190,7 @@ def main() -> int:
         "estimated_cost_usd": budget.estimated_cost_usd,
         "published_from": published_from.isoformat(),
         "published_before": published_before.isoformat(),
+        "considered": considered,
         "runs": results,
     }, ensure_ascii=False))
     return 0 if completed_count or not packets else 1

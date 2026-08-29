@@ -134,6 +134,21 @@ def test_collector_applies_half_open_publication_window_before_fetch(tmp_path: P
     assert fetched_articles == ["https://official.example/item-1", "https://official.example/item-2"]
 
 
+def test_collector_uses_official_feed_summary_when_linked_article_is_unavailable(tmp_path: Path) -> None:
+    official_summary = "Official public sector AI policy evidence from the agency feed remains available for bounded human review."
+    atom = ATOM.replace(b"Public sector evaluation", official_summary.encode())
+
+    def fetch(url: str, *, allowed_hosts: set[str], max_bytes: int, timeout: int):
+        if url.endswith("feed.atom"):
+            return atom, url, "application/atom+xml"
+        raise CollectionError("linked article temporarily unavailable")
+
+    packets = collect(max_items=1, fetcher=fetch, config_path=collector_config(tmp_path))
+    assert len(packets) == 1
+    assert packets[0].source_url == "https://official.example/item-1"
+    assert packets[0].source_text == official_summary
+
+
 def test_scheduled_window_defaults_to_previous_complete_kst_day(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("POLICY_NEWS_PUBLISHED_FROM", raising=False)
     monkeypatch.delenv("POLICY_NEWS_PUBLISHED_BEFORE", raising=False)

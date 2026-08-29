@@ -199,6 +199,17 @@ def collect(
                 article_attempts += 1
                 article_body, final_url, content_type = fetcher(url, allowed_hosts=allowed_hosts, max_bytes=MAX_ARTICLE_BYTES, timeout=timeout)
                 source_text = visible_text(article_body, content_type)
+            except (CollectionError, ValueError):
+                # The configured Atom feed is itself an official source. If a
+                # linked article is transiently unavailable from the job's
+                # network, retain the bounded official feed summary instead of
+                # silently losing the candidate. Very short summaries still
+                # fail closed.
+                source_text = re.sub(r"\s+", " ", summary).strip()
+                if len(source_text) < 80:
+                    continue
+                final_url = url
+            try:
                 packet = SourcePacket.from_dict({
                     "source_name": feed["name"],
                     "source_url": final_url,
@@ -208,9 +219,7 @@ def collect(
                     "source_text": source_text,
                     "fetched_at": clock().astimezone(timezone.utc).isoformat(),
                 })
-            except (CollectionError, ValueError):
-                # A single oversized, malformed or moved article does not abort
-                # the bounded run; it is skipped without a provider call.
+            except ValueError:
                 continue
             seen.add(final_url)
             if accept_packet(packet):
