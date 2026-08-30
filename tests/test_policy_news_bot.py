@@ -54,6 +54,8 @@ def test_discovery_sources_are_allowlisted_official_https_hosts() -> None:
         assert parsed.scheme == "https"
         assert parsed.hostname in feed["allowed_hosts"]
         assert all(host and "/" not in host for host in feed["allowed_hosts"])
+    assert {feed["country"] for feed in config["feeds"]} == {"United Kingdom", "United States"}
+    assert any(feed["url"].endswith("rss.xml") for feed in config["feeds"])
 
 
 def test_generated_rss_matches_content() -> None:

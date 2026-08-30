@@ -31,8 +31,19 @@ def forced_source_ids() -> set[str]:
     return values
 
 
+def lookback_days() -> int:
+    raw = os.getenv("POLICY_NEWS_LOOKBACK_DAYS", "14").strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError("POLICY_NEWS_LOOKBACK_DAYS must be an integer") from exc
+    if not 1 <= value <= 30:
+        raise ValueError("POLICY_NEWS_LOOKBACK_DAYS must be between 1 and 30")
+    return value
+
+
 def collection_window(*, now: datetime | None = None) -> tuple[datetime, datetime]:
-    """Return an explicit backfill window or the previous complete KST day."""
+    """Return an explicit backfill window or a bounded rolling UTC window."""
     since = os.getenv("POLICY_NEWS_PUBLISHED_FROM", "").strip()
     before = os.getenv("POLICY_NEWS_PUBLISHED_BEFORE", "").strip()
     if bool(since) != bool(before):
@@ -41,9 +52,8 @@ def collection_window(*, now: datetime | None = None) -> tuple[datetime, datetim
         start = datetime.combine(datetime.strptime(since, "%Y-%m-%d").date(), time.min, KST)
         end = datetime.combine(datetime.strptime(before, "%Y-%m-%d").date(), time.min, KST)
     else:
-        local_today = (now or datetime.now(timezone.utc)).astimezone(KST).date()
-        end = datetime.combine(local_today, time.min, KST)
-        start = end - timedelta(days=1)
+        end = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        start = end - timedelta(days=lookback_days())
     if start >= end:
         raise ValueError("policy-news collection window must have a positive duration")
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -158,6 +168,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
     considered: list[dict[str, str]] = []
+    collection_diagnostics: dict[str, object] = {}
 
     def accept_packet(packet) -> bool:
         forced = packet.source_id in forced_ids
@@ -177,6 +188,7 @@ def main() -> int:
         accept_packet=accept_packet,
         published_from=published_from,
         published_before=published_before,
+        diagnostics=collection_diagnostics,
     )
     results: list[dict[str, str]] = []
     completed_count = 0
@@ -198,8 +210,13 @@ def main() -> int:
                 "error_type": type(exc).__name__,
             })
             failed_count += 1
-    status = "completed_with_errors" if failed_count else "completed"
-    print(json.dumps({
+    if failed_count:
+        status = "completed_with_errors"
+    elif not packets:
+        status = "completed_no_new_candidates" if considered else "completed_empty"
+    else:
+        status = "completed"
+    receipt = {
         "status": status,
         "collected": len(packets),
         "completed": completed_count,
@@ -209,9 +226,13 @@ def main() -> int:
         "config_revision": config.revision,
         "published_from": published_from.isoformat(),
         "published_before": published_before.isoformat(),
+        "collection": collection_diagnostics,
         "considered": considered,
         "runs": results,
-    }, ensure_ascii=False))
+    }
+    receipt_id = os.getenv("CONTAINER_APP_JOB_EXECUTION_NAME", "").strip() or datetime.now(timezone.utc).strftime("manual-%Y%m%dT%H%M%S%fZ")
+    store.save_collection_receipt(receipt_id, receipt)
+    print(json.dumps(receipt, ensure_ascii=False))
     return 0 if completed_count or not packets else 1
 
 

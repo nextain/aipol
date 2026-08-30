@@ -237,7 +237,8 @@ def test_scheduled_job_uses_naia_draft_and_deepseek_review_without_openrouter(mo
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setattr(adapters, "AnyLlmDraftAdapter", lambda *_args, **_kwargs: created.append("draft") or object())
     monkeypatch.setattr(adapters, "AnyLlmReviewAdapter", lambda *_args, **_kwargs: created.append("review") or object())
-    monkeypatch.setattr(azure_blob_store, "AzureBlobRunStore", lambda *_args, **_kwargs: object())
+    store = SimpleNamespace(save_collection_receipt=lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(azure_blob_store, "AzureBlobRunStore", lambda *_args, **_kwargs: store)
     monkeypatch.setattr(collector, "collect", lambda **_kwargs: [])
     assert scheduled_job.main() == 0
     assert created == ["draft", "review"]
@@ -269,6 +270,9 @@ def test_scheduled_job_isolates_one_provider_failure_and_completes_remaining_ite
     class Store:
         def claim_source(self, _digest: str):
             return nullcontext()
+
+        def save_collection_receipt(self, _receipt_id: str, receipt: dict) -> None:
+            self.receipt = receipt
 
     class Orchestrator:
         calls = 0

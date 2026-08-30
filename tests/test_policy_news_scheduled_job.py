@@ -34,6 +34,11 @@ ATOM = b'''<?xml version="1.0" encoding="utf-8"?>
   <entry><title>Artificial intelligence policy consultation four</title><summary>Public sector evaluation</summary><updated>2026-07-17T00:00:00Z</updated><link rel="alternate" href="https://official.example/item-4" /></entry>
 </feed>'''
 
+RSS = b'''<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel><title>Official updates</title>
+  <item><title>Artificial intelligence safety framework</title><description>Government standards and public policy guidance</description><pubDate>Fri, 28 Aug 2026 20:00:00 GMT</pubDate><link>https://official.example/rss-1</link></item>
+</channel></rss>'''
+
 
 def collector_config(tmp_path: Path) -> Path:
     path = tmp_path / "sources.json"
@@ -149,12 +154,88 @@ def test_collector_uses_official_feed_summary_when_linked_article_is_unavailable
     assert packets[0].source_text == official_summary
 
 
-def test_scheduled_window_defaults_to_previous_complete_kst_day(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_collector_supports_rss_and_records_source_diagnostics(tmp_path: Path) -> None:
+    diagnostics: dict[str, object] = {}
+
+    def fetch(url: str, *, allowed_hosts: set[str], max_bytes: int, timeout: int):
+        if url.endswith("feed.atom"):
+            return RSS, url, "application/rss+xml"
+        return b"<main>Official AI safety framework and government standards.</main>", url, "text/html"
+
+    packets = collect(
+        max_items=1,
+        fetcher=fetch,
+        config_path=collector_config(tmp_path),
+        published_from=datetime(2026, 8, 28, tzinfo=timezone.utc),
+        published_before=datetime(2026, 8, 29, tzinfo=timezone.utc),
+        diagnostics=diagnostics,
+    )
+    assert [packet.source_url for packet in packets] == ["https://official.example/rss-1"]
+    assert diagnostics["feed_successes"] == 1
+    assert diagnostics["feed_failures"] == 0
+    assert diagnostics["feeds"][0]["keyword_matches"] == 1
+    assert diagnostics["feeds"][0]["selected"] == 1
+
+
+def test_collector_supports_official_json_search_api(tmp_path: Path) -> None:
+    config = tmp_path / "sources.json"
+    config.write_text(json.dumps({
+        "feeds": [{
+            "name": "Official Register", "country": "Testland", "format": "json",
+            "url": "https://official.example/api/documents.json", "allowed_hosts": ["official.example"],
+        }],
+        "ai_terms": ["artificial intelligence"],
+        "relevance_terms": ["policy"],
+    }), encoding="utf-8")
+    payload = json.dumps({"results": [{
+        "title": "Artificial intelligence policy notice",
+        "abstract": "Official policy consultation",
+        "publication_date": "2026-08-28",
+        "html_url": "https://official.example/documents/ai-notice",
+    }]}).encode()
+
+    def fetch(url: str, *, allowed_hosts: set[str], max_bytes: int, timeout: int):
+        if url.endswith("documents.json"):
+            return payload, url, "application/json"
+        return b"<main>Official artificial intelligence policy notice.</main>", url, "text/html"
+
+    packets = collect(
+        max_items=1, fetcher=fetch, config_path=config,
+        published_from=datetime(2026, 8, 28, tzinfo=timezone.utc),
+        published_before=datetime(2026, 8, 29, tzinfo=timezone.utc),
+    )
+    assert [packet.source_url for packet in packets] == ["https://official.example/documents/ai-notice"]
+
+
+def test_collector_isolates_failed_feed_when_another_official_feed_succeeds(tmp_path: Path) -> None:
+    diagnostics: dict[str, object] = {}
+
+    def fetch(url: str, *, allowed_hosts: set[str], max_bytes: int, timeout: int):
+        if "a.example" in url:
+            raise CollectionError("source unavailable")
+        if url.endswith("feed.atom"):
+            return ATOM.replace(b"official.example", b"b.example"), url, "application/atom+xml"
+        return b"<main>Official public sector policy evidence.</main>", url, "text/html"
+
+    packets = collect(max_items=1, fetcher=fetch, config_path=multi_feed_config(tmp_path), diagnostics=diagnostics)
+    assert packets[0].source_url.startswith("https://b.example/")
+    assert diagnostics["feed_successes"] == 1
+    assert diagnostics["feed_failures"] == 1
+
+
+def test_scheduled_window_defaults_to_bounded_rolling_lookback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("POLICY_NEWS_PUBLISHED_FROM", raising=False)
     monkeypatch.delenv("POLICY_NEWS_PUBLISHED_BEFORE", raising=False)
+    monkeypatch.delenv("POLICY_NEWS_LOOKBACK_DAYS", raising=False)
     start, end = scheduled_job.collection_window(now=datetime(2026, 8, 30, 1, 0, tzinfo=timezone.utc))
-    assert start.isoformat() == "2026-08-28T15:00:00+00:00"
-    assert end.isoformat() == "2026-08-29T15:00:00+00:00"
+    assert start.isoformat() == "2026-08-16T01:00:00+00:00"
+    assert end.isoformat() == "2026-08-30T01:00:00+00:00"
+
+
+def test_scheduled_lookback_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POLICY_NEWS_LOOKBACK_DAYS", "31")
+    with pytest.raises(ValueError, match="between 1 and 30"):
+        scheduled_job.collection_window()
 
 
 def test_scheduled_window_accepts_explicit_backfill_dates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -278,6 +359,10 @@ def test_blob_store_is_durable_private_boundary_and_idempotent() -> None:
                 pass
     with store.claim_source("a" * 64):
         pass
+    store.save_collection_receipt("execution-1", {"status": "completed_empty", "collected": 0})
+    receipt = runs["collections/execution-1.json"]
+    assert json.loads(receipt.value)["collected"] == 0
+    assert receipt.metadata == {"status": "completed_empty"}
 
 
 class FakeToken:

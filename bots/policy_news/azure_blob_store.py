@@ -171,3 +171,15 @@ class AzureBlobRunStore:
             existing = self._text(index).strip()
             if existing != record.run_id:
                 raise RuntimeError("idempotency key belongs to a different run") from exc
+
+    def save_collection_receipt(self, receipt_id: str, receipt: dict[str, object]) -> None:
+        """Persist source-level collection evidence even when no item is selected."""
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", receipt_id):
+            raise ValueError("collection receipt id is invalid")
+        serialized = json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        self.runs.get_blob_client(f"collections/{receipt_id}.json").upload_blob(
+            serialized.encode("utf-8"),
+            overwrite=True,
+            metadata={"status": str(receipt.get("status", "unknown"))},
+            content_settings=self._content_settings(content_type="application/json; charset=utf-8"),
+        )

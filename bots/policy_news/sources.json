@@ -3,22 +3,35 @@
     {
       "name": "UK Government AI news",
       "url": "https://www.gov.uk/search/news-and-communications.atom?topic%5B%5D=7a4fba0a-f8d5-4aed-9d73-8a455c6ba7ac",
+      "country": "United Kingdom",
       "allowed_hosts": ["www.gov.uk", "gov.uk"]
     },
     {
-      "name": "UK Government AI consultation search",
-      "url": "https://www.gov.uk/search/all.atom?keywords=artificial+intelligence+consultation",
-      "allowed_hosts": ["www.gov.uk", "gov.uk"]
+      "name": "US White House news",
+      "url": "https://www.whitehouse.gov/news/feed/",
+      "country": "United States",
+      "allowed_hosts": ["www.whitehouse.gov", "whitehouse.gov"]
     },
     {
-      "name": "UK Government AI policy research",
-      "url": "https://www.gov.uk/search/research-and-statistics.atom?keywords=artificial+intelligence+policy",
-      "allowed_hosts": ["www.gov.uk", "gov.uk"]
+      "name": "US NIST news",
+      "url": "https://www.nist.gov/news-events/news/rss.xml",
+      "country": "United States",
+      "allowed_hosts": ["www.nist.gov", "nist.gov"]
+    },
+    {
+      "name": "US Federal Register AI search",
+      "url": "https://www.federalregister.gov/api/v1/documents.json?per_page=100&order=newest&conditions%5Bterm%5D=artificial%20intelligence",
+      "format": "json",
+      "country": "United States",
+      "allowed_hosts": ["www.federalregister.gov", "federalregister.gov"]
     }
   ],
   "ai_terms": ["artificial intelligence", "generative ai", "machine learning", "algorithmic", "large language model", "llm"],
   "relevance_terms": [
     "policy", "policymaking", "consultation", "public sector", "government",
-    "regulation", "civil service", "deliberation", "evaluation", "evidence"
+    "regulation", "civil service", "deliberation", "evaluation", "evidence",
+    "executive order", "rule", "rules", "standard", "standards", "guidance",
+    "guidelines", "framework", "governance", "safety", "security", "risk",
+    "public comment", "procurement", "legislation", "law", "enforcement"
   ]
 }
