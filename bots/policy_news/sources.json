@@ -2,7 +2,13 @@
   "feeds": [
     {
       "name": "UK Government AI news",
-      "url": "https://www.gov.uk/search/news-and-communications.atom?topic%5B%5D=7a4fba0a-f8d5-4aed-9d73-8a455c6ba7ac",
+      "url": "https://www.gov.uk/search/news-and-communications.atom?keywords=AI&order=updated-newest",
+      "country": "United Kingdom",
+      "allowed_hosts": ["www.gov.uk", "gov.uk"]
+    },
+    {
+      "name": "UK Government AI policy consultations",
+      "url": "https://www.gov.uk/search/policy-papers-and-consultations.atom?keywords=AI&order=updated-newest",
       "country": "United Kingdom",
       "allowed_hosts": ["www.gov.uk", "gov.uk"]
     },
@@ -28,7 +34,7 @@
   ],
   "ai_terms": ["artificial intelligence", "generative ai", "machine learning", "algorithmic", "large language model", "llm"],
   "relevance_terms": [
-    "policy", "policymaking", "consultation", "public sector", "government",
+    "policy", "policymaking", "consultation", "public sector", "public service", "government",
     "regulation", "civil service", "deliberation", "evaluation", "evidence",
     "executive order", "rule", "rules", "standard", "standards", "guidance",
     "guidelines", "framework", "governance", "safety", "security", "risk",

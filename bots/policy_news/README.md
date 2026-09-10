@@ -9,6 +9,8 @@ Request 승인 뒤에만 가능하다.
 - 일정: 매일 06:00 KST (`0 21 * * *` UTC)
 - 실행 환경: Azure Container Apps Job `aipol-policy-news-daily`
 - 수집 한도: 실행당 공식 출처 최대 3건
+- 수집 범위: 최근 14일. 영국은 AI 키워드의 최신순 뉴스와 정책·의견수렴 피드를 함께 조회한다.
+  제목·요약의 AI 및 정책 관련성 필터에는 공공서비스(`public service`)도 포함한다.
 - 원문 분석: AIPOL 전용 Naia 계정의 `upstage:solar-pro4`
 - 분석 검증·근거 기반 교정: `azure:deepseek-v4-pro`
 - 한국어 번역: `azure:gpt-5.6-luna`

@@ -87,6 +87,38 @@ def test_collector_is_bounded_allowlisted_and_provenance_complete(tmp_path: Path
     assert all("ignore" not in packet.source_text and "menu" not in packet.source_text for packet in packets)
 
 
+def test_production_filters_keep_ai_public_services_and_consultations() -> None:
+    from urllib.parse import urlparse
+
+    def fetch(url: str, *, allowed_hosts: set[str], max_bytes: int, timeout: int):
+        path = urlparse(url).path
+        if path.endswith("news-and-communications.atom"):
+            body = b'''<feed xmlns="http://www.w3.org/2005/Atom">
+              <entry><title>AI competition to improve public services</title><summary>Support for promising start-ups.</summary><updated>2026-08-31T09:25:15Z</updated><link href="https://www.gov.uk/government/news/ai-services" /></entry>
+              <entry><title>Public services funding</title><summary>Support for local offices.</summary><updated>2026-09-01T00:00:00Z</updated><link href="https://www.gov.uk/government/news/no-ai" /></entry>
+            </feed>'''
+        elif path.endswith("policy-papers-and-consultations.atom"):
+            body = b'''<feed xmlns="http://www.w3.org/2005/Atom">
+              <entry><title>Vision for an AI-enabled clean energy system</title><summary>Seeking evidence on risks and barriers to adoption.</summary><updated>2026-09-08T11:13:58Z</updated><link href="https://www.gov.uk/government/calls-for-evidence/ai-energy" /></entry>
+            </feed>'''
+        elif path.startswith("/government/"):
+            assert not path.endswith("no-ai")
+            return b"<main>Official AI public service policy evidence for human review.</main>", url, "text/html"
+        elif "federalregister.gov" in url:
+            return b'{"results": []}', url, "application/json"
+        else:
+            body = b'<rss><channel /></rss>'
+        return body, url, "application/atom+xml"
+
+    packets = collect(max_items=3, fetcher=fetch,
+                      published_from=datetime(2026, 8, 26, tzinfo=timezone.utc),
+                      published_before=datetime(2026, 9, 11, tzinfo=timezone.utc))
+    assert {p.source_url for p in packets} == {
+        "https://www.gov.uk/government/news/ai-services",
+        "https://www.gov.uk/government/calls-for-evidence/ai-energy",
+    }
+
+
 def test_collector_rejects_unbounded_or_untrusted_inputs(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="between 1 and 3"):
         collect(max_items=4, config_path=collector_config(tmp_path))
