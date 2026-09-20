@@ -1,0 +1,14 @@
+{
+  "id": "2026-09-16-873145ca961d68739b11bd79",
+  "published": "2026-09-16",
+  "source_name": "GOV.UK / Dstl",
+  "source_url": "https://www.gov.uk/government/news/dstl-drone-swarm-accelerates-army-autonomy-ambition",
+  "country": "영국",
+  "title_ko": "영국 Dstl, AI·자율체계 시험으로 향후 군사 조달 판단 지원",
+  "summary_ko": "영국 국방과학기술연구소(Dstl)는 9월 16일 육군 본부·산업계와 수행한 소프트웨어 정의 군집 개념 실증사업(Software Defined Swarms Concept Demonstrator) 1단계를 소개했다. AUKUS 필러 2 협력을 기반으로 BlueBear(SAAB 계열사)와 Applied Intuition이 이끄는 Disruptor Group의 방안을 시험했다. 10년 이상의 AI·자율화 연구를 바탕으로 만든 군집 역량 시험대(Swarm CTB)는 육군 실험·시험 그룹(ETG)의 실제 비행에 활용된다. 육군은 무인항공기 8대로 구성된 시험대로 8주 동안 실험했다. 2026~2027년 추가 실험·시험은 미래 군사 역량과 조달 결정을 지원할 예정이다.",
+  "policy_use": "공공부문이 AI·자율체계의 실증 결과를 향후 역량 개발과 조달 판단에 연결하려는 사례다.",
+  "human_review": "실증 결과와 향후 시험 계획을 구분해 읽어야 한다. 발표된 시험만으로 조달 확정이나 전면 도입을 의미하지는 않는다.",
+  "relevance": "국방 분야 AI 실증과 정부·산업계 협력, 조달 전 평가 과정의 해외 사례다.",
+  "caveat": "Dstl의 사업 발표를 요약했다. 독립적인 성능 검증 결과나 확정된 조달 계약을 발표한 자료는 아니다.",
+  "review_status": "AI 검토·원문 대조·사용자 위임 승인"
+}

@@ -6,6 +6,36 @@
     <description>KAPS Human + AI Collaboration Policy Lab(AIPOL)의 정부·국제기구 AI 기반 정책개발 공식 자료 한국어 요약</description>
     <language>ko</language>
     <item>
+      <title>영국 Dstl, AI·자율체계 시험으로 향후 군사 조달 판단 지원</title>
+      <link>https://www.gov.uk/government/news/dstl-drone-swarm-accelerates-army-autonomy-ambition</link>
+      <guid isPermaLink="false">2026-09-16-873145ca961d68739b11bd79</guid>
+      <description>영국 국방과학기술연구소(Dstl)는 9월 16일 육군 본부·산업계와 수행한 소프트웨어 정의 군집 개념 실증사업(Software Defined Swarms Concept Demonstrator) 1단계를 소개했다. AUKUS 필러 2 협력을 기반으로 BlueBear(SAAB 계열사)와 Applied Intuition이 이끄는 Disruptor Group의 방안을 시험했다. 10년 이상의 AI·자율화 연구를 바탕으로 만든 군집 역량 시험대(Swarm CTB)는 육군 실험·시험 그룹(ETG)의 실제 비행에 활용된다. 육군은 무인항공기 8대로 구성된 시험대로 8주 동안 실험했다. 2026~2027년 추가 실험·시험은 미래 군사 역량과 조달 결정을 지원할 예정이다.
+
+AIPOL 시사점: 국방 분야 AI 실증과 정부·산업계 협력, 조달 전 평가 과정의 해외 사례다.
+한계: Dstl의 사업 발표를 요약했다. 독립적인 성능 검증 결과나 확정된 조달 계약을 발표한 자료는 아니다.</description>
+      <pubDate>Wed, 16 Sep 2026 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>영국·인도, AI 활용 디지털 사기 대응 협력 추진</title>
+      <link>https://www.gov.uk/government/news/uk-and-indian-industry-join-forces-to-combat-digital-fraud</link>
+      <guid isPermaLink="false">2026-09-15-c644a32fae51ca99d06275a9</guid>
+      <description>주인도 영국 고등판무관실은 9월 15일 영국·인도 통신업계의 디지털 사기 대응 협력을 발표했다. 벤 멜러 영국 고등판무관 대행과 S. P. 코차르 인도 통신사업자협회(COAI) 사무총장이 협력을 함께 알렸다. 영국 정부와 COAI는 9월 14일 양해각서를 체결했다. 양측은 AI 등 최신 기술을 활용한 온라인 사기와 관련 피해 대응을 위해 지식 교류와 산업계 협력을 추진한다. 이번 협력은 기술안보 이니셔티브(TSI)와 영국·인도 비전 2035의 약속을 강화한다. 발표는 협력 추진을 다루며, 구체적인 도입 성과를 입증한 자료는 아니다.
+
+AIPOL 시사점: AI 활용 소비자 보호, 통신 분야 사기 대응, 국제 디지털 정책 협력과 관련된다.
+한계: 협력 추진에 관한 발표다. 구체적인 도입 실적이나 사기 감소 효과가 입증됐다는 의미는 아니다.</description>
+      <pubDate>Tue, 15 Sep 2026 00:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>미국 NIST, 온라인 신원·접근 토큰 보호 지침 확정</title>
+      <link>https://www.nist.gov/news-events/news/2026/09/nist-finalizes-guidelines-protecting-online-identity-and-access-tokens</link>
+      <guid isPermaLink="false">2026-09-15-ab1421d1bfd32ba0f30d5b3d</guid>
+      <description>미국 국립표준기술연구소(NIST)는 9월 15일 CISA와 협력해 마련한 NIST IR 8587 최종본을 발표했다. 지침은 토큰과 신원 증명 정보(assertions)를 위조·탈취·오용으로부터 보호하기 위한 구현 지침을 제공한다. 행정명령(Executive Order) 14306에 따른 작업으로 특별간행물(Special Publication) 800-53의 최근 업데이트를 토대로 한다. 토큰은 제로 트러스트 아키텍처에서도 중요하다. 주 대상은 연방기관과 클라우드 서비스 제공자(CSP)이며, 제공자와 이용 기관이 데이터를 보호하기 위해 해야 할 일을 구분한다. 2025년 12월 초안에 대한 독자 의견을 반영했다. 암호키 보호 지침은 세부 처방을 줄이고 조직의 전반적 역량과 결과를 더 중시하도록 바뀌었다. 키 사용·보호·저장에 관한 조언, 현행·신규 표준 참조, AI 처리와 양자내성암호(PQC) 표준 전환에 관한 상위 수준의 고려사항도 추가됐다. AI와 PQC 어느 주제에 대해서도 포괄적인 도구 모음을 제공하지는 않는다.
+
+AIPOL 시사점: 클라우드와 접근 관리 기반시설에서 사용하는 토큰의 보안을 다룬다. AI 처리와 PQC 표준 전환은 새로 추가된 고려사항이다.
+한계: AI와 PQC에 관한 포괄적인 도구 모음을 제공하는 지침은 아니다. 기사에는 NCCoE의 AI 에이전트 신원 관련 개념 문서와 PQC 전환 프로젝트도 별도로 언급돼 있다.</description>
+      <pubDate>Tue, 15 Sep 2026 00:00:00 GMT</pubDate>
+    </item>
+    <item>
       <title>NHS 의사들이 이끄는 독립위원회, 의료 분야의 안전한 AI 도입을 가속화할 청사진 제시</title>
       <link>https://www.gov.uk/government/news/independent-commission-led-by-nhs-doctors-sets-out-blueprint-to-accelerate-safe-ai-adoption-in-healthcare</link>
       <guid isPermaLink="false">2026-09-10-ada0febd0ed0a0437274f1f0</guid>
