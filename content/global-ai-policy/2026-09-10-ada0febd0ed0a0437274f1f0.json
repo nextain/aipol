@@ -1,0 +1,14 @@
+{
+  "id": "2026-09-10-ada0febd0ed0a0437274f1f0",
+  "published": "2026-09-10",
+  "source_name": "UK Government AI news",
+  "source_url": "https://www.gov.uk/government/news/independent-commission-led-by-nhs-doctors-sets-out-blueprint-to-accelerate-safe-ai-adoption-in-healthcare",
+  "country": "United Kingdom",
+  "title_ko": "NHS 의사들이 이끄는 독립위원회, 의료 분야의 안전한 AI 도입을 가속화할 청사진 제시",
+  "summary_ko": "의약품·의료제품규제청(MHRA)이 2025년 9월 설립하고 NHS 의사인 Alastair Denniston 교수와 Henrietta Hughes 교수가 공동 의장을 맡은 ‘의료 분야 AI 규제에 관한 국가위원회’가 2026년 9월 10일 권고안을 발표했다. 12,000명 이상의 참여와 Health Foundation이 78명의 일반 시민을 대상으로 실시한 숙의 연구를 바탕으로, 보고서는 신규 AI 모델에 대한 단계적 허가(‘L-플레이트’와 유사), 의료기기 수명주기 전반의 실제 환경 지속 모니터링, 안전 정보 및 이상사건에 대한 대중의 접근, MHRA의 한층 강화된 집행 권한을 제안한다. 정부와 MHRA는 권고안을 검토하며, 공식 답변은 추후 발표될 예정이다.",
+  "policy_use": "영국 의료 AI 규제에 관한 이해관계자 분석의 근거로 활용할 수 있다. 2026년 9월 10일 발표된 단계적 허가, 수명주기 모니터링, 투명성 및 인간 감독에 대한 기대를 뒷받침하며, 정부와 MHRA가 공식 답변을 제시할 예정이다.",
+  "human_review": "이행 및 집행 범위에 관한 추가 맥락을 확인하기 위해 전체 보고서의 세부 내용을 검토해야 한다.",
+  "relevance": "높음",
+  "caveat": "보도자료는 권고사항을 요약한 것이므로 전체 보고서에는 추가 정보가 포함될 수 있다. 정부와 MHRA의 공식 답변은 아직 나오지 않았으며, 권고사항은 제안일 뿐 아직 법제화·시행되지 않았다.",
+  "review_status": "AI 4단계 검토·사람 승인·Git 공개 검토"
+}
