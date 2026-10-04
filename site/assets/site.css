@@ -322,7 +322,7 @@ body.nav-open .nav-toggle::after {
 .hero-case dd { margin: 5px 0 0; font-size: 0.83rem; font-weight: 800; }
 .hero-case-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; }
 .hero-case .button { color: var(--ink); background: var(--paper-light); border-color: var(--paper-light); }
-.hero-case-actions > a:last-child { min-height: 44px; display: inline-flex; align-items: center; font-weight: 850; }
+.hero-case-actions > a:not(.button) { min-height: 44px; display: inline-flex; align-items: center; font-weight: 850; }
 
 .decision-map {
   position: relative;
