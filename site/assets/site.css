@@ -723,3 +723,11 @@ body.nav-open .nav-toggle::after {
   .card, .case-feature, .split-note { break-inside: avoid; box-shadow: none; }
   a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.8em; }
 }
+
+.vote-strip { background: linear-gradient(135deg, var(--signal-dark), #087f91); color: var(--paper-light); }
+.vote-strip-inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; padding-block: 12px; }
+.vote-strip p { margin: 0; line-height: 1.5; }
+.vote-strip p span { opacity: .86; margin-left: 6px; white-space: nowrap; }
+.vote-strip-button { display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 999px; background: var(--paper-light); color: var(--ink); font-weight: 850; text-decoration: none; white-space: nowrap; }
+.vote-strip-button:hover { background: #fff; }
+@media (max-width: 640px) { .vote-strip p span { display: block; margin-left: 0; } .vote-strip-button { width: 100%; justify-content: center; } }
