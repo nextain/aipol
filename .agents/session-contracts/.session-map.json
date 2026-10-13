@@ -1,0 +1,14 @@
+{
+  "bindings": {
+    "019fd565-e5f2-72f3-9552-91dfddcf739e": {
+      "contract_id": "pension-package-official-run-2026-08-06",
+      "contract_path": ".agents/session-contracts/pension-package-official-run-2026-08-06.json",
+      "contract_digest": "b76c866c308f4290fbe906e70d4e6b2f365f853f0f087ceb7446340777ac7b06"
+    },
+    "019fe143-5428-7f53-b99d-5bfe6447d77d": {
+      "contract_id": "pension-package-official-run-2026-08-06",
+      "contract_path": ".agents/session-contracts/pension-package-official-run-2026-08-06.json",
+      "contract_digest": "b76c866c308f4290fbe906e70d4e6b2f365f853f0f087ceb7446340777ac7b06"
+    }
+  }
+}

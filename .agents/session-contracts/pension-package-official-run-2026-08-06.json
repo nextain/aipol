@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "id": "pension-package-official-run-2026-08-06",
+  "status": "active",
+  "project_root": ".",
+  "goal": "디스코드에 게시된 2026-08-06 사전학습 패키지 ver.2를 비공개 정본으로 보존하고 현재 연금개혁 구현과 진행순서를 재검토한 뒤, 승인된 정식 페이지 통합·250명 가상시민 실험·검증·배포·최종 보고 및 디스코드 게시를 수행한다.",
+  "scope": [
+    "Discord 첨부 HWP 원본의 검증된 회수와 private 저장소 보존",
+    "업데이트된 진행순서와 현재 AIPOL 및 Pension-Policy-Lab 구현 비교 리뷰",
+    "정식 AIPOL 연금 페이지와 이벤트 도구의 필요한 범위 보강",
+    "250명 가상시민 실험과 단계별 시간·출처·모델·결과 기록",
+    "정식 서비스 검증·배포와 별도 최종 보고서 및 Discord 단계별 보고"
+  ],
+  "non_goals": [
+    "AIPOL Discord Gateway 서비스 변경·재시작",
+    "기존 사용자 미커밋 변경의 정리·삭제·덮어쓰기",
+    "헌장 파일 또는 핵심 방어장치의 우회·약화",
+    "원본 비공개 패키지나 개인정보의 공개 저장소·공개 사이트 노출"
+  ],
+  "success_criteria": [
+    "첨부 원본의 크기와 SHA-256이 기록되고 private 저장소에만 보존된다.",
+    "문서의 전체 진행순서와 현재 구현의 일치·누락·충돌이 근거 위치와 함께 정리된다.",
+    "보강 사항이 방어장치와 기존 정식 페이지 진입점을 보존한 채 구현·검증된다.",
+    "250명 실험이 실제 250개 독립 참가자 레코드와 완전한 단계별 시간·provenance를 남긴다.",
+    "정식 URL 검증 후 배포 상태와 최종 보고서가 Discord 채널에 확인 가능한 형태로 게시된다."
+  ],
+  "allowed_paths": [
+    "private/**",
+    "site/cases/pension/**",
+    "site/reports/**",
+    "event-tool/**",
+    "policy_lab/domains/pension/**",
+    "tests/**",
+    "docs/**",
+    ".agents/requirements/**",
+    ".agents/progress/pension-package-official-run-2026-08-06.json",
+    ".agents/work/**"
+  ],
+  "target_ownership": [
+    "private/**",
+    "site/cases/pension/**",
+    "site/reports/**",
+    "event-tool/**",
+    "policy_lab/domains/pension/**",
+    "tests/**",
+    "docs/**",
+    ".agents/requirements/**",
+    ".agents/progress/pension-package-official-run-2026-08-06.json",
+    ".agents/work/**"
+  ],
+  "audiences": [
+    "AIPOL 정책실험 운영팀",
+    "2026-08-12 정책실험 참가자",
+    "AIPOL Discord 협업자",
+    "정식 AIPOL 사이트 방문자"
+  ],
+  "source_refs": [
+    "Discord message 1534865632166936726 (2026-08-06T10:08:03.133Z): 사전학습 패키지 ver.2를 private 레포에 넣고 업데이트된 진행순서와 개발본을 다시 비교 리뷰",
+    "현재 사용자 요청: 채널의 패키지와 시나리오를 다시 리뷰하고 진행",
+    "이전 사용자 승인: 개발 페이지의 정식 페이지 통합, 250명 가상시민 실험, 단계별 시간 기록, 최종 보고서 작성·채널 게시, 정식 배포",
+    "2026-08-08 현재 사용자 요청: Vercel 리뷰 복구와 동시에 aipol.kaps.or.kr 실제 서비스 연결 배포 및 테스트"
+  ],
+  "allowed_shell_commands": [
+    "pytest -q",
+    "git diff --check",
+    "node scripts/build_site_i18n.py",
+    "python scripts/build_site_i18n.py",
+    "python ../../.agents/skills/read-doc/scripts/extract_doc.py private/received/한국정책학회-정책실험-사전학습-패키지-2026-08-06-ver.2.hwp",
+    "bash /var/home/luke/alpha-adk/.agents/skills/manage-discord-sessions/scripts/manage-discord-sessions.sh --instance aipol history --channel 1532571307995173026 --limit 100 --json",
+    "gh workflow run deploy-azure-public-site.yml --ref feat/pension-deliberation-v2 -f target=prod"
+  ],
+  "session_bindings": [
+    {
+      "session_id": "019fd565-e5f2-72f3-9552-91dfddcf739e",
+      "contract_digest": "b76c866c308f4290fbe906e70d4e6b2f365f853f0f087ceb7446340777ac7b06"
+    },
+    {
+      "session_id": "019fe143-5428-7f53-b99d-5bfe6447d77d",
+      "contract_digest": "b76c866c308f4290fbe906e70d4e6b2f365f853f0f087ceb7446340777ac7b06"
+    }
+  ],
+  "progress_file": ".agents/progress/pension-package-official-run-2026-08-06.json",
+  "contract_digest": "b76c866c308f4290fbe906e70d4e6b2f365f853f0f087ceb7446340777ac7b06"
+}
