@@ -1,165 +1,193 @@
+**English** | [한국어](README.ko.md)
+
 # AIPOL
 
-**AI를 활용하되 사람이 결정하는 오픈소스 정책결정 지원 프로젝트**입니다. 복잡한 정책 쟁점을
-여러 관점에서 검토하고, 대안을 비교하며, 사람의 승인과 판단 과정을 재현 가능한 기록으로 남길 수
-있도록 방법론·연구 엔진·현장 도구를 함께 개발합니다. 특정 정책 분야에 얽매이지 않습니다.
+**An open-source policy-making support project that uses AI while keeping decisions with people.**
+We develop a methodology, a research engine, and field tools together so that complex policy issues
+can be examined from multiple perspectives, alternatives can be compared, and human approval and
+judgment can be kept as a reproducible record. The project is not tied to any particular policy area.
 
-연금개혁은 **첫 활용 사례(Application 01)**입니다. 공개 저장소에는 재사용 가능한 정책개발 계약과
-도구만 두며, 행사 진행안·회의 자료·미공개 정책안과 원시 연구 데이터는 비공개 저장소에서 관리합니다.
+Pension reform is the **first application (Application 01)**. The public repository holds only
+reusable policy-development contracts and tools; event run sheets, meeting materials, unpublished
+policy proposals, and raw research data are managed in a private repository.
 
-> **저장소 정본:** 지금 보고 있는 [`nextain/aipol`](https://github.com/nextain/aipol)은 공개
-> 프레임워크·사이트·재현 가능한 집계의 정본입니다. 실제 연금 행사 앱과 비공개 연구·운영 자료의
-> 정본은 비공개 `nextain/aipol-lab`의 `apps/pension-policy-lab/`입니다.
-> `nextain/pension-policy-lab`과 `armybonita/Pension-Policy-Lab-`은 현재 변경·배포에 사용하지
-> 않는 과거 이력입니다. 자세한 경계와 참여 방법은
-> [`docs/repository-boundary-and-contribution.ko.md`](docs/repository-boundary-and-contribution.ko.md)를 보세요.
+> **Canonical repositories:** [`nextain/aipol`](https://github.com/nextain/aipol), which you are
+> looking at now, is the canonical home of the public framework, the site, and reproducible
+> aggregates. The canonical home of the actual pension event app and of private research and
+> operations material is `apps/pension-policy-lab/` in the private `nextain/aipol-lab`.
+> `nextain/pension-policy-lab` and `armybonita/Pension-Policy-Lab-` are past history and are no
+> longer used for changes or deployment. For the detailed boundary and how to take part, see
+> [`docs/repository-boundary-and-contribution.ko.md`](docs/repository-boundary-and-contribution.ko.md) (Korean).
 
-이 프로젝트는 연금개혁 정책실험을 준비하며 시작했습니다. 여기서 개발한 정책개발 방법론, 연구 엔진,
-온라인·현장 참여 도구와 검증 기록을 다른 정책 분야에서도 활용할 수 있는 오픈소스 공동 연구 기반으로
-발전시키고 있습니다.
+The project started while preparing a pension-reform policy experiment. We are growing the
+policy-development methodology, research engine, online and on-site participation tools, and
+verification records developed here into an open-source shared research base that other policy
+areas can use as well.
 
-## 처음 오셨다면
+## New here?
 
-| 하고 싶은 일 | 바로 갈 곳 |
+| What you want to do | Where to go |
 |---|---|
-| 프로젝트를 3분 안에 이해하기 | [대외 소개 사이트](https://aipol.kaps.or.kr/project/) |
-| 첫 사례 보기 | [연금개혁 사례](https://aipol.kaps.or.kr/cases/pension/) |
-| 코드로 구조 확인하기 | 아래 [도메인 중립 엔진](#2-도메인-중립-엔진--방어장치--policy_lab) · [`examples/quickstart.py`](examples/quickstart.py) |
-| 문서·근거·코드에 기여하기 | [`CONTRIBUTING.md`](CONTRIBUTING.md)의 첫 기여 5단계 |
-| Codex·Claude로 참여하기 | [AI 도구별 시작 방법과 공개 경계](docs/repository-boundary-and-contribution.ko.md) |
-| 250명 성능검증 보기 | [JMeter + Chromium 실측 보고서](docs/performance/jmeter-playwright-250-participants-2026-08-14.ko.md) |
-| 공개 행사 정보 확인하기 | [이벤트 안내](https://aipol.kaps.or.kr/events/) |
+| Understand the project in 3 minutes | [Public introduction site](https://aipol.kaps.or.kr/project/) |
+| See the first case | [Pension reform case](https://aipol.kaps.or.kr/cases/pension/) |
+| Check the structure in code | The [domain-neutral engine](#2-domain-neutral-engine--safeguards--policy_lab) below · [`examples/quickstart.py`](examples/quickstart.py) |
+| Contribute to docs, evidence, or code | The five first-contribution steps in [`CONTRIBUTING.md`](CONTRIBUTING.md) (Korean) |
+| Take part with Codex or Claude | [How to start with each AI tool, and the public boundary](docs/repository-boundary-and-contribution.ko.md) (Korean) |
+| See the 250-participant performance test | [JMeter + Chromium measurement report](docs/performance/jmeter-playwright-250-participants-2026-08-14.ko.md) (Korean) |
+| Check public event information | [Event information](https://aipol.kaps.or.kr/events/) |
 
-## 공개 사이트
+## Public site
 
-대외 소개 사이트 원본은 [`site/`](site/)에 있습니다. 프로젝트 목적, 작동 방식, 플랫폼, 신뢰 원칙,
-오픈소스 참여 방법과 연금개혁 활용 사례를 각각 분리해 설명합니다. 지금은 URL로 누구나 볼 수 있는
-공개 운영 중입니다. 공개 소개 페이지는 검색을 허용하고, 실제 설문·진행자 화면은 별도 도메인과
-`noindex` 응답 헤더로 분리합니다. 자세한 운영 계약은 [`site/README.md`](site/README.md)를
-참조하세요.
+The source of the public introduction site is in [`site/`](site/). It explains, each on its own
+page, the project's purpose, how it works, the platform, its trust principles, how to take part in
+the open source project, and the pension-reform application. It is now publicly live, so anyone with
+the URL can view it. The public introduction pages allow search indexing, while the actual survey and
+facilitator screens are kept separate on a different domain with a `noindex` response header. For the
+detailed operating contract, see [`site/README.md`](site/README.md) (Korean).
 
-- 공개 주소: <https://aipol.kaps.or.kr>
+- Public address: <https://aipol.kaps.or.kr>
 - English: <https://aipol.kaps.or.kr/en/>
-- 해외 AI 정책개발 동향 RSS: <https://aipol.kaps.or.kr/global/rss.xml>
+- Global AI policy-making trends RSS: <https://aipol.kaps.or.kr/global/rss.xml>
 
 ## Policy News Bot
 
-`bots/policy_news/`는 정부·국제기구의 공식 피드에서 AI 기반 정책개발 자료 후보를 찾는 수집기입니다.
-현재 공개된 8건은 Codex가 공식 원문을 직접 조사·편집했으며, 당시 정확한 기반 모델 버전은 기록하지
-않았습니다. Upstage `solar-open2`는 인증 호출과 비공개 초안 1건 생성을 완료했지만 중복 자료라
-발행하지 않았습니다. OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free` 원문 대조와 정기 자동발행은
-매일 오전 6시(KST) 공식 출처를 최대 3건 수집해 Solar Open2 초안과 Grok 4.3 원문 대조 결과를
-비공개 저장소에 기록합니다. 자동 공개 기능은 없으며, 공개하려면 사람 검토와 별도 Pull Request가
-필요합니다. 운영 경계는 [`bots/policy_news/README.md`](bots/policy_news/README.md)에 기록합니다.
+`bots/policy_news/` is a collector that finds candidate material on AI-based policy development in
+official feeds from governments and international organizations. The 8 items published so far were
+researched and edited by Codex directly from the official originals; the exact underlying model
+version used at the time was not recorded. Upstage `solar-open2` completed an authenticated call and
+generated one private draft, but that draft was not published because it duplicated existing
+material. For OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free` source cross-checking and scheduled
+automatic publishing, every day at 6 a.m. (KST) the bot collects up to 3 items from official sources
+and records a Solar Open2 draft and a Grok 4.3 source cross-check result in a private repository.
+There is no automatic publishing to the public; publishing requires human review and a separate pull
+request. The operating boundary is recorded in [`bots/policy_news/README.md`](bots/policy_news/README.md) (Korean).
 
 ---
 
-## 무엇을 만들었나
+## What we built
 
-이 저장소에는 두 층이 있습니다. 하나는 **실제 행사를 굴리는 도구**, 다른 하나는 그 밑에 깔리는
-**도메인 중립 엔진과 방어장치**입니다.
+This repository has two layers. One is **the tool that runs actual events**; the other is the
+**domain-neutral engine and safeguards** underneath it.
 
-### 1. 행사 진행 도구 — `event-tool/`
+### 1. Event facilitation tool — `event-tool/`
 
-진행자 한 명이 라이브로 굴리는 정책 숙의 도구입니다. 전문가 안을 시민에게 받고, 빠짐없이
-수렴해 AI가 추가 안을 내고, 사람이 검토·승인해 다음 회차로 재수집하고, 최종 보고서까지
-이어집니다. 연금이 첫 사례이나 데이터(케이스)만 바꾸면 다른 정책에도 재사용합니다.
+A policy deliberation tool that a single facilitator runs live. It collects citizens' responses to
+expert proposals, gathers them without omission so that AI can propose additional options, lets
+people review and approve before re-collecting in the next round, and carries through to the final
+report. Pension is the first case, but by swapping only the data (the case) it can be reused for
+other policies.
 
-- **시민 화면**(모바일·고령 접근성 우선): 안별 수용/조건부/거부 + 의견.
-- **진행자 화면**: 준비 → 수집 → AI 숙의 → 수정·승인 → 다음 회차 → 보고서를 단계대로.
-- **AI 숙의**: 한국 주권 LLM 3사(EXAONE·Solar·HCX)가 6단계로 교차 검토해 통합 안을 만들고,
-  가드로 자기강화·허위정밀을 막고 반영/미반영을 정직하게 노출합니다.
-- **스택**: FastAPI + SQLite + 순수 HTML/CSS/JS. 로컬 실행과 단일 작성자 Azure 배포를 지원합니다.
+- **Citizen screen** (mobile and accessibility for older users first): accept / conditional / reject
+  per proposal, plus comments.
+- **Facilitator screen**: step by step through prepare → collect → AI deliberation → revise and
+  approve → next round → report.
+- **AI deliberation**: three Korean sovereign LLMs (EXAONE, Solar, HCX) cross-review in 6 stages to
+  produce a combined proposal; guards block self-reinforcement and false precision, and what was and
+  was not reflected is shown honestly.
+- **Stack**: FastAPI + SQLite + plain HTML/CSS/JS. Supports local runs and single-author Azure
+  deployment.
 
-돌려보는 법과 상세 운영 흐름은 [`event-tool/README.md`](event-tool/README.md)를 따르세요.
+For how to run it and the detailed operating flow, follow [`event-tool/README.md`](event-tool/README.md) (Korean).
 
-> **구분:** 이 절의 `event-tool/`은 공개된 범용 참고 구현입니다. 현재
-> `session.aipol.kaps.or.kr`의 연금 참가자·어드민·결과 앱은 이 디렉터리에서 배포하지 않으며,
-> 비공개 `nextain/aipol-lab:apps/pension-policy-lab/`이 정본입니다. 공개 도구를 실제 시민 수집에
-> 쓰려면 별도의 인증, 관리형 DB, 백업·복구, 개인정보 보유·파기와 운영 승인이 필요합니다.
+> **Distinction:** `event-tool/` in this section is a public, general-purpose reference
+> implementation. The pension participant, admin, and results apps currently at
+> `session.aipol.kaps.or.kr` are not deployed from this directory; their canonical source is the
+> private `nextain/aipol-lab:apps/pension-policy-lab/`. Using the public tool to collect from real
+> citizens requires separate authentication, a managed database, backup and recovery, personal-data
+> retention and disposal, and operational approval.
 
 ```bash
 cd event-tool
 python3 -m venv .venv && .venv/bin/pip install fastapi uvicorn
 .venv/bin/uvicorn server:app --host 127.0.0.1 --port 8100
-# 시민 http://127.0.0.1:8100/   ·   진행자 http://127.0.0.1:8100/admin.html
+# Citizen http://127.0.0.1:8100/   ·   Facilitator http://127.0.0.1:8100/admin.html
 ```
 
-AI 숙의를 쓰려면 독파모 키를 `.env`에 둡니다(커밋 금지). 준비·수집·보고서는 키 없이도 동작합니다.
+To use AI deliberation, put the Dokpamo (Korean sovereign AI foundation model) API key in `.env` (never commit it). Prepare, collect, and report
+work without a key.
 
-### 2. 도메인 중립 엔진 + 방어장치 — `policy_lab/`
+### 2. Domain-neutral engine + safeguards — `policy_lab/`
 
-행사 도구 밑에 깔린 **프레임워크와 안전장치**입니다. 정책 토론 실험을 코드로 표현하고, 그 실험이
-스스로를 속이지 못하도록 방어장치로 막습니다. 정책 실험용 검사 도구(린터·타입체커)에 가깝습니다 —
-설계가 규칙을 어기면 `GuardViolation`을 일으켜 거부합니다.
+The **framework and safety mechanisms** underneath the event tool. It expresses policy debate
+experiments in code and uses safeguards to stop those experiments from fooling themselves. It is
+closer to a checking tool (linter, type checker) for policy experiments: when a design breaks a rule,
+it raises `GuardViolation` and rejects it.
 
-| 무엇 | 실체 |
+| What | Substance |
 |---|---|
-| **방어장치** `core/guards.py` | 단일 숫자 거부 · human_gate · A/B 분리 · 변수 화이트리스트 · 프로토콜 불변식 |
-| **숙의 프로토콜** `core/protocols.py` | 재사용 가능한 단계 그래프와 `validate()` |
-| **데이터 모델** `core/{levers,evidence,impact,deliberation,provenance,prompts,plugin}` | 레버·근거·영향·투표·재현 로그 표현 |
-| **연금 도메인** `domains/pension` | 레버·고정 변수·근거 앵커·방향성 영향 모델·프롬프트·세그먼트 |
+| **Safeguards** `core/guards.py` | Single-number rejection · human_gate · A/B separation · variable whitelist · protocol invariants |
+| **Deliberation protocols** `core/protocols.py` | Reusable stage graphs and `validate()` |
+| **Data model** `core/{levers,evidence,impact,deliberation,provenance,prompts,plugin}` | Representation of levers, evidence, impact, votes, and reproduction logs |
+| **Pension domain** `domains/pension` | Levers, fixed variables, evidence anchors, directional impact model, prompts, segments |
 
 ```bash
 pip install -e ".[test]"
-pytest -q     # 방어장치가 실제로 막는가를 검증
+pytest -q     # verifies that the safeguards actually block
 ```
 
-> **두 층의 관계(정직):** `event-tool/`은 8/12 행사를 위한 독립 경량 구현으로, 가드 개념을 자체
-> 코드로 fail-closed 강제합니다(현재 `policy_lab/` 코어를 직접 import하지 않음). `policy_lab/`은
-> 도메인 중립 SoT 프레임워크입니다. 두 층의 가드 코드 통합은 후속 과제입니다.
+> **How the two layers relate (honestly):** `event-tool/` is an independent lightweight
+> implementation built for the 8/12 event, and it enforces the guard concepts fail-closed in its own
+> code (it does not currently import the `policy_lab/` core directly). `policy_lab/` is the
+> domain-neutral SoT framework. Unifying the guard code of the two layers is follow-up work.
 
-## 무엇이고, 무엇이 아닌가
+## What it is, and what it is not
 
-- **무엇인가:** 인간 전문가와 청중이 주체가 되는 정책 토론에서 AI를 *도구*로 써서, 과정을
-  구조화하고 기록하고 검증하는 틀입니다.
-- **무엇이 아닌가:** AI가 정책을 결정하거나, 여론을 예측하거나, "정답" 정책을 만들어 내는
-  시스템이 아닙니다.
+- **What it is:** a framework that uses AI as a *tool* to structure, record, and verify the process
+  in policy debates where human experts and the audience are the main actors.
+- **What it is not:** a system in which AI decides policy, predicts public opinion, or produces the
+  "right answer" policy.
 
-## 설계 정체성 (왜 이렇게 만들었나)
+## Design identity (why we built it this way)
 
-방어장치는 말뿐인 다짐이 아니라, 다음 원칙을 코드로 강제한 것입니다(RFC §6).
+The safeguards are not empty promises; they enforce the following principles in code (RFC §6).
 
-1. **A/B 방법론 독립** — 결정론적 영향 모델(A)과 사람의 발화로 이루어지는 공론 루프(B)를 분리해,
-   닫힌 루프 안에서 오류가 증폭되는 것을 막습니다. (행사 도구는 수치 영향 모델을 다루지 않아
-   A가 없으며, 그 대신 단일 숫자 금지 가드로 정량 권위 주장을 차단합니다.)
-2. **AI는 토론을 돕는 도구일 뿐, 신탁이 아니다** — 목표는 어디까지나 인간입니다.
-3. **재현성** — 모델·버전·temperature·시드·프롬프트를 모두 기록합니다.
-4. **반증 가능성** — 사전 등록한 holdout과 외부 패널을 핵심 개념으로 둡니다.
-5. **투명성** — 프롬프트·근거 출처·계산 가정을 공개합니다.
-6. **프레이밍 권력을 드러내기** — 의제 설정과 쟁점 선택은 인간 전문가의 승인 게이트를 거칩니다.
-7. **오프라인 대비책(예정)** — 로컬 모델(naia)로 인터넷 없이도 운영할 수 있게 준비합니다.
+1. **A/B methodological independence** — The deterministic impact model (A) and the public
+   deliberation loop made of human statements (B) are kept separate, so errors are not amplified in
+   a closed loop. (The event tool does not handle a numerical impact model, so it has no A; instead,
+   a single-number ban guard blocks claims of quantitative authority.)
+2. **AI is a tool that helps the debate, not an oracle** — The goal is always people.
+3. **Reproducibility** — Model, version, temperature, seed, and prompt are all recorded.
+4. **Falsifiability** — Pre-registered holdouts and an external panel are core concepts.
+5. **Transparency** — Prompts, evidence sources, and calculation assumptions are published.
+6. **Exposing framing power** — Agenda setting and issue selection go through an approval gate by
+   human experts.
+7. **Offline fallback (planned)** — Preparing to run without the internet using a local model (naia).
 
-## 아직 없는 것 (솔직하게)
+## What is not there yet (honestly)
 
-- **event-tool과 `policy_lab/` 코어의 가드 통합** — 현재는 각 층이 가드를 따로 구현합니다.
-- **전면 undo/재개 · 발표 모드 고도화 · 리허설 모드 · 객체별 완전 CRUD** — 행사 이후로 연기.
-- **로컬 모델 운영 경로** — AI 숙의는 현재 외부 독파모 API(키·네트워크)에 의존합니다.
+- **Guard unification between event-tool and the `policy_lab/` core** — currently each layer
+  implements guards separately.
+- **Full undo/resume · improved presentation mode · rehearsal mode · complete per-object CRUD** —
+  postponed until after the event.
+- **A local-model operating path** — AI deliberation currently depends on the external Dokpamo API
+  (key and network).
 
-## 구조
+## Structure
 
 ```
 aipol/
   README.md
-  RFC-0001-framework.md         ← 도메인 중립 아키텍처 (SoT)
+  RFC-0001-framework.md         ← domain-neutral architecture (SoT)
   RFC-0002-deliberation-runner.md
-  event-tool/                   ← 라이브 행사 진행 도구 (FastAPI+SQLite+web)
-  site/                         ← 프로젝트 전체를 소개하는 정적 공개 사이트
-  bots/policy_news/             ← 공식 해외동향 후보 수집·Codex 편집 큐
-  content/global-ai-policy/     ← 검토 가능한 해외동향 구조화 콘텐츠
+  event-tool/                   ← live event facilitation tool (FastAPI+SQLite+web)
+  site/                         ← static public site introducing the whole project
+  bots/policy_news/             ← official global-trend candidate collection · Codex editing queue
+  content/global-ai-policy/     ← reviewable structured global-trend content
   policy_lab/
-    core/                       ← 방어장치 + 데이터 모델 + 프로토콜
-    domains/pension/            ← 첫 레퍼런스 구현
-  tests/                        ← pytest (방어장치 검증)
-  private/                      ← 로컬 전용 실행 기록(추적 금지, 비공개 저장소 사용)
-  examples/quickstart.py        ← 라이브러리 1분 예제
-  docs/                         ← 설계 문서 · 근거(적대적 검토)
+    core/                       ← safeguards + data model + protocols
+    domains/pension/            ← first reference implementation
+  tests/                        ← pytest (safeguard verification)
+  private/                      ← local-only run records (not tracked; use the private repository)
+  examples/quickstart.py        ← one-minute library example
+  docs/                         ← design docs · evidence (adversarial review)
 ```
 
-## 상태
+## Status
 
-설계(RFC), 도메인 중립 코어·연금 도메인, 방어장치, 라이브 행사 도구(event-tool)와 대외 소개
-사이트를 구현했습니다. 연금개혁 현장 정책실험은 2026년 8월 12일 수행됐습니다. 운영 참가자 앱은
-비공개 `nextain/aipol-lab`에서 관리하며, 이 공개 저장소에는 일반화 가능한 방법·코드·비식별
-집계만 반영합니다. 2026년 8월 14일 공개 외부 경로에서 JMeter 250세션과 실제 Chromium 250개
-성능시험을 완료했습니다. 저장소: <https://github.com/nextain/aipol>. 라이선스: Apache-2.0.
+We have implemented the design (RFCs), the domain-neutral core and pension domain, the safeguards,
+the live event tool (event-tool), and the public introduction site. The on-site pension-reform policy
+experiment was carried out on August 12, 2026. The operational participant app is managed in the
+private `nextain/aipol-lab`; this public repository reflects only generalizable methods, code, and
+de-identified aggregates. On August 14, 2026, we completed a performance test over the public external
+path with 250 JMeter sessions and 250 real Chromium instances. Repository:
+<https://github.com/nextain/aipol>. License: Apache-2.0.
